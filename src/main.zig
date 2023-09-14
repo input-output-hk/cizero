@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const c = @import("c.zig");
-const wasm_edge = @import("wasm_edge.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -9,203 +8,180 @@ pub fn main() !void {
     };
     const alloc = gpa.allocator();
 
-    if (false) c.WasmEdge_LogSetDebugLevel();
+    const wasm_engine = c.wasm_engine_new();
+    defer c.wasm_engine_delete(wasm_engine);
 
-    var wasm_host_module = blk: {
-        var host_module = wasm_edge.ModuleInstance.init("cizero");
+    const wasm_store = c.wasmtime_store_new(wasm_engine, null, null);
+    defer c.wasmtime_store_delete(wasm_store);
+
+    const wasm_context = c.wasmtime_store_context(wasm_store);
+
+    {
+        var wasi_config = c.wasi_config_new();
+        std.debug.assert(wasi_config != null);
+
+        c.wasi_config_inherit_argv(wasi_config);
+        c.wasi_config_inherit_env(wasi_config);
+        c.wasi_config_inherit_stdin(wasi_config);
+        c.wasi_config_inherit_stdout(wasi_config);
+        c.wasi_config_inherit_stderr(wasi_config);
+
+        exitOnError(
+            "failed to instantiate WASI",
+            c.wasmtime_context_set_wasi(wasm_context, wasi_config),
+            null,
+        );
+    }
+
+    const wasm_linker = c.wasmtime_linker_new(wasm_engine);
+    defer c.wasmtime_linker_delete(wasm_linker);
+    exitOnError(
+        "failed to link wasi",
+        c.wasmtime_linker_define_wasi(wasm_linker),
+        null,
+    );
+
+    {
+        const host_module_name = "cizero";
 
         {
-            var func_inst = wasm_edge.FunctionInstance.init(
-                &.{c.WasmEdge_ValType_I32, c.WasmEdge_ValType_I32},
-                &.{c.WasmEdge_ValType_I32},
-                wasmAdd,
+            const name = "add";
+            exitOnError(
+                "failed to define function \"" ++ name ++ "\"",
+                c.wasmtime_linker_define_func(
+                    wasm_linker,
+                    host_module_name,
+                    host_module_name.len,
+                    name,
+                    name.len,
+                    c.wasm_functype_new_2_1(
+                        c.wasm_valtype_new_i32(),
+                        c.wasm_valtype_new_i32(),
+                        c.wasm_valtype_new_i32(),
+                    ),
+                    wasmAdd,
+                    null,
+                    null,
+                ),
                 null,
-                0,
             );
-            defer func_inst.deinit();
-            host_module.addFunction("add", func_inst.func_inst);
-        }
-
-        {
-            var func_inst = wasm_edge.FunctionInstance.init(
-                &.{c.WasmEdge_ValType_I32, c.WasmEdge_ValType_I32},
-                &.{c.WasmEdge_ValType_I32},
-                wasmToUpper,
-                @constCast(&alloc),
-                0,
-            );
-            defer func_inst.deinit();
-            host_module.addFunction("toUpper", func_inst.func_inst);
-        }
-
-        break :blk host_module;
-    };
-    defer wasm_host_module.deinit();
-
-    // call a wasm function
-    {
-        const wasm_vm = blk: {
-            const wasm_conf = c.WasmEdge_ConfigureCreate();
-            defer c.WasmEdge_ConfigureDelete(wasm_conf);
-            c.WasmEdge_ConfigureAddHostRegistration(wasm_conf, c.WasmEdge_HostRegistration_Wasi);
-
-            const vm = c.WasmEdge_VMCreate(wasm_conf, null);
-
-            {
-                const res = c.WasmEdge_VMRegisterModuleFromImport(vm, wasm_host_module.mod_inst);
-                if (!c.WasmEdge_ResultOK(res)) {
-                    std.debug.panic("Could not register host module: {s}\n", .{c.WasmEdge_ResultGetMessage(res)});
-                }
-            }
-
-            break :blk vm;
-        };
-        defer c.WasmEdge_VMDelete(wasm_vm);
-
-        var returns: [1]c.WasmEdge_Value = undefined;
-        const res = blk: {
-            const params = [_]c.WasmEdge_Value{
-                c.WasmEdge_ValueGenI32(12),
-            };
-            const func_name = c.WasmEdge_StringCreateByCString("fib");
-            defer c.WasmEdge_StringDelete(func_name);
-            break :blk c.WasmEdge_VMRunWasmFromFile(wasm_vm, "foo.wasm", func_name, &params, params.len, &returns, returns.len);
-        };
-
-        if (c.WasmEdge_ResultOK(res)) {
-            std.debug.print("Fibonacci result: {d}\n", .{c.WasmEdge_ValueGetI32(returns[0])});
-        } else {
-            std.debug.print("Fibonacci error: {s}\n", .{c.WasmEdge_ResultGetMessage(res)});
         }
     }
 
-    // run WASI main
+    var wasm_module: ?*c.wasmtime_module_t = undefined;
+    defer c.wasmtime_module_delete(wasm_module);
     {
-        const wasm_vm = blk: {
-            const wasm_conf = c.WasmEdge_ConfigureCreate();
-            defer c.WasmEdge_ConfigureDelete(wasm_conf);
+        const binary = try std.fs.cwd().readFileAlloc(alloc, "foo.wasm", std.math.maxInt(usize));
+        defer alloc.free(binary);
 
-            const vm = c.WasmEdge_VMCreate(wasm_conf, null);
-
-            {
-                const res = c.WasmEdge_VMRegisterModuleFromImport(vm, wasm_host_module.mod_inst);
-                if (!c.WasmEdge_ResultOK(res)) {
-                    std.debug.panic("Could not register host module: {s}\n", .{c.WasmEdge_ResultGetMessage(res)});
-                }
-            }
-
-            break :blk vm;
-        };
-        defer c.WasmEdge_VMDelete(wasm_vm);
-
-        const wasi_module = blk: {
-            const wasi_args = [_][*c]const u8{"hello", "world"}; // FIXME make args work
-            const wasi_envs = [_][*c]const u8{};
-            const wasi_preopens = [_][*c]const u8{};
-
-            break :blk c.WasmEdge_ModuleInstanceCreateWASI(
-                &wasi_args,
-                wasi_args.len,
-                &wasi_envs,
-                wasi_envs.len,
-                &wasi_preopens,
-                wasi_preopens.len,
-            );
-        };
-        defer c.WasmEdge_ModuleInstanceDelete(wasi_module);
-
-        // register WASI module
-        {
-            const res = c.WasmEdge_VMRegisterModuleFromImport(wasm_vm, wasi_module);
-            if (!c.WasmEdge_ResultOK(res)) {
-                std.debug.panic("Could not register WASI module: {s}\n", .{c.WasmEdge_ResultGetMessage(res)});
-            }
-        }
-
-        // run main
-        const res_main = blk: {
-            const func_name = c.WasmEdge_StringCreateByCString("main");
-            defer c.WasmEdge_StringDelete(func_name);
-            break :blk c.WasmEdge_VMRunWasmFromFile(
-                wasm_vm,
-                "foo.wasm",
-                func_name,
-                &[_]c.WasmEdge_Value{}, 0,
-                &[_]c.WasmEdge_Value{}, 0,
-            );
-        };
-        if (!c.WasmEdge_ResultOK(res_main)) {
-            std.debug.panic("Could not run WASI main: {s}\n", .{c.WasmEdge_ResultGetMessage(res_main)});
-        }
-
-        std.debug.print("WASI exit code: {d}\n", .{c.WasmEdge_ModuleInstanceWASIGetExitCode(wasi_module)});
+        exitOnError(
+            "failed to compile module",
+            c.wasmtime_module_new(wasm_engine, binary.ptr, binary.len, &wasm_module),
+            null,
+        );
     }
+
+    exitOnError(
+        "failed to instantiate module",
+        c.wasmtime_linker_module(wasm_linker, wasm_context, null, 0, wasm_module),
+        null,
+    );
+
+    {
+        var wasm_export_fib: c.wasmtime_extern_t = undefined;
+        {
+            const name = "fib";
+            std.debug.assert(c.wasmtime_linker_get(wasm_linker, wasm_context, null, 0, name, name.len, &wasm_export_fib));
+            std.debug.assert(wasm_export_fib.kind == c.WASMTIME_EXTERN_FUNC);
+        }
+
+        const args = [_]c.wasmtime_val_t{
+            .{
+                .kind = c.WASMTIME_I32,
+                .of = .{ .i32 = 12 },
+            },
+        };
+        var result: c.wasmtime_val_t = undefined;
+
+        var trap: ?*c.wasm_trap_t = null;
+        exitOnError(
+            "failed to call function",
+            c.wasmtime_func_call(wasm_context, &wasm_export_fib.of.func, &args, args.len, &result, 1, &trap),
+            trap,
+        );
+
+        std.debug.print("Fibonacci result: {d}\n", .{result.of.i32});
+    }
+
+    if (false) {
+        var wasi_main: c.wasmtime_func_t = undefined;
+        exitOnError(
+            "failed to locate default export",
+            c.wasmtime_linker_get_default(wasm_linker, wasm_context, null, 0, &wasi_main),
+            null,
+        );
+
+        // var result: c.wasmtime_val_t = undefined;
+        var trap: ?*c.wasm_trap_t = null;
+        exitOnError(
+            "failed to call main function",
+            c.wasmtime_func_call(wasm_context, &wasi_main, null, 0, null, 0, &trap),
+            trap,
+        );
+
+        // std.debug.print("WASI exit status: {d}\n", .{result.of.i32});
+    }
+}
+
+fn exitOnError(
+    message: []const u8,
+    err: ?*c.wasmtime_error_t,
+    trap: ?*c.wasm_trap_t,
+) void {
+    if (err != null or trap != null) {
+        std.debug.print("error: {s}\n", .{message});
+    }
+
+    if (err) |e| {
+        var error_message: c.wasm_byte_vec_t = undefined;
+        c.wasmtime_error_message(e, &error_message);
+        defer c.wasm_byte_vec_delete(&error_message);
+
+        c.wasmtime_error_delete(e);
+
+        std.debug.print("{s}\n", .{error_message.data});
+    }
+
+    if (trap) |t| {
+        var error_message: c.wasm_byte_vec_t = undefined;
+        c.wasm_trap_message(t, &error_message);
+        defer c.wasm_byte_vec_delete(&error_message);
+
+        c.wasm_trap_delete(t);
+
+        std.debug.print("{s}\n", .{error_message.data});
+    }
+
+    if (err != null or trap != null) std.process.exit(1);
 }
 
 fn wasmAdd(
     _: ?*anyopaque,
-    _: ?*const c.WasmEdge_CallingFrameContext,
-    in: [*c]const c.WasmEdge_Value,
-    out: [*c]c.WasmEdge_Value,
-) callconv(.C) c.WasmEdge_Result {
-    out.* = c.WasmEdge_ValueGenI32(
-        c.WasmEdge_ValueGetI32(in[0])
-        +
-        c.WasmEdge_ValueGetI32(in[1])
-    );
-    return c.WasmEdge_Result_Success;
-}
+    _: ?*c.wasmtime_caller_t,
+    args: [*c]const c.wasmtime_val_t,
+    args_len: usize,
+    results: [*c]c.wasmtime_val_t,
+    results_len: usize,
+) callconv(.C) ?*c.wasm_trap_t {
+    std.debug.assert(args_len == 2);
+    std.debug.assert(results_len == 1);
 
-fn wasmToUpper(
-    data: ?*anyopaque,
-    frame: ?*const c.WasmEdge_CallingFrameContext,
-    in: [*c]const c.WasmEdge_Value,
-    out: [*c]c.WasmEdge_Value,
-) callconv(.C) c.WasmEdge_Result {
-    const alloc: *const std.mem.Allocator = @alignCast(@ptrCast(data));
+    results.* = .{
+        .kind = c.WASMTIME_I32,
+        .of = .{ .i32 = args[0].of.i32 + args[1].of.i32 },
+    };
 
-    const lower_addr = c.WasmEdge_ValueGetI32(in[0]);
-    const upper_addr: u32 = @intCast(c.WasmEdge_ValueGetI32(in[1]));
-
-    const memory = c.WasmEdge_CallingFrameGetMemoryInstance(frame, 0);
-
-    const lower = c.cstr(c.WasmEdge_MemoryInstanceGetPointerConst(
-        memory,
-        @intCast(lower_addr),
-        @sizeOf([*c]const u8),
-    ));
-
-    var upper_buf = alloc.*.alloc(u8, lower.len) catch return c.WasmEdge_Result_Fail;
-    const upper = std.ascii.upperString(upper_buf, lower);
-
-    {
-        const res = c.WasmEdge_MemoryInstanceSetData(memory, upper.ptr, upper_addr, @intCast(upper.len));
-        if (!c.WasmEdge_ResultOK(res)) {
-            std.debug.panic("Could not run WASI main: {s}\n", .{c.WasmEdge_ResultGetMessage(res)});
-        }
-    }
-
-    out.* = c.WasmEdge_ValueGenI32(@intCast(upper.len));
-
-    return c.WasmEdge_Result_Success;
-}
-
-fn wasmExec(
-    _: ?*anyopaque,
-    _: ?*const c.WasmEdge_CallingFrameContext,
-    _: [*c]const c.WasmEdge_Value,
-    _: [*c]c.WasmEdge_Value,
-) callconv(.C) c.WasmEdge_Result {
-    // const allocator: std.mem.Allocator = @ptrCast(data).*;
-
-    // const argv = c.WasmEdge_ValueGen
-
-    // const result = std.os.ChildProcess.exec(
-    //     allocator,
-    //     argv,
-    // ) catch return c.WasmEdge_Result_Fail;
-
-    return c.WasmEdge_Result_Success;
+    return null;
 }
 
 test {
@@ -214,3 +190,6 @@ test {
 
 // To support WASI main() and executing arbitrary functions:
 // zig build-exe foo.zig -target wasm32-wasi -rdynamic
+
+// Without WASI support:
+// zig build-exe foo.zig -target wasm32-freestanding -rdynamic

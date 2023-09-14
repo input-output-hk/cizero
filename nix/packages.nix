@@ -17,7 +17,7 @@
 
         inherit (config.packages) zig;
 
-        buildInputs = with pkgs; [ wasmedge ];
+        buildInputs = with pkgs; [ wasmtime.dev ];
 
         zigBuildArgs = [ "-Doptimize=ReleaseSafe" ];
 

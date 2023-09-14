@@ -3,7 +3,7 @@ const std = @import("std");
 pub usingnamespace @cImport({
     @cInclude("errno.h");
 
-    @cInclude("wasmedge/wasmedge.h");
+    @cInclude("wasmtime.h");
 
     @cInclude("util.h");
 });

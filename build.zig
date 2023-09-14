@@ -46,7 +46,7 @@ fn commonCompileStep(b: *std.Build, step: *std.Build.Step.Compile) void {
     step.addModule("tres", b.dependency("tres", .{}).module("tres"));
 
     step.linkLibC();
-    step.linkSystemLibrary("wasmedge");
+    step.linkSystemLibrary("wasmtime");
 
     step.addIncludePath(.{ .path = "src/c" });
     step.addCSourceFile(.{
