@@ -1,0 +1,11 @@
+.{
+	.name = "lns",
+	.version = "0.0.0",
+
+	.dependencies = .{
+		.tres = .{
+			.url = "https://github.com/ziglibs/tres/archive/220d01f3931595e3a2e2a6a0693363c0bfaf47e9.tar.gz",
+			.hash = "12204d32c44b494c0cbe553811dedfb7a73da37b13b492872dd4edc0340983072697",
+		},
+	},
+}
