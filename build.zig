@@ -1,6 +1,8 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
+    b.enable_wasmtime = true;
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -27,7 +29,7 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
-    {
+    const test_step = blk: {
         const unit_tests = b.addTest(.{
             .root_source_file = source,
             .target = target,
@@ -37,20 +39,66 @@ pub fn build(b: *std.Build) void {
 
         const run_unit_tests = b.addRunArtifact(unit_tests);
 
-        const test_step = b.step("test", "Run unit tests");
-        test_step.dependOn(&run_unit_tests.step);
+        const step = b.step("test", "Run unit tests");
+        step.dependOn(&run_unit_tests.step);
+
+        break :blk step;
+    };
+
+    {
+        const plugins_path = "plugins";
+
+        var plugins_dir = try std.fs.cwd().openIterableDir(plugins_path, .{ .access_sub_paths = false });
+        defer plugins_dir.close();
+
+        var plugins_iter = plugins_dir.iterate();
+        while (try plugins_iter.next()) |plugin_dir| {
+            // if (plugin_dir.kind != .directory) continue;
+
+            const plugin_source = .{ .path = b.pathJoin(&.{plugins_path, plugin_dir.name, "main.zig"}) };
+            const plugin_target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+            };
+
+            {
+                const exe = b.addExecutable(.{
+                    .name = plugin_dir.name,
+                    .root_source_file = plugin_source,
+                    .target = plugin_target,
+                    .optimize = optimize,
+                    .linkage = .dynamic,
+                });
+                pluginCompileStep(b, exe);
+
+                b.installArtifact(exe);
+            }
+
+            {
+                const unit_tests = b.addTest(.{
+                    .root_source_file = plugin_source,
+                    .target = plugin_target,
+                    .optimize = optimize,
+                });
+                pluginCompileStep(b, unit_tests);
+
+                const run_unit_tests = b.addRunArtifact(unit_tests);
+
+                test_step.dependOn(&run_unit_tests.step);
+            }
+        }
     }
 }
 
-fn commonCompileStep(b: *std.Build, step: *std.Build.Step.Compile) void {
-    step.addModule("tres", b.dependency("tres", .{}).module("tres"));
+fn commonCompileStep(_: *std.Build, step: *std.Build.Step.Compile) void {
+    step.addAnonymousModule("extism", .{ .source_file = .{ .path = "vendor/extism/zig/src/main.zig" } });
 
     step.linkLibC();
-    step.linkSystemLibrary("wasmtime");
+    step.linkSystemLibrary("extism");
+}
 
-    step.addIncludePath(.{ .path = "src/c" });
-    step.addCSourceFile(.{
-        .file = .{ .path = "src/c/util.c" },
-        .flags = &.{},
-    });
+fn pluginCompileStep(b: *std.Build, step: *std.Build.Step.Compile) void {
+    step.rdynamic = true;
+    step.wasi_exec_model = .reactor;
+    step.addModule("extism-pdk", b.dependency("extism_pdk", .{}).module("extism-pdk"));
 }

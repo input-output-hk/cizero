@@ -17,12 +17,45 @@
 
         inherit (config.packages) zig;
 
-        buildInputs = with pkgs; [ wasmtime.dev ];
+        buildInputs = [ config.packages.extism-sdk-bin ];
 
         zigBuildArgs = [ "-Doptimize=ReleaseSafe" ];
 
-        zigDepHashes.tres = "1109s1iz3laar23csfgk3m9l5zqjqgb8mh41j976j1k6gbp0f46a";
+        zigDepHashes.extism_pdk = "0zyykn3c1n52slmmlckajkvi6b4jw4sxpl37q8v1j8n7gkcvl6ja";
       };
+
+      extism-sdk-bin = pkgs.runCommand "extism-sdk-bin" {
+        inherit ((lib.importTOML "${inputs.extism}/libextism/Cargo.toml").package) version;
+        nativeBuildInputs = with pkgs; [ extism-cli cacert ];
+        outputHashMode = "recursive";
+        outputHashAlgo = "sha256";
+        outputHash = "1q4k3792h5wq4zl2v48ahdqzdqcc5zd3cbdz66qys3x2qbpijhjg";
+      } ''
+        export HOME="$TMPDIR"
+        extism --prefix "$out" install v"$version"
+      '';
+
+      /*
+      extism-sdk-zig = final.buildZigPackage {
+        src = pkgs.fetchFromGitHub {
+          owner = "extism";
+          repo = "extism";
+          rev = "v${config.packages.extism-sdk-bin.version}";
+          hash = "sha256-oWBk6/hmaHopNQRic2aw9KYfK8wpMGlJukMTHXkHrHk=";
+        };
+
+        buildInputs = [ config.packages.extism-sdk-bin ];
+
+        preBuild = "cd zig";
+
+        buildZigZon = builtins.toFile "build.zig.zon" ''
+          .{
+              .name = "extism",
+              .version = "0.0.0",
+          }
+        '';
+      };
+      */
 
       zig = (pkgs.zig.overrideAttrs (oldAttrs: rec {
         version = src.rev;
@@ -100,12 +133,16 @@
           '';
 
           buildPhase = ''
+            runHook preBuild
             zig build ${zigArgs}
+            runHook postBuild
           '';
 
           doCheck = true;
           checkPhase = ''
+            runHook preCheck
             zig build test ${zigArgs}
+            runHook postCheck
           '';
 
           dontInstall = true;
@@ -115,20 +152,26 @@
           nativeBuildInputs = args.nativeBuildInputs or [] ++ [ zig ];
 
           passthru = {
-            packageInfo = config.overlayAttrs.zigPackageInfo "${finalAttrs.src}/${buildZigZon}";
+            packageInfo = config.overlayAttrs.zigPackageInfo (
+              lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
+              + buildZigZon
+            );
 
             # builds the global-cache-dir/p directory
             deps = pkgs.symlinkJoin {
               name = with finalAttrs; "${pname}-${version}-deps";
-              paths = lib.mapAttrsToList
-                (name: { url, hash }: pkgs.runCommand name {} ''
-                  mkdir $out
-                  cp -r ${builtins.fetchTarball {
-                    inherit name url;
-                    sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
-                  }} $out/${hash}
-                '')
-                info.dependencies;
+              paths =
+                if builtins.isAttrs (info.dependencies or null)
+                then lib.mapAttrsToList
+                  (name: { url, hash }: pkgs.runCommand name {} ''
+                    mkdir $out
+                    cp -r ${builtins.fetchTarball {
+                      inherit name url;
+                      sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
+                    }} $out/${hash}
+                  '')
+                  info.dependencies
+                else [];
             };
           } // args.passthru or {};
         }

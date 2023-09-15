@@ -1,6 +1,5 @@
 const std = @import("std");
-
-const c = @import("c.zig");
+const extism = @import("extism");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -8,188 +7,127 @@ pub fn main() !void {
     };
     const alloc = gpa.allocator();
 
-    const wasm_engine = c.wasm_engine_new();
-    defer c.wasm_engine_delete(wasm_engine);
+    var extism_ctx = extism.Context.init();
+    defer extism_ctx.deinit();
 
-    const wasm_store = c.wasmtime_store_new(wasm_engine, null, null);
-    defer c.wasmtime_store_delete(wasm_store);
-
-    const wasm_context = c.wasmtime_store_context(wasm_store);
+    var extism_funcs = initHostFunctions(alloc);
+    defer deinitHostFunctions(&extism_funcs);
 
     {
-        var wasi_config = c.wasi_config_new();
-        std.debug.assert(wasi_config != null);
+        const extism_manifest = .{ .wasm = &.{.{ .wasm_file = .{ .path = "zig-out/bin/foo.wasm" } }} };
 
-        c.wasi_config_inherit_argv(wasi_config);
-        c.wasi_config_inherit_env(wasi_config);
-        c.wasi_config_inherit_stdin(wasi_config);
-        c.wasi_config_inherit_stdout(wasi_config);
-        c.wasi_config_inherit_stderr(wasi_config);
-
-        exitOnError(
-            "failed to instantiate WASI",
-            c.wasmtime_context_set_wasi(wasm_context, wasi_config),
-            null,
+        // FIXME cannot use `Plugin.createFromManifest()` since it was broken in
+        // https://github.com/extism/extism/commit/0f8954c2039cdffbb53352df6f613e4bbbb74235
+        var extism_plugin = try extism.Plugin.initFromManifest(
+            alloc,
+            &extism_ctx,
+            extism_manifest,
+            &extism_funcs,
+            true,
         );
-    }
+        defer extism_plugin.deinit();
 
-    const wasm_linker = c.wasmtime_linker_new(wasm_engine);
-    defer c.wasmtime_linker_delete(wasm_linker);
-    exitOnError(
-        "failed to link wasi",
-        c.wasmtime_linker_define_wasi(wasm_linker),
-        null,
-    );
+        if (extism_plugin.call("cizero_plugin_fib", "12")) |output| {
+            try std.testing.expectEqualStrings("233", output);
+        } else |_| std.debug.print("call error: {s}\n", .{extism_plugin.error_info.?});
 
-    {
-        const host_module_name = "cizero";
-
-        {
-            const name = "add";
-            exitOnError(
-                "failed to define function \"" ++ name ++ "\"",
-                c.wasmtime_linker_define_func(
-                    wasm_linker,
-                    host_module_name,
-                    host_module_name.len,
-                    name,
-                    name.len,
-                    c.wasm_functype_new_2_1(
-                        c.wasm_valtype_new_i32(),
-                        c.wasm_valtype_new_i32(),
-                        c.wasm_valtype_new_i32(),
-                    ),
-                    wasmAdd,
-                    null,
-                    null,
-                ),
-                null,
-            );
-        }
-    }
-
-    var wasm_module: ?*c.wasmtime_module_t = undefined;
-    defer c.wasmtime_module_delete(wasm_module);
-    {
-        const binary = try std.fs.cwd().readFileAlloc(alloc, "foo.wasm", std.math.maxInt(usize));
-        defer alloc.free(binary);
-
-        exitOnError(
-            "failed to compile module",
-            c.wasmtime_module_new(wasm_engine, binary.ptr, binary.len, &wasm_module),
-            null,
-        );
-    }
-
-    exitOnError(
-        "failed to instantiate module",
-        c.wasmtime_linker_module(wasm_linker, wasm_context, null, 0, wasm_module),
-        null,
-    );
-
-    {
-        var wasm_export_fib: c.wasmtime_extern_t = undefined;
-        {
-            const name = "fib";
-            std.debug.assert(c.wasmtime_linker_get(wasm_linker, wasm_context, null, 0, name, name.len, &wasm_export_fib));
-            std.debug.assert(wasm_export_fib.kind == c.WASMTIME_EXTERN_FUNC);
-        }
-
-        const args = [_]c.wasmtime_val_t{
-            .{
-                .kind = c.WASMTIME_I32,
-                .of = .{ .i32 = 12 },
-            },
-        };
-        var result: c.wasmtime_val_t = undefined;
-
-        var trap: ?*c.wasm_trap_t = null;
-        exitOnError(
-            "failed to call function",
-            c.wasmtime_func_call(wasm_context, &wasm_export_fib.of.func, &args, args.len, &result, 1, &trap),
-            trap,
-        );
-
-        std.debug.print("Fibonacci result: {d}\n", .{result.of.i32});
-    }
-
-    if (false) {
-        var wasi_main: c.wasmtime_func_t = undefined;
-        exitOnError(
-            "failed to locate default export",
-            c.wasmtime_linker_get_default(wasm_linker, wasm_context, null, 0, &wasi_main),
-            null,
-        );
-
-        // var result: c.wasmtime_val_t = undefined;
-        var trap: ?*c.wasm_trap_t = null;
-        exitOnError(
-            "failed to call main function",
-            c.wasmtime_func_call(wasm_context, &wasi_main, null, 0, null, 0, &trap),
-            trap,
-        );
-
-        // std.debug.print("WASI exit status: {d}\n", .{result.of.i32});
+        if (extism_plugin.call("cizero_plugin_toUpper", "hello world")) |output| {
+            try std.testing.expectEqualStrings("HELLO WORLD", output);
+        } else |_| std.debug.print("call error: {s}\n", .{extism_plugin.error_info.?});
     }
 }
 
-fn exitOnError(
-    message: []const u8,
-    err: ?*c.wasmtime_error_t,
-    trap: ?*c.wasm_trap_t,
-) void {
-    if (err != null or trap != null) {
-        std.debug.print("error: {s}\n", .{message});
-    }
+fn initHostFunctions(allocator: std.mem.Allocator) [2]extism.Function {
+    const funcs = struct{
+        export fn add(
+            _: ?*extism.c.ExtismCurrentPlugin,
+            inputs_ptr: [*c]const extism.c.ExtismVal,
+            inputs_len: u64,
+            outputs_ptr: [*c]extism.c.ExtismVal,
+            outputs_len: u64,
+            _: ?*anyopaque,
+        ) callconv(.C) void {
+            std.debug.assert(inputs_len == 2);
+            std.debug.assert(outputs_len == 1);
 
-    if (err) |e| {
-        var error_message: c.wasm_byte_vec_t = undefined;
-        c.wasmtime_error_message(e, &error_message);
-        defer c.wasm_byte_vec_delete(&error_message);
+            outputs_ptr.* = extism.c.ExtismVal{
+                .t = extism.c.I32,
+                .v = .{ .i32 = inputs_ptr[0].v.i32 + inputs_ptr[1].v.i32 },
+            };
+        }
 
-        c.wasmtime_error_delete(e);
+        export fn toUpper(
+            plugin_ptr: ?*extism.c.ExtismCurrentPlugin,
+            inputs_ptr: [*c]const extism.c.ExtismVal,
+            inputs_len: u64,
+            outputs_ptr: [*c]extism.c.ExtismVal,
+            outputs_len: u64,
+            allocator_ptr: ?*anyopaque,
+        ) callconv(.C) void {
+            std.debug.assert(inputs_len == 1);
+            std.debug.assert(outputs_len == 1);
 
-        std.debug.print("{s}\n", .{error_message.data});
-    }
+            var plugin = extism.CurrentPlugin.getCurrentPlugin(plugin_ptr orelse unreachable);
+            const alloc: *const std.mem.Allocator = @alignCast(@ptrCast(allocator_ptr));
 
-    if (trap) |t| {
-        var error_message: c.wasm_byte_vec_t = undefined;
-        c.wasm_trap_message(t, &error_message);
-        defer c.wasm_byte_vec_delete(&error_message);
+            const inputs = inputs_ptr[0..inputs_len];
 
-        c.wasm_trap_delete(t);
+            const lower = plugin.inputBytes(&inputs[0]);
 
-        std.debug.print("{s}\n", .{error_message.data});
-    }
+            std.debug.print("toUpper input: {s}\n", .{lower});
 
-    if (err != null or trap != null) std.process.exit(1);
-}
+            var upper_buf = alloc.alloc(u8, lower.len) catch unreachable;
+            defer alloc.free(upper_buf);
 
-fn wasmAdd(
-    _: ?*anyopaque,
-    _: ?*c.wasmtime_caller_t,
-    args: [*c]const c.wasmtime_val_t,
-    args_len: usize,
-    results: [*c]c.wasmtime_val_t,
-    results_len: usize,
-) callconv(.C) ?*c.wasm_trap_t {
-    std.debug.assert(args_len == 2);
-    std.debug.assert(results_len == 1);
+            const upper = std.ascii.upperString(upper_buf, lower);
 
-    results.* = .{
-        .kind = c.WASMTIME_I32,
-        .of = .{ .i32 = args[0].of.i32 + args[1].of.i32 },
+            extism_fixes.CurrentPlugin.returnBytes(&plugin, outputs_ptr, upper);
+        }
     };
 
-    return null;
+    var func_refs = [_]extism.Function{
+        extism.Function.init(
+            "add",
+            &.{extism.c.I32, extism.c.I32},
+            &.{extism.c.I32},
+            funcs.add,
+            null,
+        ),
+        extism.Function.init(
+            "toUpper",
+            &.{extism.c.I64},
+            &.{extism.c.I64},
+            funcs.toUpper,
+            @constCast(&allocator),
+        ),
+    };
+    for (&func_refs) |*func_ref| func_ref.setNamespace("cizero");
+    return func_refs;
 }
 
-test {
-    _ = c;
+fn deinitHostFunctions(funcs: []extism.Function) void {
+    for (funcs) |*func| func.deinit();
 }
 
-// To support WASI main() and executing arbitrary functions:
-// zig build-exe foo.zig -target wasm32-wasi -rdynamic
+// FIXME fixes that should be upstreamed
+const extism_fixes = struct {
+    // TODO `Memory` is not pub...
 
-// Without WASI support:
-// zig build-exe foo.zig -target wasm32-freestanding -rdynamic
+    const CurrentPlugin = struct {
+        const Self = extism.CurrentPlugin;
+
+        fn getMemory(self: Self, offset: u64) []u8 {
+            const len = extism.c.extism_current_plugin_memory_length(self.c_currplugin, offset);
+            const c_data = extism.c.extism_current_plugin_memory(self.c_currplugin);
+            const data: [*:0]u8 = std.mem.span(c_data);
+            return data[offset .. offset + len];
+        }
+
+        fn returnBytes(self: *Self, val: *extism.c.ExtismVal, data: []const u8) void {
+            const mem = self.alloc(@as(u64, data.len));
+            var ptr = getMemory(self.*, mem);
+            @memcpy(ptr, data);
+            val.v.i64 = @intCast(mem);
+        }
+    };
+};

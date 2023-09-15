@@ -6,6 +6,10 @@
       url = github:input-output-hk/nix-inclusive;
       inputs.stdlib.follows = "parts/nixpkgs-lib";
     };
+    extism = {
+      url = github:extism/extism/v0.5.0;
+      flake = false;
+    };
   };
 
   outputs = inputs: inputs.parts.lib.mkFlake { inherit inputs; } {

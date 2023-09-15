@@ -1,11 +1,15 @@
 .{
-	.name = "lns",
+	.name = "cizero",
 	.version = "0.0.0",
 
 	.dependencies = .{
-		.tres = .{
-			.url = "https://github.com/ziglibs/tres/archive/220d01f3931595e3a2e2a6a0693363c0bfaf47e9.tar.gz",
-			.hash = "12204d32c44b494c0cbe553811dedfb7a73da37b13b492872dd4edc0340983072697",
+		//.extism = .{
+		//	.url = "https://github.com/extism/extism/archive/v0.5.0.tar.gz",
+		//	.hash = "1220a70e163a38c479903de6b58268e571b5a37b59a58a0669fd4b8cebce24591227",
+		//},
+		.extism_pdk = .{
+			.url = "https://github.com/extism/zig-pdk/archive/527b951f5b5690511c9b47682edeb73e5b4900d5.tar.gz",
+			.hash = "1220881dbe4bab6469475f1afc7a6f2b2ffd10de8d7b1cbdce6c40a0a4222a75ce53",
 		},
 	},
 }

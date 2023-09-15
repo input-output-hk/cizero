@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "extism": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1692835971,
+        "narHash": "sha256-oWBk6/hmaHopNQRic2aw9KYfK8wpMGlJukMTHXkHrHk=",
+        "owner": "extism",
+        "repo": "extism",
+        "rev": "6a158849633ca301921fcf9a3b8b41832b4a83aa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "extism",
+        "ref": "v0.5.0",
+        "repo": "extism",
+        "type": "github"
+      }
+    },
     "inclusive": {
       "inputs": {
         "stdlib": [
@@ -75,6 +92,7 @@
     },
     "root": {
       "inputs": {
+        "extism": "extism",
         "inclusive": "inclusive",
         "nixpkgs": "nixpkgs",
         "parts": "parts"
