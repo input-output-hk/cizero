@@ -1,23 +1,20 @@
 const std = @import("std");
 
-// const allocator = std.heap.wasm_allocator;
+const allocator = std.heap.wasm_allocator;
 
 const cizero = struct {
     const ext = struct {
         extern "cizero" fn add(i32, i32) i32;
-        // extern "cizero" fn toUpper(usize, usize) usize;
+        extern "cizero" fn toUpper([*c]u8) void;
     };
 
     pub const add = ext.add;
 
-//     pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
-//         var upper_buf = try alloc.alloc(u8, lower.len);
-//         const upper_len = ext.toUpper(
-//             @intFromPtr(lower.ptr),
-//             @intFromPtr(upper_buf.ptr),
-//         );
-//         return upper_buf[0..upper_len];
-//     }
+    pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
+        var buf = try alloc.dupeZ(u8, lower);
+        ext.toUpper(buf);
+        return buf;
+    }
 };
 
 export fn fib(n: i32) i32 {
@@ -25,27 +22,16 @@ export fn fib(n: i32) i32 {
     return cizero.add(fib(n - 2), fib(n - 1));
 }
 
-// fn mainToUpper() !void {
-//     var args = std.process.argsWithAllocator(allocator) catch unreachable;
-//     defer args.deinit();
+pub fn main() u8 {
+    var args = std.process.argsWithAllocator(allocator) catch unreachable;
+    defer args.deinit();
 
-//     while (args.next()) |arg| {
-//         const upper = try cizero.toUpper(allocator, arg);
-//         defer allocator.free(upper);
+    while (args.next()) |arg| {
+        const upper = cizero.toUpper(allocator, arg) catch unreachable;
+        defer allocator.free(upper);
 
-//         try std.io.getStdOut().writer().print("{s} → {s} ({d})\n", .{arg, upper, upper.len});
-//     }
-// }
+        std.io.getStdOut().writer().print("{s} → {s}\n", .{arg, upper}) catch unreachable;
+    }
 
-// pub export fn main() u8 {
-//     mainToUpper() catch |err| std.debug.panic("{}\n", .{err});
-
-//     const exit_code = 2;
-//     std.process.exit(exit_code);
-//     return exit_code;
-// }
-
-pub export fn main() u8 {
-    // std.io.getStdOut().writer().print("hello from WASI\n", .{}) catch unreachable;
     return 2;
 }
