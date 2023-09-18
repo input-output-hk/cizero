@@ -71,7 +71,7 @@ pub fn main() !void {
     var wasm_module: ?*c.wasmtime_module_t = undefined;
     defer c.wasmtime_module_delete(wasm_module);
     {
-        const binary = try std.fs.cwd().readFileAlloc(alloc, "foo.wasm", std.math.maxInt(usize));
+        const binary = try std.fs.cwd().readFileAlloc(alloc, "zig-out/bin/foo.wasm", std.math.maxInt(usize));
         defer alloc.free(binary);
 
         exitOnError(
@@ -187,9 +187,3 @@ fn wasmAdd(
 test {
     _ = c;
 }
-
-// To support WASI main() and executing arbitrary functions:
-// zig build-exe foo.zig -target wasm32-wasi -rdynamic
-
-// Without WASI support:
-// zig build-exe foo.zig -target wasm32-freestanding -rdynamic
