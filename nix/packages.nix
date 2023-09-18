@@ -100,12 +100,16 @@
           '';
 
           buildPhase = ''
+            runHook preBuild
             zig build ${zigArgs}
+            runHook postBuild
           '';
 
           doCheck = true;
           checkPhase = ''
+            runHook preCheck
             zig build test ${zigArgs}
+            runHook postCheck
           '';
 
           dontInstall = true;
@@ -115,20 +119,26 @@
           nativeBuildInputs = args.nativeBuildInputs or [] ++ [ zig ];
 
           passthru = {
-            packageInfo = config.overlayAttrs.zigPackageInfo "${finalAttrs.src}/${buildZigZon}";
+            packageInfo = config.overlayAttrs.zigPackageInfo (
+              lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
+              + buildZigZon
+            );
 
             # builds the global-cache-dir/p directory
             deps = pkgs.symlinkJoin {
               name = with finalAttrs; "${pname}-${version}-deps";
-              paths = lib.mapAttrsToList
-                (name: { url, hash }: pkgs.runCommand name {} ''
-                  mkdir $out
-                  cp -r ${builtins.fetchTarball {
-                    inherit name url;
-                    sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
-                  }} $out/${hash}
-                '')
-                info.dependencies;
+              paths =
+                if builtins.isAttrs (info.dependencies or null)
+                then lib.mapAttrsToList
+                  (name: { url, hash }: pkgs.runCommand name {} ''
+                    mkdir $out
+                    cp -r ${builtins.fetchTarball {
+                      inherit name url;
+                      sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
+                    }} $out/${hash}
+                  '')
+                  info.dependencies
+                else [];
             };
           } // args.passthru or {};
         }
