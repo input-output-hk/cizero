@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const source = .{ .path = "src/main.zig" };
+    const source = std.Build.LazyPath.relative("src/main.zig");
 
     {
         const exe = b.addExecutable(.{
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) !void {
 
         var plugins_iter = plugins_dir.iterate();
         while (try plugins_iter.next()) |plugin_dir| {
-            const plugin_source = .{ .path = b.pathJoin(&.{ plugins_path, plugin_dir.name, "main.zig" }) };
+            const plugin_source = std.Build.LazyPath.relative(b.pathJoin(&.{ plugins_path, plugin_dir.name, "main.zig" }));
             const plugin_target = .{
                 .cpu_arch = .wasm32,
                 .os_tag = .wasi,
@@ -98,4 +98,6 @@ fn configureCompileStep(step: *std.Build.Step.Compile) void {
 fn configurePluginCompileStep(step: *std.Build.Step.Compile) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
+
+    step.addAnonymousModule("cizero", .{ .source_file = std.Build.LazyPath.relative("pdk/main.zig") });
 }
