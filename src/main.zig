@@ -8,6 +8,9 @@ pub fn main() !void {
     };
     const alloc = gpa.allocator();
 
+    const args = try std.process.argsAlloc(alloc);
+    defer std.process.argsFree(alloc, args);
+
     const wasm_engine = c.wasm_engine_new();
     defer c.wasm_engine_delete(wasm_engine);
 
@@ -133,7 +136,7 @@ pub fn main() !void {
     var wasm_module: ?*c.wasmtime_module_t = undefined;
     defer c.wasmtime_module_delete(wasm_module);
     {
-        const binary = try std.fs.cwd().readFileAlloc(alloc, "zig-out/libexec/cizero/plugins/foo.wasm", std.math.maxInt(usize));
+        const binary = try std.fs.cwd().readFileAlloc(alloc, args[1], std.math.maxInt(usize));
         defer alloc.free(binary);
 
         exitOnError(

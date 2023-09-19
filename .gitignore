@@ -1,4 +1,8 @@
+/.direnv
 /result
 /zig-cache
 /zig-out
-/.direnv
+/pdk/zig/zig-cache
+/pdk/zig/zig-out
+/plugins/*/zig-cache
+/plugins/*/zig-out

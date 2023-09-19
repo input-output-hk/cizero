@@ -3,26 +3,26 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     b.enable_wasmtime = true;
 
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const target = b.standardTargetOptions(.{ .default_target = .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+    } });
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
-    const source = std.Build.LazyPath.relative("src/main.zig");
+    const source = std.Build.LazyPath.relative("main.zig");
 
-    const run_step = b.step("run", "Run the app");
     {
         const exe = b.addExecutable(.{
-            .name = "cizero",
+            .name = "foo",
             .root_source_file = source,
             .target = target,
             .optimize = optimize,
+            .linkage = .dynamic,
         });
         configureCompileStep(exe);
-        b.installArtifact(exe);
 
-        const run_exe = b.addRunArtifact(exe);
-        run_exe.step.dependOn(b.getInstallStep());
-        if (b.args) |args| run_exe.addArgs(args);
-        run_step.dependOn(&run_exe.step);
+        const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
+        b.getInstallStep().dependOn(&install_exe.step);
     }
 
     const test_step = b.step("test", "Run unit tests");
@@ -40,6 +40,8 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn configureCompileStep(step: *std.Build.Step.Compile) void {
-    step.linkLibC();
-    step.linkSystemLibrary("wasmtime");
+    step.rdynamic = true;
+    step.wasi_exec_model = .command;
+
+    step.addAnonymousModule("cizero", .{ .source_file = std.Build.LazyPath.relative("../../pdk/zig/main.zig") });
 }

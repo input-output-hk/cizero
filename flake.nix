@@ -12,7 +12,7 @@
     systems = ["x86_64-linux"];
 
     imports = [
-      nix/packages.nix
+      nix/packages
       nix/devShells.nix
     ];
   };

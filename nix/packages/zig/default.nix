@@ -1,36 +1,11 @@
 { inputs, ... }: {
   imports = [
     inputs.parts.flakeModules.easyOverlay
-    packages/zig-package-info
+    ./package-info
   ];
 
-  perSystem = { inputs', config, lib, pkgs, final, ... }: {
+  perSystem = { config, lib, pkgs, final, ... }: {
     packages = {
-      default = config.packages.cizero;
-
-      cizero = final.buildZigPackage {
-        src = inputs.inclusive.lib.inclusive ./.. [
-          ../build.zig
-          ../build.zig.zon
-          ../src
-          ../plugins
-        ];
-
-        inherit (config.packages) zig;
-
-        buildInputs = with pkgs; [
-          wasmtime.dev
-          wasmtime # for tests
-        ];
-
-        zigBuildArgs = [ "-Doptimize=ReleaseSafe" ];
-
-        preCheck = ''
-          # for wasmtime cache
-          export HOME="$TMPDIR"
-        '';
-      };
-
       zig = (pkgs.zig.overrideAttrs (oldAttrs: rec {
         version = src.rev;
 
