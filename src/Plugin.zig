@@ -2,20 +2,18 @@ const std = @import("std");
 
 const c = @import("c.zig");
 
-const Self = @This();
-
 wasm_engine: ?*c.wasm_engine_t,
 wasm_store: ?*c.wasmtime_store,
 wasm_context: ?*c.wasmtime_context,
 wasm_linker: ?*c.wasmtime_linker,
 
-pub fn deinit(self: Self) void {
+pub fn deinit(self: @This()) void {
     c.wasmtime_linker_delete(self.wasm_linker);
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(module_binary: []const u8) !Self {
+pub fn init(module_binary: []const u8) !@This() {
     const wasm_engine = c.wasm_engine_new();
     const wasm_store = c.wasmtime_store_new(wasm_engine, null, null);
     const wasm_context = c.wasmtime_store_context(wasm_store);
@@ -154,7 +152,7 @@ fn getMemoryFromCaller(caller: ?*c.wasmtime_caller) struct { c.wasmtime_memory, 
     return .{ memory, memory_slice };
 }
 
-pub fn fib(self: Self, n: i32) !i32 {
+pub fn fib(self: @This(), n: i32) !i32 {
     var wasm_export_fib: c.wasmtime_extern = undefined;
     {
         const name = "fib";
@@ -177,7 +175,7 @@ pub fn fib(self: Self, n: i32) !i32 {
     return output.of.i32;
 }
 
-pub fn main(self: Self) !c_int {
+pub fn main(self: @This()) !c_int {
     var wasi_main: c.wasmtime_func = undefined;
     if (c.wasmtime_linker_get_default(self.wasm_linker, self.wasm_context, null, 0, &wasi_main)) |err|
         return handleError("failed to locate default export", err, null);
