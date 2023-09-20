@@ -5,9 +5,9 @@ const c = @import("c.zig");
 const Self = @This();
 
 wasm_engine: ?*c.wasm_engine_t,
-wasm_store: ?*c.wasmtime_store_t,
-wasm_context: ?*c.wasmtime_context_t,
-wasm_linker: ?*c.wasmtime_linker_t,
+wasm_store: ?*c.wasmtime_store,
+wasm_context: ?*c.wasmtime_context,
+wasm_linker: ?*c.wasmtime_linker,
 
 pub fn deinit(self: Self) void {
     c.wasmtime_linker_delete(self.wasm_linker);
@@ -41,7 +41,7 @@ pub fn init(module_binary: []const u8) !Self {
     try linkHostFunctions(wasm_linker);
 
     {
-        var wasm_module: ?*c.wasmtime_module_t = undefined;
+        var wasm_module: ?*c.wasmtime_module = undefined;
         defer c.wasmtime_module_delete(wasm_module);
         if (c.wasmtime_module_new(wasm_engine, module_binary.ptr, module_binary.len, &wasm_module)) |err|
             return handleError("failed to compile module", err, null);
@@ -58,14 +58,14 @@ pub fn init(module_binary: []const u8) !Self {
     };
 }
 
-fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker_t) !void {
+fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker) !void {
     const host_funcs = struct {
         fn add(
             _: ?*anyopaque,
-            _: ?*c.wasmtime_caller_t,
-            inputs: [*c]const c.wasmtime_val_t,
+            _: ?*c.wasmtime_caller,
+            inputs: [*c]const c.wasmtime_val,
             inputs_len: usize,
-            outputs: [*c]c.wasmtime_val_t,
+            outputs: [*c]c.wasmtime_val,
             outputs_len: usize,
         ) callconv(.C) ?*c.wasm_trap_t {
             std.debug.assert(inputs_len == 2);
@@ -81,10 +81,10 @@ fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker_t) !void {
 
         fn toUpper(
             _: ?*anyopaque,
-            caller: ?*c.wasmtime_caller_t,
-            inputs: [*c]const c.wasmtime_val_t,
+            caller: ?*c.wasmtime_caller,
+            inputs: [*c]const c.wasmtime_val,
             inputs_len: usize,
-            _: [*c]c.wasmtime_val_t,
+            _: [*c]c.wasmtime_val,
             outputs_len: usize,
         ) callconv(.C) ?*c.wasm_trap_t {
             std.debug.assert(inputs_len == 1);
@@ -136,11 +136,11 @@ fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker_t) !void {
     )) |err| return handleError("failed to define function", err, null);
 }
 
-fn getMemoryFromCaller(caller: ?*c.wasmtime_caller_t) struct { c.wasmtime_memory, []u8 } {
+fn getMemoryFromCaller(caller: ?*c.wasmtime_caller) struct { c.wasmtime_memory, []u8 } {
     const context = c.wasmtime_caller_context(caller);
 
-    var memory: c.wasmtime_memory_t = blk: {
-        var item: c.wasmtime_extern_t = undefined;
+    var memory: c.wasmtime_memory = blk: {
+        var item: c.wasmtime_extern = undefined;
         const ok = c.wasmtime_caller_export_get(caller, "memory", "memory".len, &item);
         std.debug.assert(ok);
         std.debug.assert(item.kind == c.WASMTIME_EXTERN_MEMORY);
@@ -155,20 +155,20 @@ fn getMemoryFromCaller(caller: ?*c.wasmtime_caller_t) struct { c.wasmtime_memory
 }
 
 pub fn fib(self: Self, n: i32) !i32 {
-    var wasm_export_fib: c.wasmtime_extern_t = undefined;
+    var wasm_export_fib: c.wasmtime_extern = undefined;
     {
         const name = "fib";
         std.debug.assert(c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, name, name.len, &wasm_export_fib));
         std.debug.assert(wasm_export_fib.kind == c.WASMTIME_EXTERN_FUNC);
     }
 
-    const inputs = [_]c.wasmtime_val_t{
+    const inputs = [_]c.wasmtime_val{
         .{
             .kind = c.WASMTIME_I32,
             .of = .{ .i32 = n },
         },
     };
-    var output: c.wasmtime_val_t = undefined;
+    var output: c.wasmtime_val = undefined;
 
     var trap: ?*c.wasm_trap_t = null;
     if (c.wasmtime_func_call(self.wasm_context, &wasm_export_fib.of.func, &inputs, inputs.len, &output, 1, &trap)) |err|
@@ -178,7 +178,7 @@ pub fn fib(self: Self, n: i32) !i32 {
 }
 
 pub fn main(self: Self) !c_int {
-    var wasi_main: c.wasmtime_func_t = undefined;
+    var wasi_main: c.wasmtime_func = undefined;
     if (c.wasmtime_linker_get_default(self.wasm_linker, self.wasm_context, null, 0, &wasi_main)) |err|
         return handleError("failed to locate default export", err, null);
 
@@ -195,7 +195,7 @@ pub fn main(self: Self) !c_int {
 
 fn handleError(
     message: []const u8,
-    err: ?*c.wasmtime_error_t,
+    err: ?*c.wasmtime_error,
     trap: ?*c.wasm_trap_t,
 ) error{ WasmError, WasmTrap } {
     std.debug.assert(err != null or trap != null);
