@@ -59,8 +59,6 @@ pub fn init(module_binary: []const u8) !Self {
 }
 
 fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker_t) !void {
-    const host_module_name = "cizero";
-
     const host_funcs = struct {
         fn add(
             _: ?*anyopaque,
@@ -102,43 +100,40 @@ fn linkHostFunctions(wasm_linker: ?*c.wasmtime_linker_t) !void {
         }
     };
 
-    {
-        const name = "add";
-        if (c.wasmtime_linker_define_func(
-            wasm_linker,
-            host_module_name,
-            host_module_name.len,
-            name,
-            name.len,
+    const host_module_name = "cizero";
+
+    inline for ([_]struct{
+        []const u8,
+        ?*c.wasm_functype_t,
+        c.wasmtime_func_callback_t,
+    }{
+        .{
+            "add",
             c.wasm_functype_new_2_1(
                 c.wasm_valtype_new_i32(),
                 c.wasm_valtype_new_i32(),
                 c.wasm_valtype_new_i32(),
             ),
             host_funcs.add,
-            null,
-            null,
-        )) |err|
-            return handleError("failed to define function \"" ++ name ++ "\"", err, null);
-    }
-
-    {
-        const name = "toUpper";
-        if (c.wasmtime_linker_define_func(
-            wasm_linker,
-            host_module_name,
-            host_module_name.len,
-            name,
-            name.len,
+        },
+        .{
+            "toUpper",
             c.wasm_functype_new_1_0(
                 c.wasm_valtype_new_i32(),
             ),
             host_funcs.toUpper,
-            null,
-            null,
-        )) |err|
-            return handleError("failed to define function \"" ++ name ++ "\"", err, null);
-    }
+        },
+    }) |def| if (c.wasmtime_linker_define_func(
+        wasm_linker,
+        host_module_name,
+        host_module_name.len,
+        def.@"0".ptr,
+        def.@"0".len,
+        def.@"1",
+        def.@"2",
+        null,
+        null,
+    )) |err| return handleError("failed to define function", err, null);
 }
 
 fn getMemoryFromCaller(caller: ?*c.wasmtime_caller_t) struct { c.wasmtime_memory, []u8 } {
