@@ -1,26 +1,43 @@
 const std = @import("std");
 
-const Plugin = @import("Plugin.zig");
+const plugin = @import("plugin.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
         .backing_allocator = std.heap.c_allocator,
     };
-    const alloc = gpa.allocator();
+    const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    const binary = try std.fs.cwd().readFileAlloc(alloc, args[1], std.math.maxInt(usize));
-    defer alloc.free(binary);
+    const plugin_wasm = try std.fs.cwd().readFileAlloc(allocator, args[1], std.math.maxInt(usize));
+    defer allocator.free(plugin_wasm);
 
-    const plugin = try Plugin.init(binary);
-    defer plugin.deinit();
+    var plugin_state = plugin.State.init(allocator);
+    defer plugin_state.deinit();
 
-    try std.testing.expectEqual(@as(i32, 233), try plugin.fib(12));
-    try std.testing.expectEqual(@as(c_int, 2), try plugin.main());
+    {
+        const plugin_runtime = try plugin.Runtime.init(allocator, plugin_wasm, &plugin_state);
+        defer plugin_runtime.deinit();
+
+        try std.testing.expectEqual(plugin.Runtime.ExitStatus.yield, try plugin_runtime.main());
+        try std.testing.expect(plugin_state.callback != null);
+        try std.testing.expectEqualDeep(plugin.State.Callback{
+            .func_name = "timeoutCallback",
+            .condition = .{ .timeout_ms = 2000 },
+        }, plugin_state.callback.?);
+        try std.testing.expectEqual(@as(@TypeOf(plugin_state.kv).Size, 0), plugin_state.kv.count());
+    }
+
+    {
+        const plugin_runtime = try plugin.Runtime.init(allocator, plugin_wasm, &plugin_state);
+        defer plugin_runtime.deinit();
+
+        try std.testing.expectEqual(plugin.Runtime.ExitStatus.success, try plugin_runtime.handleEvent(.timeout_ms));
+    }
 }
 
 test {
-    _ = Plugin;
+    _ = plugin;
 }
