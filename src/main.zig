@@ -1,6 +1,11 @@
 const std = @import("std");
 
+const module = @import("module.zig");
 const plugin = @import("plugin.zig");
+
+const Module = module.Module;
+const Plugin = plugin.Plugin;
+const Registry = @import("Registry.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -8,36 +13,44 @@ pub fn main() !void {
     };
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    var registry = Registry.init(allocator);
+    defer registry.deinit();
 
-    const plugin_wasm = try std.fs.cwd().readFileAlloc(allocator, args[1], std.math.maxInt(usize));
-    defer allocator.free(plugin_wasm);
+    var modules = struct{
+        timeout: module.TimeoutModule,
+        to_upper: module.ToUpperModule,
+    }{
+        .timeout = module.TimeoutModule.init(allocator, &registry),
+        .to_upper = .{},
+    };
 
-    var plugin_state = plugin.State.init(allocator);
-    defer plugin_state.deinit();
-
-    {
-        const plugin_runtime = try plugin.Runtime.init(allocator, plugin_wasm, &plugin_state);
-        defer plugin_runtime.deinit();
-
-        try std.testing.expectEqual(plugin.Runtime.ExitStatus.yield, try plugin_runtime.main());
-        try std.testing.expect(plugin_state.callback != null);
-        try std.testing.expectEqualDeep(plugin.State.Callback{
-            .func_name = "timeoutCallback",
-            .condition = .{ .timeout_ms = 2000 },
-        }, plugin_state.callback.?);
-        try std.testing.expectEqual(@as(@TypeOf(plugin_state.kv).Size, 0), plugin_state.kv.count());
-    }
+    try registry.modules.append(Module.init(&modules.timeout));
+    try registry.modules.append(Module.init(&modules.to_upper));
 
     {
-        const plugin_runtime = try plugin.Runtime.init(allocator, plugin_wasm, &plugin_state);
-        defer plugin_runtime.deinit();
+        var args = try std.process.argsWithAllocator(allocator);
+        defer args.deinit();
 
-        try std.testing.expectEqual(plugin.Runtime.ExitStatus.success, try plugin_runtime.handleEvent(.timeout_ms));
+        _ = args.next(); // discard executable (not a plugin)
+        while (args.next()) |arg| {
+            const name = try registry.allocator.dupe(u8, std.fs.path.stem(arg));
+
+            std.log.info("loading plugin \"{s}\"…", .{name});
+
+            const wasm = try std.fs.cwd().readFileAlloc(registry.allocator, arg, std.math.maxInt(usize));
+            try registry.plugins.put(name, Plugin.init(wasm));
+
+            var runtime = try registry.runtime(name);
+            defer runtime.deinit();
+
+            if (!try runtime.main()) return error.PluginMainFailed;
+        }
     }
+
+    (try modules.timeout.start()).join();
 }
 
 test {
+    _ = module;
     _ = plugin;
 }

@@ -2,29 +2,29 @@ const std = @import("std");
 
 const c = @import("../c.zig");
 
-const State = @import("State.zig");
-
-const Self = @This();
-
 wasm_engine: ?*c.wasm_engine_t,
 wasm_store: ?*c.wasmtime_store,
 wasm_context: ?*c.wasmtime_context,
 wasm_linker: ?*c.wasmtime_linker,
 
-state: *State,
-
 allocator: std.mem.Allocator,
 
-pub fn deinit(self: Self) void {
-    const self_on_heap: *Self = @alignCast(@ptrCast(c.wasmtime_context_get_data(self.wasm_context)));
+plugin_name: []const u8,
+
+host_functions: std.StringHashMapUnmanaged(HostFunction),
+
+pub fn deinit(self: *@This()) void {
+    const self_on_heap: *@This() = @alignCast(@ptrCast(c.wasmtime_context_get_data(self.wasm_context)));
     self.allocator.destroy(self_on_heap);
+
+    self.host_functions.deinit(self.allocator);
 
     c.wasmtime_linker_delete(self.wasm_linker);
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(allocator: std.mem.Allocator, module_binary: []const u8, state: *State) !Self {
+pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_functions: std.StringHashMapUnmanaged(HostFunction)) !@This() {
     const wasm_engine = blk: {
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
@@ -59,29 +59,54 @@ pub fn init(allocator: std.mem.Allocator, module_binary: []const u8, state: *Sta
         null,
     );
 
-    var self = Self{
+    var self = @This(){
         .wasm_engine = wasm_engine,
         .wasm_store = wasm_store,
         .wasm_context = wasm_context,
         .wasm_linker = wasm_linker,
-        .state = state,
         .allocator = allocator,
+        .plugin_name = plugin_name,
+        .host_functions = try host_functions.clone(allocator),
     };
 
     {
         // Make a copy that lives on the heap and therefore has a stable address
         // that we can safely get and dereference from `wasm_context_get_data()`
         // even after `init()` returns and `self` is destroyed.
-        // As `Self`'s fields are all pointers,
-        // there is no state that could differ between copies.
-        // Unless of course the user manually changes the pointers,
-        // but that that is a bad idea should be reasonably obvious.
-        const self_on_heap = try allocator.create(Self);
+        // It is crucial that no fields are ever modified
+        // as that would lead to changes between the copy on stack and heap.
+        // If we need to modify fields in the future, we need to change the `init` function
+        // so that it returns a pointer to heap memory, and set that pointer
+        // as context data instead of making a copy.
+        const self_on_heap = try allocator.create(@This());
         self_on_heap.* = self;
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
     }
 
-    try self.linkHostFunctions();
+    {
+        var host_functions_iter = self.host_functions.iterator();
+        while (host_functions_iter.next()) |entry| {
+            std.log.debug("linking host function \"{s}\"…", .{entry.key_ptr.*});
+
+            const host_module_name = "cizero";
+
+            try handleError(
+                "failed to define function",
+                c.wasmtime_linker_define_func(
+                    self.wasm_linker,
+                    host_module_name,
+                    host_module_name.len,
+                    entry.key_ptr.ptr,
+                    entry.key_ptr.len,
+                    entry.value_ptr.signature,
+                    dispatchHostFunction,
+                    @constCast(@ptrCast(entry.key_ptr)),
+                    null,
+                ),
+                null,
+            );
+        }
+    }
 
     {
         var wasm_module: ?*c.wasmtime_module = undefined;
@@ -102,124 +127,77 @@ pub fn init(allocator: std.mem.Allocator, module_binary: []const u8, state: *Sta
     return self;
 }
 
-fn linkHostFunctions(self: Self) !void {
-    const host_funcs = struct {
-        fn add(
-            _: ?*anyopaque,
-            _: ?*c.wasmtime_caller,
-            inputs: [*c]const c.wasmtime_val,
-            inputs_len: usize,
-            outputs: [*c]c.wasmtime_val,
-            outputs_len: usize,
-        ) callconv(.C) ?*c.wasm_trap_t {
-            std.debug.assert(inputs_len == 2);
-            std.debug.assert(outputs_len == 1);
+// TODO split into two so we don't have to keep signature in memory (only needed in `init`)
+pub const HostFunction = struct {
+    // definition
 
-            outputs.* = .{
-                .kind = c.WASMTIME_I32,
-                .of = .{ .i32 = inputs[0].of.i32 + inputs[1].of.i32 },
-            };
+    signature: *c.wasm_functype_t, // TODO replace with `std.wasm.Type`
 
-            return null;
-        }
+    // invocation
 
-        fn toUpper(
-            _: ?*anyopaque,
-            caller: ?*c.wasmtime_caller,
-            inputs: [*c]const c.wasmtime_val,
-            inputs_len: usize,
-            _: [*c]c.wasmtime_val,
-            outputs_len: usize,
-        ) callconv(.C) ?*c.wasm_trap_t {
-            std.debug.assert(inputs_len == 1);
-            std.debug.assert(outputs_len == 0);
+    callback: *const Callback,
+    user_data: ?*anyopaque,
 
-            var memory = getMemoryFromCaller(caller).@"1";
+    pub const Callback = fn (?*anyopaque, []const u8, []u8, []const Val, []Val) anyerror!void;
+};
 
-            const buf_ptr: [*c]u8 = &memory[@intCast(inputs[0].of.i32)];
-            var buf = std.mem.span(buf_ptr);
-            _ = std.ascii.upperString(buf, buf);
+/// Companion to `std.wasm.Valtype`.
+pub const Val = union(std.wasm.Valtype) {
+    i32: i32,
+    i64: i64,
+    f32: f32,
+    f64: f64,
+    v128: [16]u8,
 
-            return null;
-        }
+    fn fromWasmtime(v: c.wasmtime_val) @This() {
+        return switch (v.kind) {
+            c.WASMTIME_I32 => .{ .i32 = v.of.i32 },
+            c.WASMTIME_I64 => .{ .i64 = v.of.i64 },
+            c.WASMTIME_F32 => .{ .f32 = v.of.f32 },
+            c.WASMTIME_F64 => .{ .f64 = v.of.f64 },
+            c.WASMTIME_V128 => .{ .v128 = v.of.v128 },
+            else => unreachable,
+        };
+    }
+};
 
-        fn yieldTimeout(
-            _: ?*anyopaque,
-            caller: ?*c.wasmtime_caller,
-            inputs: [*c]const c.wasmtime_val,
-            inputs_len: usize,
-            _: [*c]c.wasmtime_val,
-            outputs_len: usize,
-        ) callconv(.C) ?*c.wasm_trap_t {
-            std.debug.assert(inputs_len == 2);
-            std.debug.assert(outputs_len == 0);
+fn dispatchHostFunction(
+    user_data: ?*anyopaque,
+    caller: ?*c.wasmtime_caller,
+    inputs: [*c]const c.wasmtime_val,
+    inputs_len: usize,
+    outputs: [*c]c.wasmtime_val,
+    outputs_len: usize,
+) callconv(.C) ?*c.wasm_trap_t {
+    const self: *@This() = @alignCast(@ptrCast(c.wasmtime_context_get_data(c.wasmtime_caller_context(caller))));
 
-            const context = c.wasmtime_caller_context(caller);
-            const context_data = c.wasmtime_context_get_data(context);
+    const memory = getMemoryFromCaller(caller).@"1";
 
-            var memory = getMemoryFromCaller(caller).@"1";
+    var input_vals = self.allocator.alloc(Val, inputs_len) catch |err| return errorTrap(err);
+    for (input_vals, 0..) |*val, i| val.* = Val.fromWasmtime(inputs[i]);
+    defer self.allocator.free(input_vals);
 
-            var this: *Self = @alignCast(@ptrCast(context_data));
-            this.state.setCallback(
-                std.mem.span(@as(
-                    [*c]const u8,
-                    &memory[@intCast(inputs[0].of.i32)],
-                )),
-                .{ .timeout_ms = @intCast(inputs[1].of.i64) },
-            ) catch |err| std.debug.panic("failed to set callback: {any}\n", .{err});
+    var output_vals = self.allocator.alloc(Val, outputs_len) catch |err| return errorTrap(err);
+    for (output_vals, 0..) |*val, i| val.* = Val.fromWasmtime(outputs[i]);
+    defer self.allocator.free(output_vals);
 
-            c.wasmtime_engine_increment_epoch(this.wasm_engine);
+    const host_function_name: *[]const u8 = @alignCast(@ptrCast(user_data));
+    const host_function = self.host_functions.getPtr(host_function_name.*) orelse unreachable;
+    host_function.callback(
+        host_function.user_data,
+        self.plugin_name,
+        memory,
+        input_vals,
+        output_vals,
+    ) catch |err| return errorTrap(err);
 
-            return null;
-        }
-    };
+    return null;
+}
 
-    const host_module_name = "cizero";
-
-    inline for ([_]struct{
-        []const u8,
-        ?*c.wasm_functype_t,
-        c.wasmtime_func_callback_t,
-    }{
-        .{
-            "add",
-            c.wasm_functype_new_2_1(
-                c.wasm_valtype_new_i32(),
-                c.wasm_valtype_new_i32(),
-                c.wasm_valtype_new_i32(),
-            ),
-            host_funcs.add,
-        },
-        .{
-            "toUpper",
-            c.wasm_functype_new_1_0(
-                c.wasm_valtype_new_i32(),
-            ),
-            host_funcs.toUpper,
-        },
-        .{
-            "yieldTimeout",
-            c.wasm_functype_new_2_0(
-                c.wasm_valtype_new_i32(),
-                c.wasm_valtype_new_i64(),
-            ),
-            host_funcs.yieldTimeout,
-        },
-    }) |def| try handleError(
-        "failed to define function",
-        c.wasmtime_linker_define_func(
-            self.wasm_linker,
-            host_module_name,
-            host_module_name.len,
-            def.@"0".ptr,
-            def.@"0".len,
-            def.@"1",
-            def.@"2",
-            null,
-            null,
-        ),
-        null,
-    );
+inline fn errorTrap(err: anyerror) *c.wasm_trap_t {
+    const msg = @errorName(err);
+    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+    return c.wasmtime_trap_new(msg, msg.len) orelse std.debug.panic("could not allocate trap: {s}", .{msg});
 }
 
 fn getMemoryFromCaller(caller: ?*c.wasmtime_caller) struct { c.wasmtime_memory, []u8 } {
@@ -239,37 +217,19 @@ fn getMemoryFromCaller(caller: ?*c.wasmtime_caller) struct { c.wasmtime_memory, 
     return .{ memory, memory_slice };
 }
 
-pub const ExitStatus = union(enum) {
-    yield,
-    success,
-    failure,
-};
-
-fn handleExit(self: Self, err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !ExitStatus {
-    if (trap) |t| {
-        var code: c.wasmtime_trap_code_t = undefined;
-        if (
-            c.wasmtime_trap_code(t, &code) and
-            code == c.WASMTIME_TRAP_CODE_INTERRUPT and
-            self.state.callback != null
-        ) {
-            std.log.info("plugin yields", .{});
-            return .yield;
-        }
-    }
-
+fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
     if (err) |e| {
         var exit_status: c_int = undefined;
         if (c.wasmtime_error_exit_status(e, &exit_status))
-            return if (exit_status == 0) .success else .failure;
-        try handleError("failed to call function", err, trap);
-        unreachable;
+            return exit_status == 0;
     }
 
-    return .success;
+    try handleError("failed to call function", err, trap);
+
+    return true;
 }
 
-pub fn main(self: Self) !ExitStatus {
+pub fn main(self: @This()) !bool {
     var wasi_main: c.wasmtime_func = undefined;
     try handleError(
         "failed to locate default export",
@@ -278,35 +238,29 @@ pub fn main(self: Self) !ExitStatus {
     );
 
     var trap: ?*c.wasm_trap_t = null;
-    return self.handleExit(
+    return handleExit(
         c.wasmtime_func_call(self.wasm_context, &wasi_main, null, 0, null, 0, &trap),
         trap,
     );
 }
 
-pub fn handleEvent(self: Self, event: State.Callback.Event) !ExitStatus {
-    const callback_func: c.wasmtime_func_t = if (self.state.callback) |cb| blk: {
-        if (std.meta.activeTag(event) != cb.condition) return error.UnmatchedEvent;
-
-        var callback_export: c.wasmtime_extern_t = undefined;
-        if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, cb.func_name, cb.func_name.len, &callback_export)) return error.NoCallback;
-        if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.BadCallback;
-        break :blk callback_export.of.func;
-    } else return error.PluginCannotContinue;
-
-    var inputs: []c.wasmtime_val_t = &.{};
-    var outputs: []c.wasmtime_val_t = &.{};
-
-    switch (event) {
-        .timeout_ms => {},
-    }
-
+pub fn call(self: @This(), func_name: [:0]const u8, inputs: []c.wasmtime_val_t, outputs: []c.wasmtime_val_t) !bool {
     var trap: ?*c.wasm_trap_t = null;
-    const err = c.wasmtime_func_call(self.wasm_context, &callback_func, inputs.ptr, inputs.len, outputs.ptr, outputs.len, &trap);
-
-    try self.state.unsetCallback();
-
-    return self.handleExit(err, trap);
+    return handleExit(
+        c.wasmtime_func_call(
+            self.wasm_context,
+            blk: {
+                var callback_export: c.wasmtime_extern_t = undefined;
+                if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, func_name, func_name.len, &callback_export)) return error.NoSuchFunction;
+                if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
+                break :blk &callback_export.of.func; // TODO can i return a pointer to block scope?
+            },
+            inputs.ptr, inputs.len,
+            outputs.ptr, outputs.len,
+            &trap,
+        ),
+        trap,
+    );
 }
 
 fn handleError(
