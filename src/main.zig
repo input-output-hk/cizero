@@ -23,9 +23,8 @@ pub fn main() !void {
         .timeout = mods.Timeout.init(allocator, &registry),
         .to_upper = .{},
     };
-
-    try registry.modules.append(Module.init(&modules.timeout));
-    try registry.modules.append(Module.init(&modules.to_upper));
+    inline for (@typeInfo(@TypeOf(modules)).Struct.fields) |field|
+        try registry.modules.append(Module.init(&@field(modules, field.name)));
 
     {
         var args = try std.process.argsWithAllocator(allocator);
