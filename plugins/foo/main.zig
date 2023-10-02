@@ -12,10 +12,13 @@ usingnamespace if (builtin.is_test) struct {} else struct {
 };
 
 pub fn main() u8 {
-    return main2() catch |err| handleError(err);
+    return mainZig() catch |err| {
+        std.log.err("{}\n", .{err});
+        return 1;
+    };
 }
 
-fn main2() !u8 {
+fn mainZig() !u8 {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
 
@@ -29,15 +32,10 @@ fn main2() !u8 {
     const now_ms = std.time.milliTimestamp();
     const timeout_ms = now_ms + 2 * std.time.ms_per_s;
     std.debug.print("setting timeout callback for {d}s at {d}s\n", .{
-        @divFloor(timeout_ms, std.time.ms_per_s),
-        @divFloor(now_ms, std.time.ms_per_s),
+        try std.math.divFloor(i64, timeout_ms, std.time.ms_per_s),
+        try std.math.divFloor(i64, now_ms, std.time.ms_per_s),
     });
     cizero.onTimeout("timeoutCallback", timeout_ms);
 
     return 0;
-}
-
-fn handleError(err: anyerror) u8 {
-    std.log.err("{any}\n", .{err});
-    return 1;
 }
