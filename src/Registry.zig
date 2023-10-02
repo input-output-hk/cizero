@@ -1,9 +1,8 @@
 const std = @import("std");
 
-const module = @import("module.zig");
 const plugin = @import("plugin.zig");
 
-const Module = module.Module;
+const Module = @import("Module.zig");
 const Plugin = plugin.Plugin;
 const Runtime = plugin.Runtime;
 

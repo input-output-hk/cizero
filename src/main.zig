@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const module = @import("module.zig");
+const mods = @import("modules.zig");
 const plugin = @import("plugin.zig");
 
-const Module = module.Module;
+const Module = @import("Module.zig");
 const Plugin = plugin.Plugin;
 const Registry = @import("Registry.zig");
 
@@ -17,10 +17,10 @@ pub fn main() !void {
     defer registry.deinit();
 
     var modules = struct{
-        timeout: module.TimeoutModule,
-        to_upper: module.ToUpperModule,
+        timeout: mods.Timeout,
+        to_upper: mods.ToUpper,
     }{
-        .timeout = module.TimeoutModule.init(allocator, &registry),
+        .timeout = mods.Timeout.init(allocator, &registry),
         .to_upper = .{},
     };
 
@@ -51,8 +51,10 @@ pub fn main() !void {
 }
 
 test {
-    _ = module;
+    _ = mods;
     _ = plugin;
+    _ = Module;
+    _ = Registry;
     _ = @import("wasm.zig");
     _ = @import("wasmtime.zig");
 }
