@@ -143,6 +143,10 @@ pub const HostFunction = struct {
     user_data: ?*anyopaque,
 
     pub const Callback = fn (?*anyopaque, []const u8, []u8, []const Val, []Val) anyerror!void;
+
+    pub fn call(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const Val, outputs: []Val) anyerror!void {
+        return self.callback(self.user_data, plugin_name, memory, inputs, outputs);
+    }
 };
 
 /// Companion to `std.wasm.Valtype`.
@@ -187,13 +191,7 @@ fn dispatchHostFunction(
 
     const host_function_name: *[]const u8 = @alignCast(@ptrCast(user_data));
     const host_function = self.host_functions.getPtr(host_function_name.*) orelse unreachable;
-    host_function.callback(
-        host_function.user_data,
-        self.plugin_name,
-        memory,
-        input_vals,
-        output_vals,
-    ) catch |err| return errorTrap(err);
+    host_function.call(self.plugin_name, memory, input_vals, output_vals) catch |err| return errorTrap(err);
 
     return null;
 }
