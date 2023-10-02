@@ -24,7 +24,7 @@ pub fn deinit(self: *@This()) void {
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_functions: std.StringHashMapUnmanaged(HostFunction)) !@This() {
+pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_function_defs: std.StringHashMapUnmanaged(HostFunctionDef)) !@This() {
     const wasm_engine = blk: {
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
@@ -66,7 +66,38 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
         .wasm_linker = wasm_linker,
         .allocator = allocator,
         .plugin_name = plugin_name,
-        .host_functions = try host_functions.clone(allocator),
+        .host_functions = blk: {
+            var host_functions = std.StringHashMapUnmanaged(HostFunction){};
+            try host_functions.ensureTotalCapacity(allocator, host_function_defs.size);
+
+            var host_function_defs_iter = host_function_defs.iterator();
+            while (host_function_defs_iter.next()) |def_entry| {
+                const gop_result = host_functions.getOrPutAssumeCapacity(def_entry.key_ptr.*);
+                gop_result.value_ptr.* = def_entry.value_ptr.host_function;
+
+                std.log.debug("linking host function \"{s}\"…", .{gop_result.key_ptr.*});
+
+                const host_module_name = "cizero";
+
+                try handleError(
+                    "failed to define function",
+                    c.wasmtime_linker_define_func(
+                        wasm_linker,
+                        host_module_name,
+                        host_module_name.len,
+                        gop_result.key_ptr.ptr,
+                        gop_result.key_ptr.len,
+                        def_entry.value_ptr.signature,
+                        dispatchHostFunction,
+                        @constCast(@ptrCast(gop_result.key_ptr)), // TODO use `value_ptr` directly
+                        null,
+                    ),
+                    null,
+                );
+            }
+
+            break :blk host_functions;
+        },
     };
 
     {
@@ -81,31 +112,6 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
         const self_on_heap = try allocator.create(@This());
         self_on_heap.* = self;
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
-    }
-
-    {
-        var host_functions_iter = self.host_functions.iterator();
-        while (host_functions_iter.next()) |entry| {
-            std.log.debug("linking host function \"{s}\"…", .{entry.key_ptr.*});
-
-            const host_module_name = "cizero";
-
-            try handleError(
-                "failed to define function",
-                c.wasmtime_linker_define_func(
-                    self.wasm_linker,
-                    host_module_name,
-                    host_module_name.len,
-                    entry.key_ptr.ptr,
-                    entry.key_ptr.len,
-                    entry.value_ptr.signature,
-                    dispatchHostFunction,
-                    @constCast(@ptrCast(entry.key_ptr)),
-                    null,
-                ),
-                null,
-            );
-        }
     }
 
     {
@@ -127,14 +133,12 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
     return self;
 }
 
-// TODO split into two so we don't have to keep signature in memory (only needed in `init`)
-pub const HostFunction = struct {
-    // definition
-
+pub const HostFunctionDef = struct {
     signature: *c.wasm_functype_t, // TODO replace with `std.wasm.Type`
+    host_function: HostFunction,
+};
 
-    // invocation
-
+pub const HostFunction = struct {
     callback: *const Callback,
     user_data: ?*anyopaque,
 

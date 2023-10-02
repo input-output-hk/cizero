@@ -40,8 +40,8 @@ pub fn runtime(self: *@This(), plugin_name: []const u8) !Runtime {
 }
 
 /// Remember to deinit after use.
-fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringHashMapUnmanaged(Runtime.HostFunction) {
-    var host_functions = std.StringHashMapUnmanaged(Runtime.HostFunction){};
+fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringHashMapUnmanaged(Runtime.HostFunctionDef) {
+    var host_functions = std.StringHashMapUnmanaged(Runtime.HostFunctionDef){};
     try host_functions.ensureTotalCapacity(allocator, @intCast(self.modules.items.len));
 
     for (self.modules.items) |m| {
