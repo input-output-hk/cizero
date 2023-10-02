@@ -91,7 +91,7 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
                         gop_result.key_ptr.len,
                         try wasmtime.functype(allocator, def_entry.value_ptr.signature),
                         dispatchHostFunction,
-                        @constCast(@ptrCast(gop_result.key_ptr)), // TODO use `value_ptr` directly
+                        gop_result.value_ptr,
                         null,
                     ),
                     null,
@@ -146,7 +146,7 @@ pub const HostFunction = struct {
 
     pub const Callback = fn (?*anyopaque, []const u8, []u8, []const wasm.Val, []wasm.Val) anyerror!void;
 
-    pub fn call(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
+    fn call(self: @This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
         return self.callback(self.user_data, plugin_name, memory, inputs, outputs);
     }
 };
@@ -171,8 +171,7 @@ fn dispatchHostFunction(
     for (output_vals, 0..) |*val, i| val.* = wasmtime.fromVal(outputs[i]);
     defer self.allocator.free(output_vals);
 
-    const host_function_name: *[]const u8 = @alignCast(@ptrCast(user_data));
-    const host_function = self.host_functions.getPtr(host_function_name.*).?;
+    const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
     host_function.call(self.plugin_name, memory, input_vals, output_vals) catch |err| return errorTrap(err);
 
     return null;
