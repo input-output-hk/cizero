@@ -19,3 +19,7 @@ pub const Plugin = struct {
         return try Runtime.init(allocator, name, self.wasm, host_functions);
     }
 };
+
+test {
+    _ = Runtime;
+}
