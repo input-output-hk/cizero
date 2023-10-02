@@ -13,7 +13,7 @@ allocator: std.mem.Allocator,
 
 plugin_name: []const u8,
 
-host_functions: std.StringHashMapUnmanaged(HostFunction),
+host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
 
 pub fn deinit(self: *@This()) void {
     const self_on_heap: *@This() = @alignCast(@ptrCast(c.wasmtime_context_get_data(self.wasm_context)));
@@ -26,7 +26,7 @@ pub fn deinit(self: *@This()) void {
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_function_defs: std.StringHashMapUnmanaged(HostFunctionDef)) !@This() {
+pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_function_defs: std.StringArrayHashMapUnmanaged(HostFunctionDef)) !@This() {
     const wasm_engine = blk: {
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
@@ -69,8 +69,8 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
         .allocator = allocator,
         .plugin_name = plugin_name,
         .host_functions = blk: {
-            var host_functions = std.StringHashMapUnmanaged(HostFunction){};
-            try host_functions.ensureTotalCapacity(allocator, host_function_defs.size);
+            var host_functions = std.StringArrayHashMapUnmanaged(HostFunction){};
+            try host_functions.ensureTotalCapacity(allocator, host_function_defs.count());
 
             var host_function_defs_iter = host_function_defs.iterator();
             while (host_function_defs_iter.next()) |def_entry| {

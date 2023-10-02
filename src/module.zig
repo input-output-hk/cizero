@@ -8,7 +8,7 @@ const Registry = @import("Registry.zig");
 pub const Module = struct {
     impl: *anyopaque,
     impl_deinit: ?*const fn (*anyopaque) void,
-    impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef),
+    impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef),
 
     name: []const u8,
 
@@ -28,7 +28,7 @@ pub const Module = struct {
 
     /// The returned map's keys are expected to live at least as long as `impl`.
     /// Remember to deinit after use.
-    pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
+    pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
         return self.impl_host_functions(self.impl, allocator);
     }
 };
@@ -138,8 +138,8 @@ pub const TimeoutModule = struct {
         if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{callback.func_name, plugin_name});
     }
 
-    fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
-        var host_functions = std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef){};
+    fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
+        var host_functions = std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef){};
         errdefer host_functions.deinit(allocator);
         try host_functions.ensureTotalCapacity(allocator, 1);
 
@@ -186,8 +186,8 @@ pub const ToUpperModule = struct {
     // Ensure the type is not of size zero so that it can be pointed to by `Module`.
     _: u1 = undefined,
 
-    fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
-        var host_functions = std.StringHashMapUnmanaged(plugin.Runtime.HostFunctionDef){};
+    fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
+        var host_functions = std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef){};
         errdefer host_functions.deinit(allocator);
         try host_functions.ensureTotalCapacity(allocator, 1);
 
