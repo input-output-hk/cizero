@@ -1,6 +1,8 @@
 const std = @import("std");
 
 const c = @import("../c.zig");
+const wasm = @import("../wasm.zig");
+const wasmtime = @import("../wasmtime.zig");
 
 wasm_engine: ?*c.wasm_engine_t,
 wasm_store: ?*c.wasmtime_store,
@@ -87,7 +89,7 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
                         host_module_name.len,
                         gop_result.key_ptr.ptr,
                         gop_result.key_ptr.len,
-                        try wasm_functype(allocator, def_entry.value_ptr.signature),
+                        try wasmtime.functype(allocator, def_entry.value_ptr.signature),
                         dispatchHostFunction,
                         @constCast(@ptrCast(gop_result.key_ptr)), // TODO use `value_ptr` directly
                         null,
@@ -142,60 +144,12 @@ pub const HostFunction = struct {
     callback: *const Callback,
     user_data: ?*anyopaque,
 
-    pub const Callback = fn (?*anyopaque, []const u8, []u8, []const Val, []Val) anyerror!void;
+    pub const Callback = fn (?*anyopaque, []const u8, []u8, []const wasm.Val, []wasm.Val) anyerror!void;
 
-    pub fn call(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const Val, outputs: []Val) anyerror!void {
+    pub fn call(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
         return self.callback(self.user_data, plugin_name, memory, inputs, outputs);
     }
 };
-
-/// Companion to `std.wasm.Valtype`.
-pub const Val = union(std.wasm.Valtype) {
-    i32: i32,
-    i64: i64,
-    f32: f32,
-    f64: f64,
-    v128: [16]u8,
-
-    fn fromWasmtime(v: c.wasmtime_val) @This() {
-        return switch (v.kind) {
-            c.WASMTIME_I32 => .{ .i32 = v.of.i32 },
-            c.WASMTIME_I64 => .{ .i64 = v.of.i64 },
-            c.WASMTIME_F32 => .{ .f32 = v.of.f32 },
-            c.WASMTIME_F64 => .{ .f64 = v.of.f64 },
-            c.WASMTIME_V128 => .{ .v128 = v.of.v128 },
-            else => unreachable,
-        };
-    }
-};
-
-fn wasm_valkind(kind: std.wasm.Valtype) c.wasm_valkind_t {
-    return switch (kind) {
-        .i32 => c.WASM_I32,
-        .i64 => c.WASM_I64,
-        .f32 => c.WASM_F32,
-        .f64 => c.WASM_F64,
-        .v128 => @panic("not supported"),
-    };
-}
-
-fn wasm_valtype_vec(allocator: std.mem.Allocator, valtypes: []const std.wasm.Valtype) !c.wasm_valtype_vec_t {
-    var wasm_valtypes = try allocator.alloc(*c.wasm_valtype_t, valtypes.len);
-    defer allocator.free(wasm_valtypes);
-
-    for (valtypes, 0..) |in, i| wasm_valtypes[i] = c.wasm_valtype_new(wasm_valkind(in)).?;
-
-    var vec: c.wasm_valtype_vec_t = undefined;
-    c.wasm_valtype_vec_new(&vec, wasm_valtypes.len, wasm_valtypes.ptr);
-
-    return vec;
-}
-
-fn wasm_functype(allocator: std.mem.Allocator, signature: std.wasm.Type) !*c.wasm_functype_t {
-    var params = try wasm_valtype_vec(allocator, signature.params);
-    var returns = try wasm_valtype_vec(allocator, signature.returns);
-    return c.wasm_functype_new(&params, &returns).?;
-}
 
 fn dispatchHostFunction(
     user_data: ?*anyopaque,
@@ -209,12 +163,12 @@ fn dispatchHostFunction(
 
     const memory = getMemoryFromCaller(caller).@"1";
 
-    var input_vals = self.allocator.alloc(Val, inputs_len) catch |err| return errorTrap(err);
-    for (input_vals, 0..) |*val, i| val.* = Val.fromWasmtime(inputs[i]);
+    var input_vals = self.allocator.alloc(wasm.Val, inputs_len) catch |err| return errorTrap(err);
+    for (input_vals, 0..) |*val, i| val.* = wasmtime.fromVal(inputs[i]);
     defer self.allocator.free(input_vals);
 
-    var output_vals = self.allocator.alloc(Val, outputs_len) catch |err| return errorTrap(err);
-    for (output_vals, 0..) |*val, i| val.* = Val.fromWasmtime(outputs[i]);
+    var output_vals = self.allocator.alloc(wasm.Val, outputs_len) catch |err| return errorTrap(err);
+    for (output_vals, 0..) |*val, i| val.* = wasmtime.fromVal(outputs[i]);
     defer self.allocator.free(output_vals);
 
     const host_function_name: *[]const u8 = @alignCast(@ptrCast(user_data));
@@ -319,8 +273,4 @@ fn handleError(
     }
 
     unreachable;
-}
-
-test {
-    _ = c;
 }

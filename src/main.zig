@@ -53,4 +53,6 @@ pub fn main() !void {
 test {
     _ = module;
     _ = plugin;
+    _ = @import("wasm.zig");
+    _ = @import("wasmtime.zig");
 }

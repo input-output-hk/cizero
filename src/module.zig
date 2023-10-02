@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const plugin = @import("plugin.zig");
+const wasm = @import("wasm.zig");
 
 const Registry = @import("Registry.zig");
 
@@ -156,7 +157,7 @@ pub const TimeoutModule = struct {
         return host_functions;
     }
 
-    fn onTimeout(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const plugin.Runtime.Val, outputs: []plugin.Runtime.Val) !void {
+    fn onTimeout(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
         std.debug.assert(inputs.len == 2);
         std.debug.assert(outputs.len == 0);
 
@@ -204,7 +205,7 @@ pub const ToUpperModule = struct {
         return host_functions;
     }
 
-    fn toUpper(_: *@This(), _: []const u8, memory: []u8, inputs: []const plugin.Runtime.Val, outputs: []plugin.Runtime.Val) !void {
+    fn toUpper(_: *@This(), _: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
         std.debug.assert(inputs.len == 1);
         std.debug.assert(outputs.len == 0);
 
