@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const c = @import("c.zig");
 const plugin = @import("plugin.zig");
 
 const Registry = @import("Registry.zig");
@@ -144,10 +143,10 @@ pub const TimeoutModule = struct {
         try host_functions.ensureTotalCapacity(allocator, 1);
 
         host_functions.putAssumeCapacityNoClobber("onTimeout", .{
-            .signature = c.wasm_functype_new_2_0(
-                c.wasm_valtype_new_i32(),
-                c.wasm_valtype_new_i64(),
-            ) orelse return error.WasmtimeError,
+            .signature = .{
+                .params = &.{ .i32, .i64 },
+                .returns = &.{},
+            },
             .host_function = .{
                 .callback = @ptrCast(&onTimeout),
                 .user_data = self,
@@ -192,9 +191,10 @@ pub const ToUpperModule = struct {
         try host_functions.ensureTotalCapacity(allocator, 1);
 
         host_functions.putAssumeCapacityNoClobber("toUpper", .{
-            .signature = c.wasm_functype_new_1_0(
-                c.wasm_valtype_new_i32(),
-            ) orelse return error.WasmtimeError,
+            .signature = .{
+                .params = &.{ .i32 },
+                .returns = &.{},
+            },
             .host_function = .{
                 .callback = @ptrCast(&toUpper),
                 .user_data = self,

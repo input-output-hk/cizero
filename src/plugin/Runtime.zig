@@ -87,7 +87,7 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
                         host_module_name.len,
                         gop_result.key_ptr.ptr,
                         gop_result.key_ptr.len,
-                        def_entry.value_ptr.signature,
+                        try wasm_functype(allocator, def_entry.value_ptr.signature),
                         dispatchHostFunction,
                         @constCast(@ptrCast(gop_result.key_ptr)), // TODO use `value_ptr` directly
                         null,
@@ -134,7 +134,7 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
 }
 
 pub const HostFunctionDef = struct {
-    signature: *c.wasm_functype_t, // TODO replace with `std.wasm.Type`
+    signature: std.wasm.Type,
     host_function: HostFunction,
 };
 
@@ -168,6 +168,34 @@ pub const Val = union(std.wasm.Valtype) {
         };
     }
 };
+
+fn wasm_valkind(kind: std.wasm.Valtype) c.wasm_valkind_t {
+    return switch (kind) {
+        .i32 => c.WASM_I32,
+        .i64 => c.WASM_I64,
+        .f32 => c.WASM_F32,
+        .f64 => c.WASM_F64,
+        .v128 => @panic("not supported"),
+    };
+}
+
+fn wasm_valtype_vec(allocator: std.mem.Allocator, valtypes: []const std.wasm.Valtype) !c.wasm_valtype_vec_t {
+    var wasm_valtypes = try allocator.alloc(*c.wasm_valtype_t, valtypes.len);
+    defer allocator.free(wasm_valtypes);
+
+    for (valtypes, 0..) |in, i| wasm_valtypes[i] = c.wasm_valtype_new(wasm_valkind(in)).?;
+
+    var vec: c.wasm_valtype_vec_t = undefined;
+    c.wasm_valtype_vec_new(&vec, wasm_valtypes.len, wasm_valtypes.ptr);
+
+    return vec;
+}
+
+fn wasm_functype(allocator: std.mem.Allocator, signature: std.wasm.Type) !*c.wasm_functype_t {
+    var params = try wasm_valtype_vec(allocator, signature.params);
+    var returns = try wasm_valtype_vec(allocator, signature.returns);
+    return c.wasm_functype_new(&params, &returns).?;
+}
 
 fn dispatchHostFunction(
     user_data: ?*anyopaque,
