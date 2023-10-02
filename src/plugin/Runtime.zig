@@ -190,7 +190,7 @@ fn dispatchHostFunction(
     defer self.allocator.free(output_vals);
 
     const host_function_name: *[]const u8 = @alignCast(@ptrCast(user_data));
-    const host_function = self.host_functions.getPtr(host_function_name.*) orelse unreachable;
+    const host_function = self.host_functions.getPtr(host_function_name.*).?;
     host_function.call(self.plugin_name, memory, input_vals, output_vals) catch |err| return errorTrap(err);
 
     return null;
