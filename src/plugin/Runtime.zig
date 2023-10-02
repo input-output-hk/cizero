@@ -253,7 +253,7 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []c.wasmtime_val_t, 
                 var callback_export: c.wasmtime_extern_t = undefined;
                 if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, func_name, func_name.len, &callback_export)) return error.NoSuchFunction;
                 if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
-                break :blk &callback_export.of.func; // TODO can i return a pointer to block scope?
+                break :blk &callback_export.of.func;
             },
             inputs.ptr, inputs.len,
             outputs.ptr, outputs.len,
