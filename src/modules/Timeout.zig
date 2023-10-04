@@ -56,7 +56,7 @@ pub fn start(self: *@This()) !std.Thread {
     return std.Thread.spawn(.{}, loop, .{ self });
 }
 
-fn loop(self: *@This()) noreturn {
+fn loop(self: *@This()) !void {
     while (true) {
         const PluginCallback = struct {
             plugin_name: []const u8,
@@ -88,9 +88,9 @@ fn loop(self: *@This()) noreturn {
             if (now_ms < next.callback.timestamp) {
                 const timeout_ns: u64 = @intCast((next.callback.timestamp - now_ms) * std.time.ns_per_ms);
                 self.restart_loop.timedWait(timeout_ns) catch
-                    self.runCallback(next.plugin_name, next.callback, next.state_index);
+                    try self.runCallback(next.plugin_name, next.callback, next.state_index);
             } else {
-                self.runCallback(next.plugin_name, next.callback, next.state_index);
+                try self.runCallback(next.plugin_name, next.callback, next.state_index);
             }
         } else self.restart_loop.wait();
 
@@ -98,14 +98,12 @@ fn loop(self: *@This()) noreturn {
     }
 }
 
-fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, state_index: usize) void {
+fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, state_index: usize) !void {
     _ = self.plugin_states.getPtr(plugin_name).?.swapRemove(state_index);
 
     // TODO run on new thread
-    const runtime = self.registry.runtime(plugin_name) catch |err|
-        std.debug.panic("failed to create runtime for plugin \"{s}\": {}", .{plugin_name, err});
-    const success = runtime.call(callback.func_name, &.{}, &.{}) catch |err|
-        std.debug.panic("failed to run callback function \"{s}\" on plugin \"{s}\": {}", .{callback.func_name, plugin_name, err});
+    const runtime = try self.registry.runtime(plugin_name);
+    const success = try runtime.call(callback.func_name, &.{}, &.{});
     if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{callback.func_name, plugin_name});
 }
 
