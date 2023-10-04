@@ -14,7 +14,8 @@ pub const Plugin = struct {
         return .{ .wasm = wasm };
     }
 
-    /// Remember to deinit the runtime after use.
+    /// The runtime cannot outlive the plugin.
+    /// Remember to deinit after use.
     pub fn runtime(self: *@This(), allocator: std.mem.Allocator, name: []const u8, host_functions: std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef)) !Runtime {
         return try Runtime.init(allocator, name, self.wasm, host_functions);
     }
