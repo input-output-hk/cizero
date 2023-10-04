@@ -14,6 +14,19 @@ pub fn fromVal(v: c.wasmtime_val) wasm.Val {
     };
 }
 
+pub fn val(v: wasm.Val) c.wasmtime_val {
+    return .{
+        .kind = valkind(std.meta.activeTag(v)),
+        .of = switch (v) {
+            .i32 => |n| .{ .i32 = n },
+            .i64 => |n| .{ .i64 = n },
+            .f32 => |n| .{ .f32 = n },
+            .f64 => |n| .{ .f64 = n },
+            .v128 => |n| .{ .v128 = n },
+        },
+    };
+}
+
 pub fn valkind(kind: std.wasm.Valtype) c.wasm_valkind_t {
     return switch (kind) {
         .i32 => c.WASM_I32,

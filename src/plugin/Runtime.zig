@@ -190,11 +190,12 @@ fn dispatchHostFunction(
     defer self.allocator.free(input_vals);
 
     var output_vals = self.allocator.alloc(wasm.Val, outputs_len) catch |err| return errorTrap(err);
-    for (output_vals, 0..) |*val, i| val.* = wasmtime.fromVal(outputs[i]);
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
     host_function.call(self.plugin, memory, input_vals, output_vals) catch |err| return errorTrap(err);
+
+    for (output_vals, 0..) |val, i| outputs[i] = wasmtime.val(val);
 
     return null;
 }
