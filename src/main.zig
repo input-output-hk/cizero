@@ -1,10 +1,9 @@
 const std = @import("std");
 
 const mods = @import("modules.zig");
-const plugin = @import("plugin.zig");
 
 const Module = @import("Module.zig");
-const Plugin = plugin.Plugin;
+const Plugin = @import("Plugin.zig");
 const Registry = @import("Registry.zig");
 
 pub fn main() !void {
@@ -32,14 +31,16 @@ pub fn main() !void {
 
         _ = args.next(); // discard executable (not a plugin)
         while (args.next()) |arg| {
-            const name = try registry.allocator.dupe(u8, std.fs.path.stem(arg));
+            const plugin = Plugin{
+                .path = try registry.allocator.dupe(u8, arg),
+            };
+            const plugin_name = plugin.name();
 
-            std.log.info("loading plugin \"{s}\"…", .{name});
+            std.log.info("registering plugin \"{s}\"…", .{plugin_name});
 
-            const wasm = try std.fs.cwd().readFileAlloc(registry.allocator, arg, std.math.maxInt(usize));
-            try registry.plugins.put(name, Plugin.init(wasm));
+            try registry.plugins.put(plugin_name, plugin);
 
-            var runtime = try registry.runtime(name);
+            var runtime = try registry.runtime(plugin_name);
             defer runtime.deinit();
 
             if (!try runtime.main()) return error.PluginMainFailed;
@@ -51,8 +52,8 @@ pub fn main() !void {
 
 test {
     _ = mods;
-    _ = plugin;
     _ = Module;
+    _ = Plugin;
     _ = Registry;
     _ = @import("wasm.zig");
     _ = @import("wasmtime.zig");

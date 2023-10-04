@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const plugin = @import("../plugin.zig");
 const wasm = @import("../wasm.zig");
 
+const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
 
 pub const name = "timeout";
@@ -109,8 +109,8 @@ fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, stat
     if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{callback.func_name, plugin_name});
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
-    var host_functions = std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef){};
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
+    var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
     errdefer host_functions.deinit(allocator);
     try host_functions.ensureTotalCapacity(allocator, 1);
 
@@ -119,21 +119,18 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
             .params = &.{ .i32, .i64 },
             .returns = &.{},
         },
-        .host_function = .{
-            .callback = @ptrCast(&onTimeout),
-            .user_data = self,
-        },
+        .host_function = Plugin.Runtime.HostFunction.init(onTimeout, self),
     });
 
     return host_functions;
 }
 
-fn onTimeout(self: *@This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
+fn onTimeout(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 0);
 
     const state = blk: {
-        const result = try self.plugin_states.getOrPut(self.allocator, plugin_name);
+        const result = try self.plugin_states.getOrPut(self.allocator, plugin.name());
         if (!result.found_existing) result.value_ptr.* = .{};
         break :blk result.value_ptr;
     };

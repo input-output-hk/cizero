@@ -4,6 +4,8 @@ const c = @import("../c.zig");
 const wasm = @import("../wasm.zig");
 const wasmtime = @import("../wasmtime.zig");
 
+const Plugin = @import("../Plugin.zig");
+
 wasm_engine: ?*c.wasm_engine_t,
 wasm_store: ?*c.wasmtime_store,
 wasm_context: ?*c.wasmtime_context,
@@ -11,7 +13,8 @@ wasm_linker: ?*c.wasmtime_linker,
 
 allocator: std.mem.Allocator,
 
-plugin_name: []const u8,
+plugin: Plugin,
+plugin_wasm: []const u8,
 
 host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
 
@@ -20,13 +23,14 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self_on_heap);
 
     self.host_functions.deinit(self.allocator);
+    self.allocator.free(self.plugin_wasm);
 
     c.wasmtime_linker_delete(self.wasm_linker);
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary: []const u8, host_function_defs: std.StringArrayHashMapUnmanaged(HostFunctionDef)) !@This() {
+pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: std.StringArrayHashMapUnmanaged(HostFunctionDef)) !@This() {
     const wasm_engine = blk: {
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
@@ -67,7 +71,8 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
         .wasm_context = wasm_context,
         .wasm_linker = wasm_linker,
         .allocator = allocator,
-        .plugin_name = plugin_name,
+        .plugin = plugin,
+        .plugin_wasm = try plugin.wasm(allocator),
         .host_functions = blk: {
             var host_functions = std.StringArrayHashMapUnmanaged(HostFunction){};
             try host_functions.ensureTotalCapacity(allocator, host_function_defs.count());
@@ -121,7 +126,7 @@ pub fn init(allocator: std.mem.Allocator, plugin_name: []const u8, module_binary
         defer c.wasmtime_module_delete(wasm_module);
         try handleError(
             "failed to compile module",
-            c.wasmtime_module_new(wasm_engine, module_binary.ptr, module_binary.len, &wasm_module),
+            c.wasmtime_module_new(wasm_engine, self.plugin_wasm.ptr, self.plugin_wasm.len, &wasm_module),
             null,
         );
 
@@ -144,10 +149,27 @@ pub const HostFunction = struct {
     callback: *const Callback,
     user_data: ?*anyopaque,
 
-    pub const Callback = fn (?*anyopaque, []const u8, []u8, []const wasm.Val, []wasm.Val) anyerror!void;
+    pub const Callback = fn (?*anyopaque, Plugin, []u8, []const wasm.Val, []wasm.Val) anyerror!void;
 
-    fn call(self: @This(), plugin_name: []const u8, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
-        return self.callback(self.user_data, plugin_name, memory, inputs, outputs);
+    pub fn init(callback: anytype, user_data: ?*anyopaque) @This() {
+        comptime {
+            const T = @typeInfo(@TypeOf(callback)).Fn;
+            if (
+                T.params[1].@"type".? != Plugin or
+                T.params[2].@"type".? != []u8 or
+                T.params[3].@"type".? != []const wasm.Val or
+                T.params[4].@"type".? != []wasm.Val or
+                @typeInfo(T.return_type.?).ErrorUnion.payload != void
+            ) @compileError("bad callback signature");
+        }
+        return .{
+            .callback = @ptrCast(&callback),
+            .user_data = user_data,
+        };
+    }
+
+    fn call(self: @This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
+        return self.callback(self.user_data, plugin, memory, inputs, outputs);
     }
 };
 
@@ -172,7 +194,7 @@ fn dispatchHostFunction(
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
-    host_function.call(self.plugin_name, memory, input_vals, output_vals) catch |err| return errorTrap(err);
+    host_function.call(self.plugin, memory, input_vals, output_vals) catch |err| return errorTrap(err);
 
     return null;
 }

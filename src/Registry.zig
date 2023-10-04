@@ -1,10 +1,7 @@
 const std = @import("std");
 
-const plugin = @import("plugin.zig");
-
 const Module = @import("Module.zig");
-const Plugin = plugin.Plugin;
-const Runtime = plugin.Runtime;
+const Plugin = @import("Plugin.zig");
 
 allocator: std.mem.Allocator,
 
@@ -13,7 +10,6 @@ plugins: std.StringArrayHashMap(Plugin),
 
 pub fn deinit(self: *@This()) void {
     for (self.plugins.values()) |v| v.deinit(self.allocator);
-    for (self.plugins.keys()) |k| self.allocator.free(k);
     self.plugins.deinit();
 
     for (self.modules.items) |*m| m.deinit();
@@ -29,18 +25,18 @@ pub fn init(allocator: std.mem.Allocator) @This() {
 }
 
 /// Remember to deinit after use.
-pub fn runtime(self: *@This(), plugin_name: []const u8) !Runtime {
-    const p = self.plugins.getPtr(plugin_name) orelse return error.NoSuchPlugin;
+pub fn runtime(self: *@This(), plugin_name: []const u8) !Plugin.Runtime {
+    const p = self.plugins.get(plugin_name) orelse return error.NoSuchPlugin;
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
 
-    return try p.runtime(self.allocator, plugin_name, host_functions);
+    return try Plugin.Runtime.init(self.allocator, p, host_functions);
 }
 
 /// Remember to deinit after use.
-fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
-    var host_functions = std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef){};
+fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
+    var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
     try host_functions.ensureTotalCapacity(allocator, @intCast(self.modules.items.len));
 
     for (self.modules.items) |m| {

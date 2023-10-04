@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const plugin = @import("plugin.zig");
+const Plugin = @import("Plugin.zig");
 
 impl: *anyopaque,
 impl_deinit: ?*const fn (*anyopaque) void,
-impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef),
+impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef),
 
 name: []const u8,
 
@@ -24,6 +24,6 @@ pub fn init(impl: anytype) @This() {
 
 /// The returned map's keys are expected to live at least as long as `impl`.
 /// Remember to deinit after use.
-pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(plugin.Runtime.HostFunctionDef) {
+pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return self.impl_host_functions(self.impl, allocator);
 }
