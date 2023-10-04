@@ -186,7 +186,7 @@ fn dispatchHostFunction(
     const memory = getMemoryFromCaller(caller).@"1";
 
     var input_vals = self.allocator.alloc(wasm.Val, inputs_len) catch |err| return errorTrap(err);
-    for (input_vals, 0..) |*val, i| val.* = wasmtime.fromVal(inputs[i]);
+    for (input_vals, inputs) |*val, input| val.* = wasmtime.fromVal(input);
     defer self.allocator.free(input_vals);
 
     var output_vals = self.allocator.alloc(wasm.Val, outputs_len) catch |err| return errorTrap(err);
@@ -195,7 +195,7 @@ fn dispatchHostFunction(
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
     host_function.call(self.plugin, memory, input_vals, output_vals) catch |err| return errorTrap(err);
 
-    for (output_vals, 0..) |val, i| outputs[i] = wasmtime.val(val);
+    for (output_vals, outputs) |val, *output| output.* = wasmtime.val(val);
 
     return null;
 }
