@@ -64,11 +64,9 @@ fn loop(self: *@This()) !void {
             state_index: usize,
         };
 
-        // TODO make thread safe
         const next_callback = blk: {
             var next: ?PluginCallback = null;
 
-            // TODO use `std.sort` instead?
             var plugin_states_iter = self.plugin_states.iterator();
             while (plugin_states_iter.next()) |entry| {
                 for (entry.value_ptr.items, 0..) |callback, i| {
