@@ -186,7 +186,7 @@ fn dispatchHostFunction(
     const memory = getMemoryFromCaller(caller).@"1";
 
     var input_vals = self.allocator.alloc(wasm.Val, inputs_len) catch |err| return errorTrap(err);
-    for (input_vals, inputs) |*val, input| val.* = wasmtime.fromVal(input);
+    for (input_vals, inputs) |*val, input| val.* = wasmtime.fromVal(input) catch |err| return errorTrap(err);
     defer self.allocator.free(input_vals);
 
     var output_vals = self.allocator.alloc(wasm.Val, outputs_len) catch |err| return errorTrap(err);
@@ -250,23 +250,33 @@ pub fn main(self: @This()) !bool {
     );
 }
 
-pub fn call(self: @This(), func_name: [:0]const u8, inputs: []c.wasmtime_val_t, outputs: []c.wasmtime_val_t) !bool {
+pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Val, outputs: []wasm.Val) !bool {
+    var c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
+    for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
+    defer self.allocator.free(c_inputs);
+
+    var c_outputs = try self.allocator.alloc(c.wasmtime_val, outputs.len);
+    defer self.allocator.free(c_outputs);
+
     var trap: ?*c.wasm_trap_t = null;
-    return handleExit(
-        c.wasmtime_func_call(
-            self.wasm_context,
-            blk: {
-                var callback_export: c.wasmtime_extern_t = undefined;
-                if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, func_name, func_name.len, &callback_export)) return error.NoSuchFunction;
-                if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
-                break :blk &callback_export.of.func;
-            },
-            inputs.ptr, inputs.len,
-            outputs.ptr, outputs.len,
-            &trap,
-        ),
-        trap,
+    const wasmtime_err = c.wasmtime_func_call(
+        self.wasm_context,
+        blk: {
+            var callback_export: c.wasmtime_extern_t = undefined;
+            if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, func_name, func_name.len, &callback_export)) return error.NoSuchFunction;
+            if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
+            break :blk &callback_export.of.func;
+        },
+        c_inputs.ptr, c_inputs.len,
+        c_outputs.ptr, c_outputs.len,
+        &trap,
     );
+
+    for (outputs, c_outputs) |*output, c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
+        error.UnknownWasmtimeVal => return false,
+    };
+
+    return handleExit(wasmtime_err, trap);
 }
 
 fn handleError(

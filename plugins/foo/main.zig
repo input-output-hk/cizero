@@ -10,9 +10,10 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         std.debug.print("> called timestampCallback() at {d}s\n", .{now_s});
     }
 
-    export fn cronCallback() void {
+    export fn cronCallback() bool {
         const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
         std.debug.print("> called cronCallback() at {d}s\n", .{now_s});
+        return false;
     }
 };
 

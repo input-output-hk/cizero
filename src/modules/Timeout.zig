@@ -121,12 +121,27 @@ fn loop(self: *@This()) !void {
 }
 
 fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, state_index: usize) !void {
-    _ = self.plugin_states.getPtr(plugin_name).?.swapRemove(state_index);
+    const runtime = try self.registry.runtime(plugin_name);
+
+    // No need to heap-allocate here.
+    // Just stack-allocate sufficient memory for all cases.
+    var outputs_memory: [1]wasm.Val = undefined;
+    var outputs = outputs_memory[0..switch (callback.timeout) {
+        .timestamp => 0,
+        .cron => 1,
+    }];
 
     // TODO run on new thread
-    const runtime = try self.registry.runtime(plugin_name);
-    const success = try runtime.call(callback.func_name, &.{}, &.{});
+    const success = try runtime.call(callback.func_name, &.{}, outputs);
     if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{callback.func_name, plugin_name});
+
+    if (!success or switch (callback.timeout) {
+        .timestamp => true,
+        .cron => outputs[0].i32 > 0,
+    }) {
+        var state = self.plugin_states.getPtr(plugin_name).?;
+        _ = state.swapRemove(state_index);
+    }
 }
 
 fn addCallback(self: *@This(), plugin_name: []const u8, callback: Callback) !void {

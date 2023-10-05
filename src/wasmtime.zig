@@ -3,14 +3,14 @@ const std = @import("std");
 const c = @import("c.zig");
 const wasm = @import("wasm.zig");
 
-pub fn fromVal(v: c.wasmtime_val) wasm.Val {
+pub fn fromVal(v: c.wasmtime_val) !wasm.Val {
     return switch (v.kind) {
         c.WASMTIME_I32 => .{ .i32 = v.of.i32 },
         c.WASMTIME_I64 => .{ .i64 = v.of.i64 },
         c.WASMTIME_F32 => .{ .f32 = v.of.f32 },
         c.WASMTIME_F64 => .{ .f64 = v.of.f64 },
         c.WASMTIME_V128 => .{ .v128 = v.of.v128 },
-        else => unreachable,
+        else => error.UnknownWasmtimeVal,
     };
 }
 
