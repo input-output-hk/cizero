@@ -2,14 +2,14 @@ const std = @import("std");
 
 const externs = struct {
     // process
-    extern "cizero" fn exec([*c]const [*c]const u8, usize, bool, [*c]usize, usize, usize, [*c]u8, [*c]usize, [*c]usize, [*c]u8, [*c]usize) u8;
+    extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
 
     // timeout
-    extern "cizero" fn onCron([*c]const u8, [*c]const u8) i64;
-    extern "cizero" fn onTimestamp([*c]const u8, i64) void;
+    extern "cizero" fn onCron([*]const u8, [*]const u8) i64;
+    extern "cizero" fn onTimestamp([*]const u8, i64) void;
 
     // to_upper
-    extern "cizero" fn toUpper([*c]u8) void;
+    extern "cizero" fn toUpper([*]u8) void;
 };
 
 pub fn exec(args: struct {
@@ -96,15 +96,15 @@ pub fn exec(args: struct {
 }
 
 pub fn onCron(callback_func_name: [:0]const u8, cron_expr: [:0]const u8) i64 {
-    return externs.onCron(callback_func_name, cron_expr);
+    return externs.onCron(callback_func_name.ptr, cron_expr.ptr);
 }
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, timestamp_ms: i64) void {
-    externs.onTimestamp(callback_func_name, timestamp_ms);
+    externs.onTimestamp(callback_func_name.ptr, timestamp_ms);
 }
 
 pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
     var buf = try alloc.dupeZ(u8, lower);
-    externs.toUpper(buf);
+    externs.toUpper(buf.ptr);
     return buf;
 }
