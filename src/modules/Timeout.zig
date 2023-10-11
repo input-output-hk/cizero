@@ -184,7 +184,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const was
     try self.addCallback(plugin.name(), try Callback.init(
         self.allocator,
         .{ .timestamp = inputs[1].i64 },
-        try wasm.span(memory, inputs[0]),
+        wasm.span(memory, inputs[0]),
     ));
 
     self.restart_loop.set();
@@ -195,12 +195,12 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val
     std.debug.assert(outputs.len == 1);
 
     var cron = Cron.init();
-    try cron.parse(try wasm.span(memory, inputs[1]));
+    try cron.parse(wasm.span(memory, inputs[1]));
 
     try self.addCallback(plugin.name(), try Callback.init(
         self.allocator,
         .{ .cron = cron },
-        try wasm.span(memory, inputs[0]),
+        wasm.span(memory, inputs[0]),
     ));
 
     const next = try cron.next(Datetime.now());

@@ -26,6 +26,6 @@ fn toUpper(_: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Val, outpu
     std.debug.assert(inputs.len == 1);
     std.debug.assert(outputs.len == 0);
 
-    var buf = try wasm.span(memory, inputs[0]);
+    var buf = wasm.span(memory, inputs[0]);
     _ = std.ascii.upperString(buf, buf);
 }

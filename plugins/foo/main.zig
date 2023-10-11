@@ -58,5 +58,28 @@ fn mainZig() !u8 {
         });
     }
 
+    {
+        var env = std.process.EnvMap.init(allocator);
+        try env.put("hey", "there");
+        defer env.deinit();
+
+        const result = cizero.exec(.{
+            .allocator = allocator,
+            .argv = &.{
+                "sh", "-c",
+                \\echo     this goes to stdout
+                \\echo >&2 \$hey="$hey" goes to stderr
+            },
+            .env_map = &env,
+        }) catch |err| {
+            std.debug.print("> cizero.exec() failed: {}\n", .{err});
+            return err;
+        };
+
+        std.debug.print("> term: {any}\n", .{result.term});
+        std.debug.print("> stdout: {s}\n", .{result.stdout});
+        std.debug.print("> stderr: {s}\n", .{result.stderr});
+    }
+
     return 0;
 }

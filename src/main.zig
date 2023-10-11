@@ -16,9 +16,11 @@ pub fn main() !void {
     defer registry.deinit();
 
     var modules = struct{
+        process: mods.Process,
         timeout: mods.Timeout,
         to_upper: mods.ToUpper,
     }{
+        .process = .{ .allocator = allocator },
         .timeout = mods.Timeout.init(allocator, &registry),
         .to_upper = .{},
     };
