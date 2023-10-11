@@ -20,7 +20,7 @@ const Callback = struct {
         cron: Cron,
 
         pub fn next(self: @This(), now_ms: i64) !i64 {
-            return switch(self) {
+            return switch (self) {
                 .timestamp => |ms| ms,
                 .cron => |cron| blk: {
                     // XXX We need a mutable copy of `cron` because `Cron.next()` takes itself by pointer.
@@ -73,7 +73,7 @@ pub fn init(allocator: std.mem.Allocator, registry: *Registry) @This() {
 }
 
 pub fn start(self: *@This()) !std.Thread {
-    return std.Thread.spawn(.{}, loop, .{ self });
+    return std.Thread.spawn(.{}, loop, .{self});
 }
 
 fn loop(self: *@This()) !void {
@@ -133,7 +133,7 @@ fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, stat
 
     // TODO run on new thread
     const success = try runtime.call(callback.func_name, &.{}, outputs);
-    if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{callback.func_name, plugin_name});
+    if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, plugin_name });
 
     if (!success or switch (callback.timeout) {
         .timestamp => true,
@@ -169,7 +169,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     host_functions.putAssumeCapacityNoClobber("onCron", .{
         .signature = .{
             .params = &.{ .i32, .i32 },
-            .returns = &.{ .i64 },
+            .returns = &.{.i64},
         },
         .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
     });

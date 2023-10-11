@@ -154,13 +154,12 @@ pub const HostFunction = struct {
     pub fn init(callback: anytype, user_data: ?*anyopaque) @This() {
         comptime {
             const T = @typeInfo(@TypeOf(callback)).Fn;
-            if (
-                T.params[1].@"type".? != Plugin or
-                T.params[2].@"type".? != []u8 or
-                T.params[3].@"type".? != []const wasm.Val or
-                T.params[4].@"type".? != []wasm.Val or
-                @typeInfo(T.return_type.?).ErrorUnion.payload != void
-            ) @compileError("bad callback signature");
+            if (T.params[1].type.? != Plugin or
+                T.params[2].type.? != []u8 or
+                T.params[3].type.? != []const wasm.Val or
+                T.params[4].type.? != []wasm.Val or
+                @typeInfo(T.return_type.?).ErrorUnion.payload != void)
+                @compileError("bad callback signature");
         }
         return .{
             .callback = @ptrCast(&callback),
@@ -267,8 +266,10 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Val, ou
             if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
             break :blk &callback_export.of.func;
         },
-        c_inputs.ptr, c_inputs.len,
-        c_outputs.ptr, c_outputs.len,
+        c_inputs.ptr,
+        c_inputs.len,
+        c_outputs.ptr,
+        c_outputs.len,
         &trap,
     );
 

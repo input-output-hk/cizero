@@ -33,7 +33,7 @@ fn mainZig() !u8 {
             const upper = try cizero.toUpper(allocator, arg);
             defer allocator.free(upper);
 
-            std.debug.print("> {s} → {s}\n", .{arg, upper});
+            std.debug.print("> {s} → {s}\n", .{ arg, upper });
         }
     }
 
@@ -51,7 +51,7 @@ fn mainZig() !u8 {
 
     {
         const cron = "* * * * *";
-        std.debug.print("> calling onCron(\"{s}\") at {d}s\n", .{cron, now_s});
+        std.debug.print("> calling onCron(\"{s}\") at {d}s\n", .{ cron, now_s });
         const next = cizero.onCron("cronCallback", cron);
         std.debug.print(">> cronCallback() will be called at {d}s\n", .{
             try std.math.divFloor(i64, next, std.time.ms_per_s),

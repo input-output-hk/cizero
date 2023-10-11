@@ -13,7 +13,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
 
     host_functions.putAssumeCapacityNoClobber("toUpper", .{
         .signature = .{
-            .params = &.{ .i32 },
+            .params = &.{.i32},
             .returns = &.{},
         },
         .host_function = Plugin.Runtime.HostFunction.init(toUpper, self),

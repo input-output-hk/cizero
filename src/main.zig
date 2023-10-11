@@ -15,7 +15,7 @@ pub fn main() !void {
     var registry = Registry.init(allocator);
     defer registry.deinit();
 
-    var modules = struct{
+    var modules = struct {
         process: mods.Process,
         timeout: mods.Timeout,
         to_upper: mods.ToUpper,
