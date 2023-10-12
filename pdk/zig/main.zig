@@ -2,7 +2,7 @@ const std = @import("std");
 
 const externs = struct {
     // process
-    extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
+    extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]const usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
 
     // timeout
     extern "cizero" fn onCron([*]const u8, [*]const u8) i64;
@@ -19,36 +19,11 @@ pub fn exec(args: struct {
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: std.process.Child.Arg0Expand = .no_expand,
 }) std.process.Child.ExecError!std.process.Child.ExecResult {
-    const argv = try args.allocator.alloc([:0]const u8, args.argv.len);
-    defer args.allocator.free(argv);
-    for (argv, args.argv) |*arg, args_arg| arg.* = try args.allocator.dupeZ(u8, args_arg);
-    defer for (argv) |arg| args.allocator.free(arg);
-    const argv_z = try args.allocator.alloc([*]const u8, argv.len);
-    defer args.allocator.free(argv_z);
-    for (argv_z, argv) |*arg_c, arg| arg_c.* = arg.ptr;
+    const argv = try CStringArray.initDupe(args.allocator, args.argv);
+    defer argv.deinit();
 
-    const env_array = if (args.env_map) |env_map| blk: {
-        const array = try args.allocator.alloc([:0]const u8, env_map.count() * 2);
-
-        var env_iter = env_map.iterator();
-        var i: usize = 0;
-        while (env_iter.next()) |entry| {
-            defer i += 2;
-            array[i] = try args.allocator.dupeZ(u8, entry.key_ptr.*);
-            array[i + 1] = try args.allocator.dupeZ(u8, entry.value_ptr.*);
-        }
-
-        break :blk array;
-    } else null;
-    defer if (env_array) |a| {
-        for (a) |kv| args.allocator.free(kv);
-        args.allocator.free(a);
-    };
-    const env_array_z = if (env_array) |a| try args.allocator.alloc([*]const u8, a.len) else null;
-    defer if (env_array_z) |a| args.allocator.free(a);
-    if (env_array_z) |a_z| {
-        for (a_z, env_array.?) |*env_kv_z, env_kv| env_kv_z.* = env_kv.ptr;
-    }
+    const env_map = if (args.env_map) |env_map| try CStringArray.initStringStringMap(args.allocator, env_map) else null;
+    defer if (env_map) |env| env.deinit();
 
     var output = try args.allocator.alloc(u8, args.max_output_bytes);
     errdefer args.allocator.free(output);
@@ -65,11 +40,11 @@ pub fn exec(args: struct {
     var term_code: usize = undefined;
 
     const err_code = externs.exec(
-        @ptrCast(argv_z.ptr),
-        argv_z.len,
+        @ptrCast(argv.c.ptr),
+        argv.c.len,
         args.expand_arg0 == .expand,
-        if (env_array_z) |a| @ptrCast(a.ptr) else null,
-        if (env_array_z) |a| a.len else 0,
+        if (env_map) |env| @ptrCast(env.c.ptr) else null,
+        if (env_map) |env| env.c.len else 0,
         args.max_output_bytes,
         output.ptr,
         &stdout_len,
@@ -91,7 +66,7 @@ pub fn exec(args: struct {
             .Unknown => .{ .Unknown = term_code },
         },
         .stdout = output[0..stdout_len],
-        .stderr = if (stderr_len != 0) output[stdout_len .. stdout_len + stderr_len] else output[0..0],
+        .stderr = output[stdout_len .. stdout_len + stderr_len],
     };
 }
 
@@ -108,3 +83,53 @@ pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
     externs.toUpper(buf.ptr);
     return buf;
 }
+
+const CStringArray = struct {
+    allocator: std.mem.Allocator,
+
+    z: ?[]const [:0]const u8,
+    c: []const [*]const u8,
+
+    pub fn deinit(self: @This()) void {
+        self.allocator.free(self.c);
+
+        if (self.z) |z| {
+            for (z) |ze| self.allocator.free(ze);
+            self.allocator.free(z);
+        }
+    }
+
+    pub fn initDupe(allocator: std.mem.Allocator, array: []const []const u8) !@This() {
+        const z = try allocator.alloc([:0]const u8, array.len);
+        for (z, array) |*ze, e| ze.* = try allocator.dupeZ(u8, e);
+
+        var self = try initRef(allocator, z);
+        self.z = z;
+
+        return self;
+    }
+
+    pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
+        const c = try allocator.alloc([*]const u8, z.len);
+        for (c, z) |*ce, ze| ce.* = ze.ptr;
+
+        return .{ .allocator = allocator, .z = null, .c = c };
+    }
+
+    pub fn initStringStringMap(allocator: std.mem.Allocator, map: anytype) !@This() {
+        const z = try allocator.alloc([:0]const u8, map.count() * 2);
+
+        var iter = map.iterator();
+        var i: usize = 0;
+        while (iter.next()) |kv| {
+            defer i += 2;
+            z[i] = try allocator.dupeZ(u8, kv.key_ptr.*);
+            z[i + 1] = try allocator.dupeZ(u8, kv.value_ptr.*);
+        }
+
+        var self = try initRef(allocator, z);
+        self.z = z;
+
+        return self;
+    }
+};
