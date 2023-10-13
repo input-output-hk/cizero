@@ -11,15 +11,22 @@ allocator: std.mem.Allocator,
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
     errdefer host_functions.deinit(allocator);
-    try host_functions.ensureTotalCapacity(allocator, 1);
 
-    host_functions.putAssumeCapacityNoClobber("exec", .{
-        .signature = .{
-            .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 },
-            .returns = &.{.i32},
-        },
-        .host_function = Plugin.Runtime.HostFunction.init(exec, self),
-    });
+    {
+        const fns = .{
+            .exec = Plugin.Runtime.HostFunctionDef{
+                .signature = .{
+                    .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 },
+                    .returns = &.{.i32},
+                },
+                .host_function = Plugin.Runtime.HostFunction.init(exec, self),
+            },
+        };
+        const fields = @typeInfo(@TypeOf(fns)).Struct.fields;
+        try host_functions.ensureTotalCapacity(allocator, fields.len);
+        inline for (fields) |field|
+            host_functions.putAssumeCapacityNoClobber(field.name, @field(fns, field.name));
+    }
 
     return host_functions;
 }

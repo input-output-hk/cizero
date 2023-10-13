@@ -146,22 +146,29 @@ fn addCallback(self: *@This(), plugin_name: []const u8, callback: Callback) !voi
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
     errdefer host_functions.deinit(allocator);
-    try host_functions.ensureTotalCapacity(allocator, 2);
 
-    host_functions.putAssumeCapacityNoClobber("onTimestamp", .{
-        .signature = .{
-            .params = &.{ .i32, .i64 },
-            .returns = &.{},
-        },
-        .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
-    });
-    host_functions.putAssumeCapacityNoClobber("onCron", .{
-        .signature = .{
-            .params = &.{ .i32, .i32 },
-            .returns = &.{.i64},
-        },
-        .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
-    });
+    {
+        const fns = .{
+            .onTimestamp = Plugin.Runtime.HostFunctionDef{
+                .signature = .{
+                    .params = &.{ .i32, .i64 },
+                    .returns = &.{},
+                },
+                .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
+            },
+            .onCron = Plugin.Runtime.HostFunctionDef{
+                .signature = .{
+                    .params = &.{ .i32, .i32 },
+                    .returns = &.{.i64},
+                },
+                .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
+            },
+        };
+        const fields = @typeInfo(@TypeOf(fns)).Struct.fields;
+        try host_functions.ensureTotalCapacity(allocator, fields.len);
+        inline for (fields) |field|
+            host_functions.putAssumeCapacityNoClobber(field.name, @field(fns, field.name));
+    }
 
     return host_functions;
 }
