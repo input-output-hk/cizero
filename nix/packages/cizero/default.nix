@@ -1,6 +1,7 @@
 { inputs, ... }: {
   imports = [
     ./plugins/foo.nix
+    ./plugins/hello.nix
   ];
 
   perSystem = { config, lib, pkgs, final, ... }: {

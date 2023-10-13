@@ -10,6 +10,7 @@
       paths = with config.packages; [
         cizero
         cizero-plugin-foo
+        cizero-plugin-hello
       ];
     };
   };
