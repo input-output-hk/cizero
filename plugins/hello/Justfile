@@ -1,7 +1,0 @@
-build:
-	nix develop .#crystal --command just build-unwrapped
-
-# Run in `nix develop .#crystal`.
-build-unwrapped:
-	crystal build hello.cr -o hello.wasm --error-trace --verbose --cross-compile --target wasm32-wasi
-	wasm-ld hello.wasm -o hello -Lwasi-libs -lc -lpcre2-8
