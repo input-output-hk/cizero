@@ -6,7 +6,7 @@
 
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hello
-        # ../../../../pdk/crystal # TODO add crystal PDK
+        ../../../../pdk/crystal
       ];
 
       buildInputs = with pkgs; [ crystal crystalline llvmPackages_16.bintools wasm-tools ];
