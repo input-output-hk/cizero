@@ -54,15 +54,15 @@
       buildPhase = ''
         runHook preBuild
 
-        crystal build hello.cr -o hello.wasm --error-trace --verbose --cross-compile --target wasm32-wasi
-        wasm-ld hello.wasm -o hello -Lwasi-libs -lc -lpcre2-8
+        crystal build hello.cr -o hello.o.wasm --error-trace --verbose --cross-compile --target wasm32-wasi
+        wasm-ld hello.o.wasm -o hello.wasm -Lwasi-libs -lc -lpcre2-8
 
         runHook postBuild
       '';
 
       installPhase = ''
-        mkdir -p $out/bin
-        mv hello $out/bin/
+        mkdir -p $out/libexec/cizero/plugins
+        mv hello.wasm $out/libexec/cizero/plugins/hello.wasm
       '';
     };
   };
