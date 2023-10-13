@@ -75,6 +75,10 @@ fn mainZig() !u8 {
             std.debug.print("> cizero.exec() failed: {}\n", .{err});
             return err;
         };
+        defer {
+            allocator.free(result.stdout);
+            allocator.free(result.stderr);
+        }
 
         std.debug.print("> term: {any}\n", .{result.term});
         std.debug.print("> stdout: {s}\n", .{result.stdout});
