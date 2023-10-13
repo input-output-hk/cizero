@@ -1,5 +1,5 @@
-{ inputs, ... }: {
-  perSystem = { pkgs, ... }: {
+{inputs, ...}: {
+  perSystem = {pkgs, ...}: {
     packages.cizero-plugin-hello = pkgs.stdenv.mkDerivation rec {
       pname = "cizero-plugin-hello";
       version = "0.0.0";
@@ -9,7 +9,7 @@
         ../../../../pdk/crystal
       ];
 
-      buildInputs = with pkgs; [ crystal llvmPackages_16.bintools ];
+      buildInputs = with pkgs; [crystal llvmPackages_16.bintools];
 
       shellHook = ''
         # override phase functions for integration with `nix develop`

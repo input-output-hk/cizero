@@ -1,5 +1,10 @@
-{ inputs, ... }: {
-  perSystem = { config, pkgs, final, ... }: {
+{inputs, ...}: {
+  perSystem = {
+    config,
+    pkgs,
+    final,
+    ...
+  }: {
     packages.cizero-plugin-foo = final.buildZigPackage rec {
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/foo

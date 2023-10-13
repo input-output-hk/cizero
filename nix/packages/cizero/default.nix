@@ -1,10 +1,16 @@
-{ inputs, ... }: {
+{inputs, ...}: {
   imports = [
     ./plugins/foo.nix
     ./plugins/hello.nix
   ];
 
-  perSystem = { config, lib, pkgs, final, ... }: {
+  perSystem = {
+    config,
+    lib,
+    pkgs,
+    final,
+    ...
+  }: {
     packages.cizero = final.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../.. [
         ../../../build.zig
@@ -19,7 +25,7 @@
         wasmtime # for tests
       ];
 
-      zigBuildArgs = [ "-Doptimize=ReleaseSafe" ];
+      zigBuildArgs = ["-Doptimize=ReleaseSafe"];
 
       zigDepHashes = {
         cron = "1ci56xsrkzdr2js5k3qsyb6pm2awslp481lif1c1mljg85swq351";

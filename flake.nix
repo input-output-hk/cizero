@@ -14,13 +14,14 @@
     };
   };
 
-  outputs = inputs: inputs.parts.lib.mkFlake { inherit inputs; } {
-    systems = ["x86_64-linux"];
+  outputs = inputs:
+    inputs.parts.lib.mkFlake {inherit inputs;} {
+      systems = ["x86_64-linux"];
 
-    imports = [
-      nix/packages
-      nix/devShells.nix
-      nix/formatter.nix
-    ];
-  };
+      imports = [
+        nix/packages
+        nix/devShells.nix
+        nix/formatter.nix
+      ];
+    };
 }

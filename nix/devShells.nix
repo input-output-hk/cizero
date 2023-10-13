@@ -1,13 +1,18 @@
-{ inputs, ... }: {
+{inputs, ...}: {
   imports = with inputs; [
     mission-control.flakeModule
     flake-root.flakeModule
   ];
 
-  perSystem = { config, lib, pkgs, ... }: {
+  perSystem = {
+    config,
+    lib,
+    pkgs,
+    ...
+  }: {
     devShells = {
       default = pkgs.mkShell {
-        packages = [ config.packages.zls ];
+        packages = [config.packages.zls];
         inputsFrom = [
           config.mission-control.devShell
           config.packages.cizero
@@ -15,8 +20,8 @@
       };
 
       crystal = pkgs.mkShell {
-        packages = with pkgs; [ crystal crystalline ];
-        inputsFrom = [ config.mission-control.devShell ];
+        packages = with pkgs; [crystal crystalline];
+        inputsFrom = [config.mission-control.devShell];
       };
     };
 
@@ -55,8 +60,8 @@
               tput bold
               echo : >&2
               tput sgr0 # reset
-            '' +
-            lib.concatMapStrings (p: ''
+            ''
+            + lib.concatMapStrings (p: ''
               printf '%s\n' ${lib.escapeShellArg p}
             '') (builtins.attrNames config.packages);
         };

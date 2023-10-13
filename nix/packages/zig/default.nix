@@ -1,29 +1,37 @@
-{ inputs, ... }: {
+{inputs, ...}: {
   imports = [
     inputs.parts.flakeModules.easyOverlay
     ./package-info
   ];
 
-  perSystem = { config, lib, pkgs, final, ... }: {
+  perSystem = {
+    config,
+    lib,
+    pkgs,
+    final,
+    ...
+  }: {
     packages = {
-      zig = (pkgs.zig.overrideAttrs (oldAttrs: rec {
-        version = src.rev;
+      zig =
+        (pkgs.zig.overrideAttrs (oldAttrs: rec {
+          version = src.rev;
 
-        src = pkgs.fetchFromGitHub {
-          inherit (oldAttrs.src) owner repo;
-          rev = "402468b2109929779fc0fb59eeb5481cfb5ed44d";
-          hash = "sha256-ZzHKXONvM1/gESWZEAdkLQZjgX0QZMwI6BranTVuY3k=";
+          src = pkgs.fetchFromGitHub {
+            inherit (oldAttrs.src) owner repo;
+            rev = "402468b2109929779fc0fb59eeb5481cfb5ed44d";
+            hash = "sha256-ZzHKXONvM1/gESWZEAdkLQZjgX0QZMwI6BranTVuY3k=";
+          };
+
+          patches = [];
+
+          # do not build docs to avoid `error: too many arguments`
+          outputs = ["out"];
+          postBuild = "";
+          postInstall = "";
+        }))
+        .override {
+          llvmPackages = pkgs.llvmPackages_16;
         };
-
-        patches = [];
-
-        # do not build docs to avoid `error: too many arguments`
-        outputs = [ "out" ];
-        postBuild = "";
-        postInstall = "";
-      })).override {
-        llvmPackages = pkgs.llvmPackages_16;
-      };
 
       zls = final.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
@@ -65,74 +73,89 @@
         buildZigZon ? "build.zig.zon",
         zigDepHashes ? {},
         ...
-      }: pkgs.stdenv.mkDerivation (finalAttrs: let
-        global-cache-dir = "$TMPDIR/zig";
+      }:
+        pkgs.stdenv.mkDerivation (
+          finalAttrs: let
+            global-cache-dir = "$TMPDIR/zig";
 
-        zigArgs = toString (lib.cli.toGNUCommandLine {} {
-          inherit global-cache-dir;
-          prefix = "$out";
-        } ++ zigBuildArgs);
+            zigArgs = toString (lib.cli.toGNUCommandLine {} {
+                inherit global-cache-dir;
+                prefix = "$out";
+              }
+              ++ zigBuildArgs);
 
-        info = lib.importJSON finalAttrs.passthru.packageInfo;
-      in
-        {
-          pname = info.name;
-          inherit (info) version;
+            info = lib.importJSON finalAttrs.passthru.packageInfo;
+          in
+            {
+              pname = info.name;
+              inherit (info) version;
 
-          postUnpack = lib.optionalString (finalAttrs.passthru ? deps) ''
-            mkdir ${global-cache-dir}
-            ln -s ${finalAttrs.passthru.deps} ${global-cache-dir}/p
-          '';
+              postUnpack = lib.optionalString (finalAttrs.passthru ? deps) ''
+                mkdir ${global-cache-dir}
+                ln -s ${finalAttrs.passthru.deps} ${global-cache-dir}/p
+              '';
 
-          buildPhase = ''
-            runHook preBuild
-            zig build ${zigArgs}
-            runHook postBuild
-          '';
+              buildPhase = ''
+                runHook preBuild
+                zig build ${zigArgs}
+                runHook postBuild
+              '';
 
-          doCheck = true;
-          checkPhase = ''
-            runHook preCheck
-            zig build test ${zigArgs}
-            runHook postCheck
-          '';
+              doCheck = true;
+              checkPhase = ''
+                runHook preCheck
+                zig build test ${zigArgs}
+                runHook postCheck
+              '';
 
-          dontInstall = true;
-          installPhase = ''
-            runHook preInstall
-            zig build install ${zigArgs}
-            runHook postInstall
-          '';
-        } // builtins.removeAttrs args [
-          "zig" "zigBuildArgs" "buildZigZon" "zigDepHashes"
-        ] // {
-          nativeBuildInputs = args.nativeBuildInputs or [] ++ [ zig ];
+              dontInstall = true;
+              installPhase = ''
+                runHook preInstall
+                zig build install ${zigArgs}
+                runHook postInstall
+              '';
+            }
+            // builtins.removeAttrs args [
+              "zig"
+              "zigBuildArgs"
+              "buildZigZon"
+              "zigDepHashes"
+            ]
+            // {
+              nativeBuildInputs = args.nativeBuildInputs or [] ++ [zig];
 
-          passthru = {
-            packageInfo = config.overlayAttrs.zigPackageInfo (
-              lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
-              + buildZigZon
-            );
+              passthru =
+                {
+                  packageInfo = config.overlayAttrs.zigPackageInfo (
+                    lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
+                    + buildZigZon
+                  );
 
-            # builds the global-cache-dir/p directory
-            deps = pkgs.symlinkJoin {
-              name = with finalAttrs; "${pname}-${version}-deps";
-              paths =
-                if builtins.isAttrs (info.dependencies or null)
-                then lib.mapAttrsToList
-                  (name: { url, hash }: pkgs.runCommand name {} ''
-                    mkdir $out
-                    cp -r ${builtins.fetchTarball {
-                      inherit name url;
-                      sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
-                    }} $out/${hash}
-                  '')
-                  info.dependencies
-                else [];
-            };
-          } // args.passthru or {};
-        }
-      );
+                  # builds the global-cache-dir/p directory
+                  deps = pkgs.symlinkJoin {
+                    name = with finalAttrs; "${pname}-${version}-deps";
+                    paths =
+                      if builtins.isAttrs (info.dependencies or null)
+                      then
+                        lib.mapAttrsToList
+                        (name: {
+                          url,
+                          hash,
+                        }:
+                          pkgs.runCommand name {} ''
+                            mkdir $out
+                            cp -r ${builtins.fetchTarball {
+                              inherit name url;
+                              sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
+                            }} $out/${hash}
+                          '')
+                        info.dependencies
+                      else [];
+                  };
+                }
+                // args.passthru or {};
+            }
+        );
     };
   };
 }
