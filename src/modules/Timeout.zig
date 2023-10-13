@@ -146,7 +146,7 @@ fn addCallback(self: *@This(), plugin_name: []const u8, callback: Callback) !voi
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
     errdefer host_functions.deinit(allocator);
-    try host_functions.ensureTotalCapacity(allocator, 1);
+    try host_functions.ensureTotalCapacity(allocator, 2);
 
     host_functions.putAssumeCapacityNoClobber("onTimestamp", .{
         .signature = .{
