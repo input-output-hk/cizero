@@ -3,6 +3,7 @@ const std = @import("std");
 const Cron = @import("cron").Cron;
 const Datetime = @import("datetime").datetime.Datetime;
 
+const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
@@ -40,6 +41,13 @@ const Callback = struct {
         return .{
             .timeout = timeout,
             .func_name = try allocator.dupeZ(u8, func_name),
+        };
+    }
+
+    pub fn done(self: @This()) modules.CallbackDoneCondition {
+        return switch (self.timeout) {
+            .timestamp => .always,
+            .cron => .{ .on = .{} },
         };
     }
 };
@@ -135,10 +143,7 @@ fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, stat
     const success = try runtime.call(callback.func_name, &.{}, outputs);
     if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, plugin_name });
 
-    if (!success or switch (callback.timeout) {
-        .timestamp => true,
-        .cron => outputs[0].i32 > 0,
-    }) {
+    if (callback.done().check(success, outputs)) {
         var state = self.plugin_states.getPtr(plugin_name).?;
         _ = state.swapRemove(state_index);
     }
