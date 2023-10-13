@@ -9,7 +9,7 @@
         ../../../../pdk/crystal
       ];
 
-      buildInputs = with pkgs; [ crystal crystalline llvmPackages_16.bintools wasm-tools ];
+      buildInputs = with pkgs; [ crystal llvmPackages_16.bintools ];
 
       shellHook = ''
         # override phase functions for integration with `nix develop`
