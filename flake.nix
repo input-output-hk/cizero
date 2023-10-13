@@ -4,6 +4,10 @@
     parts.url = github:hercules-ci/flake-parts;
     mission-control.url = github:Platonic-Systems/mission-control;
     flake-root.url = github:srid/flake-root;
+    treefmt-nix = {
+      url = github:numtide/treefmt-nix;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     inclusive = {
       url = github:input-output-hk/nix-inclusive;
       inputs.stdlib.follows = "parts/nixpkgs-lib";
@@ -16,6 +20,7 @@
     imports = [
       nix/packages
       nix/devShells.nix
+      nix/formatter.nix
     ];
   };
 }

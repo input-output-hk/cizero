@@ -109,7 +109,28 @@
         "inclusive": "inclusive",
         "mission-control": "mission-control",
         "nixpkgs": "nixpkgs",
-        "parts": "parts"
+        "parts": "parts",
+        "treefmt-nix": "treefmt-nix"
+      }
+    },
+    "treefmt-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1697018566,
+        "narHash": "sha256-tOhoeq621JQOULO9X2U+Io03PK/TQrYFYB4sJFaDCuQ=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "0b2ffeb3ae1a7449a48a952f3e731cfa41eaf780",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "type": "github"
       }
     }
   },
