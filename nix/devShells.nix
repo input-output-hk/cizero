@@ -2,7 +2,7 @@
   perSystem = { config, pkgs, ... }: {
     devShells = {
       default = pkgs.mkShell {
-        packages = [ config.packages.zls pkgs.just ];
+        packages = [ config.packages.zls ];
         inputsFrom = [ config.packages.cizero ];
       };
 
@@ -21,7 +21,8 @@
             '';
           };
         in ''
-          ln -sfT ${wasi-libs} wasi-libs
+          root="$(git rev-parse --show-toplevel)"
+          ln -sfT ${wasi-libs} "$root"/plugins/hello/wasi-libs
         '';
       };
     };
