@@ -15,8 +15,12 @@ Cizero.on_cron("on_cron", "* * * * *")
 
 puts Cizero.to_upper("Hello World!")
 
-pp! Cizero.exec(["sh", "-c", <<-SH], {"hey" => "World"}, 300)
+exec_result = Cizero.exec(["sh", "-c", <<-SH], {"hey" => "World"}, 300)
 echo this goes to stdout
 echo this goes to stderr >&2 
 echo hey: $hey
 SH
+
+pp! exec_result.@exit_code
+puts exec_result.@stdout
+STDERR.puts exec_result.@stderr
