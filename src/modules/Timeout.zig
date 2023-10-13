@@ -48,7 +48,9 @@ pub fn deinit(self: *@This()) void {
 }
 
 pub fn start(self: *@This()) !std.Thread {
-    return std.Thread.spawn(.{}, loop, .{self});
+    const thread = try std.Thread.spawn(.{}, loop, .{self});
+    try thread.setName(name);
+    return thread;
 }
 
 fn loop(self: *@This()) !void {

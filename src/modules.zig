@@ -4,6 +4,7 @@ const wasm = @import("wasm.zig");
 
 const Registry = @import("Registry.zig");
 
+pub const Http = @import("modules/Http.zig");
 pub const Process = @import("modules/Process.zig");
 pub const Timeout = @import("modules/Timeout.zig");
 pub const ToUpper = @import("modules/ToUpper.zig");

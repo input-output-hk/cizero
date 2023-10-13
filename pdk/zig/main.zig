@@ -1,6 +1,9 @@
 const std = @import("std");
 
 const externs = struct {
+    // http
+    extern "cizero" fn onWebhook([*]const u8) void;
+
     // process
     extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]const usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
 
@@ -11,6 +14,10 @@ const externs = struct {
     // to_upper
     extern "cizero" fn toUpper([*]u8) void;
 };
+
+pub fn onWebhook(callback_func_name: [:0]const u8) void {
+    externs.onWebhook(callback_func_name.ptr);
+}
 
 pub fn exec(args: struct {
     allocator: std.mem.Allocator,

@@ -48,4 +48,5 @@ fn configureCompileStep(b: *Build, step: *Build.Step.Compile, dep_args: anytype)
 
     step.addModule("cron", b.dependency("cron", dep_args).module("cron"));
     step.addModule("datetime", b.dependency("datetime", dep_args).module("zig-datetime"));
+    step.addModule("httpz", b.dependency("httpz", dep_args).module("httpz"));
 }

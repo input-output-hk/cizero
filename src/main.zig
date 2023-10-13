@@ -16,16 +16,23 @@ pub fn main() !void {
     defer registry.deinit();
 
     var modules = struct {
+        http: *mods.Http,
         process: mods.Process,
         timeout: mods.Timeout,
         to_upper: mods.ToUpper,
     }{
+        .http = try mods.Http.init(allocator, &registry),
         .process = .{ .allocator = allocator },
         .timeout = .{ .allocator = allocator, .registry = &registry },
         .to_upper = .{},
     };
-    inline for (@typeInfo(@TypeOf(modules)).Struct.fields) |field|
-        try registry.modules.append(Module.init(&@field(modules, field.name)));
+    inline for (@typeInfo(@TypeOf(modules)).Struct.fields) |field| {
+        const value_ptr = &@field(modules, field.name);
+        try registry.modules.append(Module.init(
+            if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.*
+            else value_ptr
+        ));
+    }
 
     {
         var args = try std.process.argsWithAllocator(allocator);
@@ -49,7 +56,10 @@ pub fn main() !void {
         }
     }
 
-    (try modules.timeout.start()).join();
+    inline for (.{
+        try modules.timeout.start(),
+        try modules.http.start(),
+    }) |thread| thread.join();
 }
 
 test {

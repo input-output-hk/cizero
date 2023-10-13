@@ -15,6 +15,11 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         std.debug.print("> called cronCallback() at {d}s\n", .{now_s});
         return false;
     }
+
+    export fn webhookCallback() bool {
+        std.debug.print("> called webhookCallback()\n", .{});
+        return false;
+    }
 };
 
 pub fn main() u8 {
@@ -83,6 +88,10 @@ fn mainZig() !u8 {
         std.debug.print("> term: {any}\n", .{result.term});
         std.debug.print("> stdout: {s}\n", .{result.stdout});
         std.debug.print("> stderr: {s}\n", .{result.stderr});
+    }
+
+    {
+        cizero.onWebhook("webhookCallback");
     }
 
     return 0;
