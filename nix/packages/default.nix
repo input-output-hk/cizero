@@ -13,8 +13,8 @@
       name = "cizero-with-plugins";
       paths = with config.packages; [
         cizero
-        cizero-plugin-foo
-        cizero-plugin-hello
+        cizero-plugin-hello-zig
+        cizero-plugin-hello-crystal
       ];
     };
   };

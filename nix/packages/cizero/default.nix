@@ -1,7 +1,7 @@
 {inputs, ...}: {
   imports = [
-    ./plugins/foo.nix
-    ./plugins/hello.nix
+    ./plugins/hello-zig.nix
+    ./plugins/hello-crystal.nix
   ];
 
   perSystem = {

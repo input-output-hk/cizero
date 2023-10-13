@@ -1,11 +1,13 @@
 {inputs, ...}: {
-  perSystem = {pkgs, ...}: {
-    packages.cizero-plugin-hello = pkgs.stdenv.mkDerivation rec {
-      pname = "cizero-plugin-hello";
+  perSystem = {pkgs, ...}: let
+    pluginName = "hello-crystal";
+  in {
+    packages."cizero-plugin-${pluginName}" = pkgs.stdenv.mkDerivation rec {
+      pname = "cizero-plugin-${pluginName}";
       version = "0.0.0";
 
       src = inputs.inclusive.lib.inclusive ../../../.. [
-        ../../../../plugins/hello
+        ../../../../plugins/${pluginName}
         ../../../../pdk/crystal
       ];
 
@@ -45,7 +47,7 @@
       in ''
         runHook preConfigure
 
-        cd plugins/hello
+        cd plugins/${pluginName}
         ln -sfT ${wasi-libs} wasi-libs
 
         runHook postConfigure
@@ -54,15 +56,15 @@
       buildPhase = ''
         runHook preBuild
 
-        crystal build hello.cr -o hello.o.wasm --error-trace --verbose --cross-compile --target wasm32-wasi
-        wasm-ld hello.o.wasm -o hello.wasm -Lwasi-libs -lc -lpcre2-8
+        crystal build ${pluginName}.cr -o ${pluginName}.o.wasm --error-trace --verbose --cross-compile --target wasm32-wasi
+        wasm-ld ${pluginName}.o.wasm -o ${pluginName}.wasm -Lwasi-libs -lc -lpcre2-8
 
         runHook postBuild
       '';
 
       installPhase = ''
         mkdir -p $out/libexec/cizero/plugins
-        mv hello.wasm $out/libexec/cizero/plugins/hello.wasm
+        mv ${pluginName}.wasm $out/libexec/cizero/plugins/${pluginName}.wasm
       '';
     };
   };

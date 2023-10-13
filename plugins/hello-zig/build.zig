@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) !void {
 
     {
         const exe = b.addExecutable(.{
-            .name = "foo",
+            .name = "hello-zig",
             .root_source_file = source,
             .target = target,
             .optimize = optimize,

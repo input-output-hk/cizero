@@ -5,22 +5,22 @@
     final,
     ...
   }: {
-    packages.cizero-plugin-foo = final.buildZigPackage rec {
+    packages.cizero-plugin-hello-zig = final.buildZigPackage rec {
       src = inputs.inclusive.lib.inclusive ../../../.. [
-        ../../../../plugins/foo
+        ../../../../plugins/hello-zig
         ../../../../pdk/zig
       ];
 
       inherit (config.packages) zig;
 
-      buildZigZon = "${src}/plugins/foo/build.zig.zon";
+      buildZigZon = "${src}/plugins/hello-zig/build.zig.zon";
 
       buildInputs = with pkgs; [
         wasmtime # for tests
       ];
 
       preBuild = ''
-        cd plugins/foo
+        cd plugins/hello-zig
       '';
 
       preCheck = ''
