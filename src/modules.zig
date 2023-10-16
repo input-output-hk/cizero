@@ -22,8 +22,9 @@ pub fn CallbackUnmanaged(comptime T: type) type {
             };
         }
 
-        pub fn done(self: @This()) CallbackDoneCondition {
-            return self.condition.done();
+        pub fn done(self: @This(), success: bool, outputs: []const wasm.Val) bool {
+            const condition: CallbackDoneCondition = self.condition.done();
+            return condition.check(success, outputs);
         }
     };
 }

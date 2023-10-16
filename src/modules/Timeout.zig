@@ -127,7 +127,7 @@ fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, stat
     const success = try runtime.call(callback.func_name, &.{}, outputs);
     if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, plugin_name });
 
-    if (callback.done().check(success, outputs)) {
+    if (callback.done(success, outputs)) {
         var state = self.plugin_states.getPtr(plugin_name).?;
         _ = state.swapRemove(state_index);
     }
