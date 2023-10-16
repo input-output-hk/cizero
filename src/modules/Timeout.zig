@@ -37,7 +37,7 @@ const Callback = modules.CallbackUnmanaged(union(enum) {
 });
 const State = std.ArrayListUnmanaged(Callback);
 
-registry: *Registry,
+registry: *const Registry,
 
 allocator: std.mem.Allocator,
 
@@ -57,7 +57,7 @@ pub fn deinit(self: *@This()) void {
     self.plugin_states.deinit(self.allocator);
 }
 
-pub fn init(allocator: std.mem.Allocator, registry: *Registry) @This() {
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry) @This() {
     return .{
         .allocator = allocator,
         .registry = registry,

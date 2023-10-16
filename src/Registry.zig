@@ -25,7 +25,7 @@ pub fn init(allocator: std.mem.Allocator) @This() {
 }
 
 /// Remember to deinit after use.
-pub fn runtime(self: *@This(), plugin_name: []const u8) !Plugin.Runtime {
+pub fn runtime(self: @This(), plugin_name: []const u8) !Plugin.Runtime {
     const p = self.plugins.get(plugin_name) orelse return error.NoSuchPlugin;
 
     var host_functions = try self.hostFunctions(self.allocator);
