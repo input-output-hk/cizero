@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
@@ -9,26 +10,15 @@ pub const name = "process";
 allocator: std.mem.Allocator,
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
-    errdefer host_functions.deinit(allocator);
-
-    {
-        const fns = .{
-            .exec = Plugin.Runtime.HostFunctionDef{
-                .signature = .{
-                    .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 },
-                    .returns = &.{.i32},
-                },
-                .host_function = Plugin.Runtime.HostFunction.init(exec, self),
+    return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
+        .exec = Plugin.Runtime.HostFunctionDef{
+            .signature = .{
+                .params = &.{ .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32, .i32 },
+                .returns = &.{.i32},
             },
-        };
-        const fields = @typeInfo(@TypeOf(fns)).Struct.fields;
-        try host_functions.ensureTotalCapacity(allocator, fields.len);
-        inline for (fields) |field|
-            host_functions.putAssumeCapacityNoClobber(field.name, @field(fns, field.name));
-    }
-
-    return host_functions;
+            .host_function = Plugin.Runtime.HostFunction.init(exec, self),
+        },
+    });
 }
 
 fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {

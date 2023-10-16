@@ -144,33 +144,22 @@ fn addCallback(self: *@This(), plugin_name: []const u8, callback: Callback) !voi
 }
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
-    errdefer host_functions.deinit(allocator);
-
-    {
-        const fns = .{
-            .onTimestamp = Plugin.Runtime.HostFunctionDef{
-                .signature = .{
-                    .params = &.{ .i32, .i64 },
-                    .returns = &.{},
-                },
-                .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
+    return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
+        .onTimestamp = Plugin.Runtime.HostFunctionDef{
+            .signature = .{
+                .params = &.{ .i32, .i64 },
+                .returns = &.{},
             },
-            .onCron = Plugin.Runtime.HostFunctionDef{
-                .signature = .{
-                    .params = &.{ .i32, .i32 },
-                    .returns = &.{.i64},
-                },
-                .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
+            .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
+        },
+        .onCron = Plugin.Runtime.HostFunctionDef{
+            .signature = .{
+                .params = &.{ .i32, .i32 },
+                .returns = &.{.i64},
             },
-        };
-        const fields = @typeInfo(@TypeOf(fns)).Struct.fields;
-        try host_functions.ensureTotalCapacity(allocator, fields.len);
-        inline for (fields) |field|
-            host_functions.putAssumeCapacityNoClobber(field.name, @field(fns, field.name));
-    }
-
-    return host_functions;
+            .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
+        },
+    });
 }
 
 fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
