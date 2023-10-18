@@ -33,7 +33,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 return self.callback_idx < self.map_entry.value_ptr.items.len;
             }
 
-            pub fn run(self: @This(), allocator: std.mem.Allocator, registry: Registry, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
+            pub fn run(self: @This(), allocator: std.mem.Allocator, registry: Registry, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
                 const plugin_name = self.pluginName();
                 const callback = self.callbackPtr();
 
@@ -175,7 +175,7 @@ pub fn CallbackUnmanaged(comptime T: type) type {
             };
         }
 
-        pub fn done(self: @This(), success: bool, outputs: []const wasm.Val) bool {
+        pub fn done(self: @This(), success: bool, outputs: []const wasm.Value) bool {
             const condition: CallbackDoneCondition = self.condition.done();
             return condition.check(success, outputs);
         }
@@ -189,12 +189,12 @@ pub const CallbackDoneCondition = union(enum) {
         output0: ?bool = true,
     },
 
-    pub fn check(self: @This(), success: bool, outputs: []const wasm.Val) bool {
+    pub fn check(self: @This(), success: bool, outputs: []const wasm.Value) bool {
         return switch (self) {
             .always => true,
             .on => |on|
                 on.failure and !success or
-                if (on.output0) |v| outputs[0].i32 == @intFromBool(v) else false,
+                if (on.output0) |v| outputs[0].val.i32 == @intFromBool(v) else false,
         };
     }
 };

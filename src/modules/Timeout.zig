@@ -80,7 +80,7 @@ fn loop(self: *@This()) !void {
 
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
-            var outputs_memory: [1]wasm.Val = undefined;
+            var outputs_memory: [1]wasm.Value = undefined;
             var outputs = outputs_memory[0..switch (callback.condition) {
                 .timestamp => 0,
                 .cron => 1,
@@ -97,22 +97,22 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .onTimestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .i32, .i64 },
+                .params = &.{ .{ .val = .i32 }, .{ .val = .i64 } },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
         },
         .onCron = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .i32, .i32 },
-                .returns = &.{.i64},
+                .params = &[_]wasm.ValueType{.{ .val = .i32 }} ** 2,
+                .returns = &.{.{ .val = .i64 }},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
         },
     });
 }
 
-fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
+fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 0);
 
@@ -120,13 +120,13 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const was
         self.allocator,
         plugin.name(),
         wasm.span(memory, inputs[0]),
-        .{ .timestamp = inputs[1].i64 },
+        .{ .timestamp = inputs[1].val.i64 },
     );
 
     self.restart_loop.set();
 }
 
-fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
+fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 1);
 
@@ -141,7 +141,7 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val
     );
 
     const next = try cron.next(Datetime.now());
-    outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
+    outputs[0] = .{ .val = .{ .i64 = @intCast(next.toTimestamp()) } };
 
     self.restart_loop.set();
 }

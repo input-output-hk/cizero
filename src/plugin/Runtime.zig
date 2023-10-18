@@ -141,7 +141,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
 }
 
 pub const HostFunctionDef = struct {
-    signature: std.wasm.Type,
+    signature: wasm.Type,
     host_function: HostFunction,
 };
 
@@ -149,15 +149,15 @@ pub const HostFunction = struct {
     callback: *const Callback,
     user_data: ?*anyopaque,
 
-    pub const Callback = fn (?*anyopaque, Plugin, []u8, []const wasm.Val, []wasm.Val) anyerror!void;
+    pub const Callback = fn (?*anyopaque, Plugin, []u8, []const wasm.Value, []wasm.Value) anyerror!void;
 
     pub fn init(callback: anytype, user_data: ?*anyopaque) @This() {
         comptime {
             const T = @typeInfo(@TypeOf(callback)).Fn;
             if (T.params[1].type.? != Plugin or
                 T.params[2].type.? != []u8 or
-                T.params[3].type.? != []const wasm.Val or
-                T.params[4].type.? != []wasm.Val or
+                T.params[3].type.? != []const wasm.Value or
+                T.params[4].type.? != []wasm.Value or
                 @typeInfo(T.return_type.?).ErrorUnion.payload != void)
                 @compileError("bad callback signature");
         }
@@ -167,7 +167,7 @@ pub const HostFunction = struct {
         };
     }
 
-    fn call(self: @This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) anyerror!void {
+    fn call(self: @This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
         return self.callback(self.user_data, plugin, memory, inputs, outputs);
     }
 };
@@ -184,11 +184,11 @@ fn dispatchHostFunction(
 
     const memory = getMemoryFromCaller(caller).@"1";
 
-    var input_vals = self.allocator.alloc(wasm.Val, inputs_len) catch |err| return errorTrap(err);
-    for (input_vals, inputs) |*val, input| val.* = wasmtime.fromVal(input) catch |err| return errorTrap(err);
+    var input_vals = self.allocator.alloc(wasm.Value, inputs_len) catch |err| return errorTrap(err);
+    for (input_vals, inputs) |*val, *input| val.* = wasmtime.fromVal(@ptrCast(input)) catch |err| return errorTrap(err);
     defer self.allocator.free(input_vals);
 
-    var output_vals = self.allocator.alloc(wasm.Val, outputs_len) catch |err| return errorTrap(err);
+    var output_vals = self.allocator.alloc(wasm.Value, outputs_len) catch |err| return errorTrap(err);
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
@@ -249,7 +249,7 @@ pub fn main(self: @This()) !bool {
     );
 }
 
-pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Val, outputs: []wasm.Val) !bool {
+pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
     var c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
     for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
     defer {
@@ -279,7 +279,7 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Val, ou
         &trap,
     );
 
-    for (outputs, c_outputs) |*output, c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
+    for (outputs, c_outputs) |*output, *c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
         error.UnknownWasmtimeVal => return false,
     };
 

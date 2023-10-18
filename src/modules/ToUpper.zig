@@ -11,7 +11,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .toUpper = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{.i32},
+                .params = &.{.{ .val = .i32 }},
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(toUpper, self),
@@ -19,7 +19,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     });
 }
 
-fn toUpper(_: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Val, outputs: []wasm.Val) !void {
+fn toUpper(_: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 1);
     std.debug.assert(outputs.len == 0);
 
