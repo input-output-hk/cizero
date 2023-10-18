@@ -16,7 +16,7 @@ pub fn fromVal(v: c.wasmtime_val) !wasm.Val {
 
 pub fn val(v: wasm.Val) c.wasmtime_val {
     return .{
-        .kind = valkind(std.meta.activeTag(v)),
+        .kind = valkind(v),
         .of = switch (v) {
             .i32 => |n| .{ .i32 = n },
             .i64 => |n| .{ .i64 = n },
