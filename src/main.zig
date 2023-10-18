@@ -21,7 +21,7 @@ pub fn main() !void {
         to_upper: mods.ToUpper,
     }{
         .process = .{ .allocator = allocator },
-        .timeout = mods.Timeout.init(allocator, &registry),
+        .timeout = .{ .allocator = allocator, .registry = &registry },
         .to_upper = .{},
     };
     inline for (@typeInfo(@TypeOf(modules)).Struct.fields) |field|

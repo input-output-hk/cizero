@@ -11,7 +11,11 @@ const Registry = @import("../Registry.zig");
 
 pub const name = "timeout";
 
-const Callback = modules.CallbackUnmanaged(union(enum) {
+registry: *const Registry,
+
+allocator: std.mem.Allocator,
+
+plugin_callbacks: modules.CallbacksUnmanaged(union(enum) {
     /// Milliseconds since the unix epoch.
     timestamp: i64,
     cron: Cron,
@@ -34,34 +38,12 @@ const Callback = modules.CallbackUnmanaged(union(enum) {
             .cron => .{ .on = .{} },
         };
     }
-});
-const State = std.ArrayListUnmanaged(Callback);
-
-registry: *const Registry,
-
-allocator: std.mem.Allocator,
-
-plugin_states: std.StringHashMapUnmanaged(State) = .{},
+}) = .{},
 
 restart_loop: std.Thread.ResetEvent = .{},
 
 pub fn deinit(self: *@This()) void {
-    {
-        var plugin_state_iter = self.plugin_states.valueIterator();
-        while (plugin_state_iter.next()) |state| {
-            for (state.items) |callback| callback.deinit(self.allocator);
-            state.deinit(self.allocator);
-        }
-    }
-
-    self.plugin_states.deinit(self.allocator);
-}
-
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry) @This() {
-    return .{
-        .allocator = allocator,
-        .registry = registry,
-    };
+    self.plugin_callbacks.deinit(self.allocator);
 }
 
 pub fn start(self: *@This()) !std.Thread {
@@ -70,77 +52,45 @@ pub fn start(self: *@This()) !std.Thread {
 
 fn loop(self: *@This()) !void {
     while (true) {
-        const PluginCallback = struct {
-            plugin_name: []const u8,
-            callback: Callback,
-            state_index: usize,
-        };
-
         const now_ms = std.time.milliTimestamp();
 
         const next_callback = blk: {
-            var next: ?PluginCallback = null;
+            var next: ?@TypeOf(self.plugin_callbacks).Entry = null;
 
-            var plugin_states_iter = self.plugin_states.iterator();
-            while (plugin_states_iter.next()) |entry| {
-                for (entry.value_ptr.items, 0..) |callback, i| {
-                    // XXX do not compute `callback.condition.next()` multiple times
-                    // XXX do not compute `next.?.callback.timeout.next()` multiple times
-                    if (next == null or try callback.condition.next(now_ms) < try next.?.callback.condition.next(now_ms)) next = .{
-                        .plugin_name = entry.key_ptr.*,
-                        .callback = callback,
-                        .state_index = i,
-                    };
-                }
+            var plugin_callbacks_iter = self.plugin_callbacks.iterator();
+            while (plugin_callbacks_iter.next()) |entry| {
+                // XXX do not compute `entry.callbackPtr().condition.next()` multiple times
+                // XXX do not compute `next.?.callbackPtr().timeout.next()` multiple times
+                if (next == null or try entry.callbackPtr().condition.next(now_ms) < try next.?.callbackPtr().condition.next(now_ms)) next = entry;
             }
 
             break :blk next;
         };
 
         if (next_callback) |next| {
-            const next_timestamp = try next.callback.condition.next(now_ms);
-            if (now_ms < next_timestamp) {
-                const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
-                self.restart_loop.timedWait(timeout_ns) catch
-                    try self.runCallback(next.plugin_name, next.callback, next.state_index);
-            } else {
-                try self.runCallback(next.plugin_name, next.callback, next.state_index);
+            const callback = next.callbackPtr();
+
+            {
+                const next_timestamp = try callback.condition.next(now_ms);
+                if (now_ms < next_timestamp) {
+                    const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
+                    self.restart_loop.timedWait(timeout_ns) catch {};
+                }
             }
+
+            // No need to heap-allocate here.
+            // Just stack-allocate sufficient memory for all cases.
+            var outputs_memory: [1]wasm.Val = undefined;
+            var outputs = outputs_memory[0..switch (callback.condition) {
+                .timestamp => 0,
+                .cron => 1,
+            }];
+
+            try next.run(self.allocator, self.registry.*, &.{}, outputs);
         } else self.restart_loop.wait();
 
         self.restart_loop.reset();
     }
-}
-
-fn runCallback(self: *@This(), plugin_name: []const u8, callback: Callback, state_index: usize) !void {
-    const runtime = try self.registry.runtime(plugin_name);
-
-    // No need to heap-allocate here.
-    // Just stack-allocate sufficient memory for all cases.
-    var outputs_memory: [1]wasm.Val = undefined;
-    var outputs = outputs_memory[0..switch (callback.condition) {
-        .timestamp => 0,
-        .cron => 1,
-    }];
-
-    // TODO run on new thread
-    const success = try runtime.call(callback.func_name, &.{}, outputs);
-    if (!success) std.log.info("callback function \"{s}\" on plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, plugin_name });
-
-    if (callback.done(success, outputs)) {
-        var state = self.plugin_states.getPtr(plugin_name).?;
-        _ = state.swapRemove(state_index);
-    }
-}
-
-fn addCallback(self: *@This(), plugin_name: []const u8, callback: Callback) !void {
-    const state = blk: {
-        const result = try self.plugin_states.getOrPut(self.allocator, plugin_name);
-        if (!result.found_existing) result.value_ptr.* = .{};
-        break :blk result.value_ptr;
-    };
-
-    try state.append(self.allocator, callback);
 }
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
@@ -166,11 +116,12 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const was
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 0);
 
-    try self.addCallback(plugin.name(), try Callback.init(
+    try self.plugin_callbacks.insert(
         self.allocator,
+        plugin.name(),
         wasm.span(memory, inputs[0]),
         .{ .timestamp = inputs[1].i64 },
-    ));
+    );
 
     self.restart_loop.set();
 }
@@ -182,11 +133,12 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val
     var cron = Cron.init();
     try cron.parse(wasm.span(memory, inputs[1]));
 
-    try self.addCallback(plugin.name(), try Callback.init(
+    try self.plugin_callbacks.insert(
         self.allocator,
+        plugin.name(),
         wasm.span(memory, inputs[0]),
         .{ .cron = cron },
-    ));
+    );
 
     const next = try cron.next(Datetime.now());
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
