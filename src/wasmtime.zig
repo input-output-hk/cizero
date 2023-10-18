@@ -27,13 +27,13 @@ pub fn val(v: wasm.Val) c.wasmtime_val {
     };
 }
 
-pub fn valkind(kind: std.wasm.Valtype) c.wasm_valkind_t {
+pub fn valkind(kind: std.wasm.Valtype) c.wasmtime_valkind_t {
     return switch (kind) {
-        .i32 => c.WASM_I32,
-        .i64 => c.WASM_I64,
-        .f32 => c.WASM_F32,
-        .f64 => c.WASM_F64,
-        .v128 => @panic("not supported"),
+        .i32 => c.WASMTIME_I32,
+        .i64 => c.WASMTIME_I64,
+        .f32 => c.WASMTIME_F32,
+        .f64 => c.WASMTIME_F64,
+        .v128 => c.WASMTIME_V128,
     };
 }
 
