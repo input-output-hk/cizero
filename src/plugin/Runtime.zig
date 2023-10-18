@@ -252,10 +252,16 @@ pub fn main(self: @This()) !bool {
 pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Val, outputs: []wasm.Val) !bool {
     var c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
     for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
-    defer self.allocator.free(c_inputs);
+    defer {
+        for (c_inputs) |*c_input| c.wasmtime_val_delete(c_input);
+        self.allocator.free(c_inputs);
+    }
 
     var c_outputs = try self.allocator.alloc(c.wasmtime_val, outputs.len);
-    defer self.allocator.free(c_outputs);
+    defer {
+        for (c_outputs) |*c_output| c.wasmtime_val_delete(c_output);
+        self.allocator.free(c_outputs);
+    }
 
     var trap: ?*c.wasm_trap_t = null;
     const wasmtime_err = c.wasmtime_func_call(
