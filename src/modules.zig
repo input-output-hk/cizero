@@ -194,7 +194,7 @@ pub const CallbackDoneCondition = union(enum) {
             .always => true,
             .on => |on|
                 on.failure and !success or
-                if (on.output0) |v| outputs[0].val.i32 == @intFromBool(v) else false,
+                if (on.output0) |v| outputs[0].i32 == @intFromBool(v) else false,
         };
     }
 };

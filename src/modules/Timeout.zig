@@ -97,15 +97,15 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .onTimestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ wasm.ValueType.i32, wasm.ValueType.i64 },
+                .params = &.{ .i32, .i64 },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
         },
         .onCron = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.ValueType{wasm.ValueType.i32} ** 2,
-                .returns = &.{wasm.ValueType.i64},
+                .params = &[_]wasm.Value.Type{.i32} ** 2,
+                .returns = &.{.i64},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
         },
@@ -120,7 +120,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const was
         self.allocator,
         plugin.name(),
         wasm.span(memory, inputs[0]),
-        .{ .timestamp = inputs[1].val.i64 },
+        .{ .timestamp = inputs[1].i64 },
     );
 
     self.restart_loop.set();
@@ -141,7 +141,7 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Val
     );
 
     const next = try cron.next(Datetime.now());
-    outputs[0] = .{ .val = .{ .i64 = @intCast(next.toTimestamp()) } };
+    outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
 
     self.restart_loop.set();
 }

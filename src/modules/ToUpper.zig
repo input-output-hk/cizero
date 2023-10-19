@@ -11,7 +11,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .toUpper = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{.{ .val = .i32 }},
+                .params = &.{.i32},
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(toUpper, self),

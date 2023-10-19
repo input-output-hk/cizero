@@ -13,8 +13,8 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .exec = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.ValueType{wasm.ValueType.i32} ** 11,
-                .returns = &.{wasm.ValueType.i32},
+                .params = &[_]wasm.Value.Type{.i32} ** 11,
+                .returns = &.{.i32},
             },
             .host_function = Plugin.Runtime.HostFunction.init(exec, self),
         },
@@ -26,21 +26,21 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, out
     std.debug.assert(outputs.len == 1);
 
     const params = .{
-        .argv_ptr = @as([*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[0].val.i32)]))),
-        .argc = @as(wasm.usize, @intCast(inputs[1].val.i32)),
-        .expand_arg0 = @as(std.process.Child.Arg0Expand, switch (inputs[2].val.i32) {
+        .argv_ptr = @as([*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[0].i32)]))),
+        .argc = @as(wasm.usize, @intCast(inputs[1].i32)),
+        .expand_arg0 = @as(std.process.Child.Arg0Expand, switch (inputs[2].i32) {
             1 => .expand,
             0 => .no_expand,
             else => unreachable,
         }),
-        .env_map = @as(?[*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[3].val.i32)]))),
-        .env_map_len = @as(wasm.usize, @intCast(inputs[4].val.i32)),
-        .max_output_bytes = @as(wasm.usize, @intCast(inputs[5].val.i32)),
-        .output_ptr = @as([*]u8, @ptrCast(&memory[@intCast(inputs[6].val.i32)])),
-        .stdout_len = @as(*wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[7].val.i32)]))),
-        .stderr_len = @as(*wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[8].val.i32)]))),
-        .term_tag = @as(*u8, &memory[@intCast(inputs[9].val.i32)]),
-        .term_code = @as(*u32, @alignCast(@ptrCast(&memory[@intCast(inputs[10].val.i32)]))),
+        .env_map = @as(?[*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[3].i32)]))),
+        .env_map_len = @as(wasm.usize, @intCast(inputs[4].i32)),
+        .max_output_bytes = @as(wasm.usize, @intCast(inputs[5].i32)),
+        .output_ptr = @as([*]u8, @ptrCast(&memory[@intCast(inputs[6].i32)])),
+        .stdout_len = @as(*wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[7].i32)]))),
+        .stderr_len = @as(*wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[8].i32)]))),
+        .term_tag = @as(*u8, &memory[@intCast(inputs[9].i32)]),
+        .term_code = @as(*u32, @alignCast(@ptrCast(&memory[@intCast(inputs[10].i32)]))),
     };
 
     var exec_args = .{
@@ -69,7 +69,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, out
 
     const result = std.process.Child.exec(exec_args) catch |err| {
         inline for (std.meta.tags(@TypeOf(err)), 1..) |err_tag, i| {
-            if (err == err_tag) outputs[0] = wasm.Value.i32(i);
+            if (err == err_tag) outputs[0] = .{ .i32 = i };
         }
         return;
     };
@@ -96,5 +96,5 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, out
         .Unknown => |c| @intCast(c),
     };
 
-    outputs[0] = wasm.Value.i32(0);
+    outputs[0] = .{ .i32 = 0 };
 }

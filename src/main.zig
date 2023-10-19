@@ -53,6 +53,7 @@ pub fn main() !void {
 }
 
 test {
+    _ = @import("enums.zig");
     _ = mods;
     _ = Module;
     _ = Plugin;
