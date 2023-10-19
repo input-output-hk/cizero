@@ -97,15 +97,15 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .onTimestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .{ .val = .i32 }, .{ .val = .i64 } },
+                .params = &.{ wasm.ValueType.i32, wasm.ValueType.i64 },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
         },
         .onCron = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.ValueType{.{ .val = .i32 }} ** 2,
-                .returns = &.{.{ .val = .i64 }},
+                .params = &[_]wasm.ValueType{wasm.ValueType.i32} ** 2,
+                .returns = &.{wasm.ValueType.i64},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
         },

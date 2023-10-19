@@ -13,8 +13,8 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
         .exec = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.ValueType{.{ .val = .i32 }} ** 11,
-                .returns = &.{.{ .val = .i32}},
+                .params = &[_]wasm.ValueType{wasm.ValueType.i32} ** 11,
+                .returns = &.{wasm.ValueType.i32},
             },
             .host_function = Plugin.Runtime.HostFunction.init(exec, self),
         },
@@ -69,7 +69,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, out
 
     const result = std.process.Child.exec(exec_args) catch |err| {
         inline for (std.meta.tags(@TypeOf(err)), 1..) |err_tag, i| {
-            if (err == err_tag) outputs[0] = .{ .val = .{ .i32 = i } };
+            if (err == err_tag) outputs[0] = wasm.Value.i32(i);
         }
         return;
     };
@@ -96,5 +96,5 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, out
         .Unknown => |c| @intCast(c),
     };
 
-    outputs[0] = .{ .val = .{ .i32 = 0 } };
+    outputs[0] = wasm.Value.i32(0);
 }
