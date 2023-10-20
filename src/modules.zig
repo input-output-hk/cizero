@@ -199,18 +199,6 @@ pub const CallbackDoneCondition = union(enum) {
     }
 };
 
-pub fn stringArrayHashMapUnmanagedFromStruct(comptime T: type, allocator: std.mem.Allocator, strukt: anytype) !std.StringArrayHashMapUnmanaged(T) {
-    var map = std.StringArrayHashMapUnmanaged(T){};
-    errdefer map.deinit(allocator);
-
-    const fields = @typeInfo(@TypeOf(strukt)).Struct.fields;
-    try map.ensureTotalCapacity(allocator, fields.len);
-    inline for (fields) |field|
-        map.putAssumeCapacityNoClobber(field.name, @field(strukt, field.name));
-
-    return map;
-}
-
 test {
     _ = std.testing.refAllDecls(@This());
 }

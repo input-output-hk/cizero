@@ -3,6 +3,7 @@ const std = @import("std");
 const Cron = @import("cron").Cron;
 const Datetime = @import("datetime").datetime.Datetime;
 
+const meta = @import("../meta.zig");
 const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
@@ -94,7 +95,7 @@ fn loop(self: *@This()) !void {
 }
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
         .onTimestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i64 },

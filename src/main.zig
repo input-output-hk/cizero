@@ -54,6 +54,8 @@ pub fn main() !void {
 
 test {
     _ = @import("enums.zig");
+    _ = @import("mem.zig");
+    _ = @import("meta.zig");
     _ = mods;
     _ = Module;
     _ = Plugin;

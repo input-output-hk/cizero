@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const meta = @import("../meta.zig");
 const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
@@ -10,7 +11,7 @@ pub const name = "process";
 allocator: std.mem.Allocator,
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return modules.stringArrayHashMapUnmanagedFromStruct(Plugin.Runtime.HostFunctionDef, allocator, .{
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
         .exec = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 11,
