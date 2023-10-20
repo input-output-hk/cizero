@@ -167,8 +167,9 @@ pub const HostFunction = struct {
         };
     }
 
-    fn call(self: @This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
-        return self.callback(self.user_data, plugin, memory, inputs, outputs);
+    fn call(self: @This(), plugin: Plugin, memory: Memory, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
+        const memory_slice = memory.slice();
+        return self.callback(self.user_data, plugin, memory_slice, inputs, outputs);
     }
 };
 
@@ -182,7 +183,7 @@ fn dispatchHostFunction(
 ) callconv(.C) ?*c.wasm_trap_t {
     const self: *@This() = @alignCast(@ptrCast(c.wasmtime_context_get_data(c.wasmtime_caller_context(caller))));
 
-    const memory = getMemoryFromCaller(caller).@"1";
+    const memory = Memory.initFromCaller(caller.?) catch |err| return errorTrap(err);
 
     var input_vals = self.allocator.alloc(wasm.Value, inputs_len) catch |err| return errorTrap(err);
     for (input_vals, inputs) |*val, *input| val.* = wasmtime.fromVal(@ptrCast(input)) catch |err| return errorTrap(err);
@@ -205,22 +206,38 @@ inline fn errorTrap(err: anyerror) *c.wasm_trap_t {
     return c.wasmtime_trap_new(msg, msg.len) orelse std.debug.panic("could not allocate trap: {s}", .{msg});
 }
 
-fn getMemoryFromCaller(caller: ?*c.wasmtime_caller) struct { c.wasmtime_memory, []u8 } {
-    const context = c.wasmtime_caller_context(caller);
+const Memory = struct {
+    wasm_memory: c.wasmtime_memory,
+    wasm_context: *c.wasmtime_context,
 
-    var memory: c.wasmtime_memory = blk: {
+    const export_name = "memory";
+
+    pub fn initFromCaller(caller: *c.wasmtime_caller) !@This() {
         var item: c.wasmtime_extern = undefined;
-        std.debug.assert(c.wasmtime_caller_export_get(caller, "memory", "memory".len, &item));
-        std.debug.assert(item.kind == c.WASMTIME_EXTERN_MEMORY);
-        break :blk item.of.memory;
-    };
+        if (!c.wasmtime_caller_export_get(caller, export_name, export_name.len, &item)) return error.NoSuchItem;
+        return initFromExtern(item, c.wasmtime_caller_context(caller).?);
+    }
 
-    const memory_ptr = c.wasmtime_memory_data(context, &memory);
-    const memory_len = c.wasmtime_memory_data_size(context, &memory);
-    const memory_slice = memory_ptr[0..memory_len];
+    pub fn initFromLinker(linker: *c.wasmtime_linker, context: *c.wasmtime_context) !@This() {
+        var item: c.wasmtime_extern = undefined;
+        if (!c.wasmtime_linker_get(linker, context, null, 0, export_name, export_name.len, &item)) return error.NoSuchItem;
+        return initFromExtern(item, context);
+    }
 
-    return .{ memory, memory_slice };
-}
+    pub fn initFromExtern(item: c.wasmtime_extern, context: *c.wasmtime_context) !@This() {
+        if (item.kind != c.WASMTIME_EXTERN_MEMORY) return error.NotAMemory;
+        return .{
+            .wasm_memory = item.of.memory,
+            .wasm_context = context,
+        };
+    }
+
+    pub fn slice(self: @This()) []u8 {
+        const ptr = c.wasmtime_memory_data(self.wasm_context, &self.wasm_memory);
+        const len = c.wasmtime_memory_data_size(self.wasm_context, &self.wasm_memory);
+        return ptr[0..len];
+    }
+};
 
 fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
     if (err) |e| {
