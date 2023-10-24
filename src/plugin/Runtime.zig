@@ -9,7 +9,7 @@ const Plugin = @import("../Plugin.zig");
 wasm_engine: *c.wasm_engine_t,
 wasm_store: *c.wasmtime_store,
 wasm_context: *c.wasmtime_context,
-wasm_linker: *c.wasmtime_linker,
+wasm_instance: c.wasmtime_instance,
 
 allocator: std.mem.Allocator,
 
@@ -25,7 +25,6 @@ pub fn deinit(self: *@This()) void {
     self.host_functions.deinit(self.allocator);
     self.allocator.free(self.plugin_wasm);
 
-    c.wasmtime_linker_delete(self.wasm_linker);
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
 }
@@ -59,53 +58,71 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
     }
 
     const wasm_linker = c.wasmtime_linker_new(wasm_engine).?;
+    defer c.wasmtime_linker_delete(wasm_linker);
     try handleError(
         "failed to link WASI",
         c.wasmtime_linker_define_wasi(wasm_linker),
         null,
     );
 
+    var host_functions = std.StringArrayHashMapUnmanaged(HostFunction){};
+    {
+        try host_functions.ensureTotalCapacity(allocator, host_function_defs.count());
+
+        var host_function_defs_iter = host_function_defs.iterator();
+        while (host_function_defs_iter.next()) |def_entry| {
+            const gop_result = host_functions.getOrPutAssumeCapacity(def_entry.key_ptr.*);
+            gop_result.value_ptr.* = def_entry.value_ptr.host_function;
+
+            std.log.debug("linking host function \"{s}\"…", .{gop_result.key_ptr.*});
+
+            const host_module_name = "cizero";
+
+            try handleError(
+                "failed to define function",
+                c.wasmtime_linker_define_func(
+                    wasm_linker,
+                    host_module_name,
+                    host_module_name.len,
+                    gop_result.key_ptr.ptr,
+                    gop_result.key_ptr.len,
+                    try wasmtime.functype(allocator, def_entry.value_ptr.signature),
+                    dispatchHostFunction,
+                    gop_result.value_ptr,
+                    null,
+                ),
+                null,
+            );
+        }
+    }
+
     var self = @This(){
         .wasm_engine = wasm_engine,
         .wasm_store = wasm_store,
         .wasm_context = wasm_context,
-        .wasm_linker = wasm_linker,
         .allocator = allocator,
         .plugin = plugin,
         .plugin_wasm = try plugin.wasm(allocator),
-        .host_functions = blk: {
-            var host_functions = std.StringArrayHashMapUnmanaged(HostFunction){};
-            try host_functions.ensureTotalCapacity(allocator, host_function_defs.count());
-
-            var host_function_defs_iter = host_function_defs.iterator();
-            while (host_function_defs_iter.next()) |def_entry| {
-                const gop_result = host_functions.getOrPutAssumeCapacity(def_entry.key_ptr.*);
-                gop_result.value_ptr.* = def_entry.value_ptr.host_function;
-
-                std.log.debug("linking host function \"{s}\"…", .{gop_result.key_ptr.*});
-
-                const host_module_name = "cizero";
-
-                try handleError(
-                    "failed to define function",
-                    c.wasmtime_linker_define_func(
-                        wasm_linker,
-                        host_module_name,
-                        host_module_name.len,
-                        gop_result.key_ptr.ptr,
-                        gop_result.key_ptr.len,
-                        try wasmtime.functype(allocator, def_entry.value_ptr.signature),
-                        dispatchHostFunction,
-                        gop_result.value_ptr,
-                        null,
-                    ),
-                    null,
-                );
-            }
-
-            break :blk host_functions;
-        },
+        .host_functions = host_functions,
+        .wasm_instance = undefined,
     };
+
+    {
+        var wasm_module: ?*c.wasmtime_module = undefined;
+        defer c.wasmtime_module_delete(wasm_module);
+        try handleError(
+            "failed to compile module",
+            c.wasmtime_module_new(wasm_engine, self.plugin_wasm.ptr, self.plugin_wasm.len, &wasm_module),
+            null,
+        );
+
+        var trap: ?*c.wasm_trap_t = null;
+        try handleError(
+            "failed to instantiate module",
+            c.wasmtime_linker_instantiate(wasm_linker, wasm_context, wasm_module, &self.wasm_instance, &trap),
+            trap,
+        );
+    }
 
     {
         // Make a copy that lives on the heap and therefore has a stable address
@@ -119,22 +136,6 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         const self_on_heap = try allocator.create(@This());
         self_on_heap.* = self;
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
-    }
-
-    {
-        var wasm_module: ?*c.wasmtime_module = undefined;
-        defer c.wasmtime_module_delete(wasm_module);
-        try handleError(
-            "failed to compile module",
-            c.wasmtime_module_new(wasm_engine, self.plugin_wasm.ptr, self.plugin_wasm.len, &wasm_module),
-            null,
-        );
-
-        try handleError(
-            "failed to instantiate module",
-            c.wasmtime_linker_module(wasm_linker, wasm_context, null, 0, wasm_module),
-            null,
-        );
     }
 
     return self;
@@ -225,6 +226,12 @@ pub const Memory = struct {
         return initFromExtern(item, context);
     }
 
+    fn initFromInstance(instance: c.wasmtime_instance, context: *c.wasmtime_context) !@This() {
+        var item: c.wasmtime_extern = undefined;
+        if (!c.wasmtime_instance_export_get(context, &instance, export_name, export_name.len, &item)) return error.NoSuchItem;
+        return initFromExtern(item, context);
+    }
+
     fn initFromExtern(item_memory: c.wasmtime_extern, context: *c.wasmtime_context) !@This() {
         if (item_memory.kind != c.WASMTIME_EXTERN_MEMORY) return error.NotAMemory;
 
@@ -286,6 +293,25 @@ pub const Allocator = struct {
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_linker_get(linker, memory.wasm_context, null, 0, export_name, export_name.len, item)) return error.NoSuchItem;
+
+        return initFromExterns(
+            memory,
+            item_fn_alloc,
+            item_fn_resize,
+            item_fn_free,
+        );
+    }
+
+    fn initFromInstance(memory: Memory, instance: c.wasmtime_instance) !@This() {
+        var item_fn_alloc: c.wasmtime_extern = undefined;
+        var item_fn_resize: c.wasmtime_extern = undefined;
+        var item_fn_free: c.wasmtime_extern = undefined;
+
+        inline for (
+            .{&item_fn_alloc, &item_fn_resize, &item_fn_free},
+            export_names,
+        ) |item, export_name|
+            if (!c.wasmtime_instance_export_get(memory.wasm_context, &instance, export_name, export_name.len, item)) return error.NoSuchItem;
 
         return initFromExterns(
             memory,
@@ -393,8 +419,8 @@ pub fn linearMemory(self: @This()) !struct {
     memory: Memory,
     allocator: std.mem.Allocator,
 } {
-    const memory = try Memory.initFromLinker(self.wasm_linker, self.wasm_context);
-    const allocator = try Allocator.initFromLinker(memory, self.wasm_linker);
+    const memory = try Memory.initFromInstance(self.wasm_instance, self.wasm_context);
+    const allocator = try Allocator.initFromInstance(memory, self.wasm_instance);
     return .{
         .memory = memory,
         .allocator = allocator.allocator(),
@@ -414,16 +440,15 @@ fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
 }
 
 pub fn main(self: @This()) !bool {
-    var wasi_main: c.wasmtime_func = undefined;
-    try handleError(
-        "failed to locate default export",
-        c.wasmtime_linker_get_default(self.wasm_linker, self.wasm_context, null, 0, &wasi_main),
-        null,
-    );
+    const wasi_main_export_name = "_start";
+    var wasi_main: c.wasmtime_extern = undefined;
+    if (!c.wasmtime_instance_export_get(self.wasm_context, &self.wasm_instance, wasi_main_export_name, wasi_main_export_name.len, &wasi_main)) return error.NoSuchItem;
+    defer c.wasmtime_extern_delete(&wasi_main);
+    if (wasi_main.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
 
     var trap: ?*c.wasm_trap_t = null;
     return handleExit(
-        c.wasmtime_func_call(self.wasm_context, &wasi_main, null, 0, null, 0, &trap),
+        c.wasmtime_func_call(self.wasm_context, &wasi_main.of.func, null, 0, null, 0, &trap),
         trap,
     );
 }
@@ -442,15 +467,15 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
         self.allocator.free(c_outputs);
     }
 
+    var func_export: c.wasmtime_extern_t = undefined;
+    if (!c.wasmtime_instance_export_get(self.wasm_context, &self.wasm_instance, func_name, func_name.len, &func_export)) return error.NoSuchItem;
+    defer c.wasmtime_extern_delete(&func_export);
+    if (func_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
+
     var trap: ?*c.wasm_trap_t = null;
     const wasmtime_err = c.wasmtime_func_call(
         self.wasm_context,
-        blk: {
-            var callback_export: c.wasmtime_extern_t = undefined;
-            if (!c.wasmtime_linker_get(self.wasm_linker, self.wasm_context, null, 0, func_name, func_name.len, &callback_export)) return error.NoSuchFunction;
-            if (callback_export.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
-            break :blk &callback_export.of.func;
-        },
+        &func_export.of.func,
         c_inputs.ptr,
         c_inputs.len,
         c_outputs.ptr,
