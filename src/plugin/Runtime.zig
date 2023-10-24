@@ -6,10 +6,10 @@ const wasmtime = @import("../wasmtime.zig");
 
 const Plugin = @import("../Plugin.zig");
 
-wasm_engine: ?*c.wasm_engine_t,
-wasm_store: ?*c.wasmtime_store,
-wasm_context: ?*c.wasmtime_context,
-wasm_linker: ?*c.wasmtime_linker,
+wasm_engine: *c.wasm_engine_t,
+wasm_store: *c.wasmtime_store,
+wasm_context: *c.wasmtime_context,
+wasm_linker: *c.wasmtime_linker,
 
 allocator: std.mem.Allocator,
 
@@ -35,10 +35,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
 
-        break :blk c.wasm_engine_new_with_config(wasm_config);
+        break :blk c.wasm_engine_new_with_config(wasm_config).?;
     };
-    const wasm_store = c.wasmtime_store_new(wasm_engine, null, null);
-    const wasm_context = c.wasmtime_store_context(wasm_store);
+    const wasm_store = c.wasmtime_store_new(wasm_engine, null, null).?;
+    const wasm_context = c.wasmtime_store_context(wasm_store).?;
     c.wasmtime_context_set_epoch_deadline(wasm_context, 1);
 
     {
@@ -58,7 +58,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         );
     }
 
-    const wasm_linker = c.wasmtime_linker_new(wasm_engine);
+    const wasm_linker = c.wasmtime_linker_new(wasm_engine).?;
     try handleError(
         "failed to link WASI",
         c.wasmtime_linker_define_wasi(wasm_linker),
