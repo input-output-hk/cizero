@@ -58,6 +58,8 @@ pub fn exec(args: struct {
         unreachable;
     }
 
+    output = try args.allocator.realloc(output, stdout_len + stderr_len);
+
     return .{
         .term = switch (term_tag) {
             .Exited => .{ .Exited = @intCast(term_code) },
