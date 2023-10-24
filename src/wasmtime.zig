@@ -26,7 +26,7 @@ pub fn val(value: wasm.Value) c.wasmtime_val {
             .f64 => |v| .{ .f64 = v },
             .v128 => |v| .{ .v128 = v },
             .funcref => |v| .{ .funcref = @as(*const c.wasmtime_func_t, @alignCast(@ptrCast(v))).* },
-            .externref => |v| .{ .externref = c.wasmtime_externref_new(@constCast(v), null) }, // XXX Is this destroyed when the c.wasmtime_val is destroyed?
+            .externref => |v| .{ .externref = c.wasmtime_externref_new(@constCast(v), null) },
         },
     };
 }
