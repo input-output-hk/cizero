@@ -2,6 +2,7 @@ const std = @import("std");
 
 const wasm = @import("wasm.zig");
 
+const PluginRuntime = @import("plugin/Runtime.zig");
 const Registry = @import("Registry.zig");
 
 pub const Http = @import("modules/Http.zig");
@@ -34,15 +35,12 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 return self.callback_idx < self.map_entry.value_ptr.items.len;
             }
 
-            pub fn run(self: @This(), allocator: std.mem.Allocator, registry: Registry, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-                const plugin_name = self.pluginName();
+            pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
                 const callback = self.callbackPtr();
-
-                const runtime = try registry.runtime(plugin_name);
 
                 // TODO run on new thread
                 const success = try runtime.call(callback.func_name, inputs, outputs);
-                if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, plugin_name });
+                if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, self.pluginName() });
 
                 if (callback.done(success, outputs)) self.remove(allocator);
             }

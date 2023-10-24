@@ -65,14 +65,21 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         }
     }
 
-    const body = if (try req.body()) |body| try self.allocator.dupeZ(u8, body) else null;
-    defer if (body) |b| self.allocator.free(b);
-
-    const inputs = [_]wasm.Value{}; // TODO pass body
-
     for (callbacks.items) |entry| {
+        var runtime = try self.registry.runtime(entry.pluginName());
+        defer runtime.deinit();
+
+        const linear = try runtime.linearMemory();
+
+        const body = if (try req.body()) |body| try linear.allocator.dupeZ(u8, body) else null;
+        defer if (body) |b| linear.allocator.free(b);
+
+        const inputs = [_]wasm.Value{
+            .{ .i32 = if (body) |b| @intCast(linear.memory.offset(b.ptr)) else 0 },
+        }; // TODO pass body
+
         var outputs: [1]wasm.Value = undefined;
-        try entry.run(self.allocator, self.registry.*, &inputs, &outputs);
+        try entry.run(self.allocator, runtime, &inputs, &outputs);
     }
 
     res.status = 204;
@@ -90,7 +97,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     });
 }
 
-fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 1);
     std.debug.assert(outputs.len == 0);
 

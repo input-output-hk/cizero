@@ -89,7 +89,10 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            try next.run(self.allocator, self.registry.*, &.{}, outputs);
+            var runtime = try self.registry.runtime(next.pluginName());
+            defer runtime.deinit();
+
+            try next.run(self.allocator, runtime, &.{}, outputs);
         } else self.restart_loop.wait();
 
         self.restart_loop.reset();
@@ -115,7 +118,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     });
 }
 
-fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 0);
 
@@ -129,7 +132,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const was
     self.restart_loop.set();
 }
 
-fn onCron(self: *@This(), plugin: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 2);
     std.debug.assert(outputs.len == 1);
 

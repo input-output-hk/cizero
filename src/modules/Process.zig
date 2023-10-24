@@ -22,7 +22,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     });
 }
 
-fn exec(self: *@This(), _: Plugin, memory: []u8, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 11);
     std.debug.assert(outputs.len == 1);
 
