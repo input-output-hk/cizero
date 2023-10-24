@@ -169,8 +169,8 @@ pub const HostFunction = struct {
         };
     }
 
-    fn call(self: @This(), plugin: Plugin, memory: Memory, allocator: Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
-        return self.callback(self.user_data, plugin, memory.slice(), allocator.allocator(), inputs, outputs);
+    fn call(self: @This(), plugin: Plugin, memory: []u8, allocator: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
+        return self.callback(self.user_data, plugin, memory, allocator, inputs, outputs);
     }
 };
 
@@ -195,7 +195,7 @@ fn dispatchHostFunction(
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
-    host_function.call(self.plugin, memory, allocator, input_vals, output_vals) catch |err| return errorTrap(err);
+    host_function.call(self.plugin, memory.slice(), allocator.allocator(), input_vals, output_vals) catch |err| return errorTrap(err);
 
     for (output_vals, outputs) |val, *output| output.* = wasmtime.val(val);
 
