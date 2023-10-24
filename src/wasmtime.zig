@@ -47,7 +47,7 @@ pub fn valtypeVec(allocator: std.mem.Allocator, valtypes: []const wasm.Value.Typ
     var wasm_valtypes = try allocator.alloc(*c.wasm_valtype_t, valtypes.len);
     defer allocator.free(wasm_valtypes);
 
-    for (valtypes, 0..) |valtype, i| wasm_valtypes[i] = c.wasm_valtype_new(valkind(valtype)).?;
+    for (wasm_valtypes, valtypes) |*wasm_valtype, valtype| wasm_valtype.* = c.wasm_valtype_new(valkind(valtype)).?;
 
     var vec: c.wasm_valtype_vec_t = undefined;
     c.wasm_valtype_vec_new(&vec, wasm_valtypes.len, wasm_valtypes.ptr);
