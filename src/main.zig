@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const mods = @import("modules.zig");
+const comps = @import("components.zig");
 
-const Module = @import("Module.zig");
+const Component = @import("Component.zig");
 const Plugin = @import("Plugin.zig");
 const Registry = @import("Registry.zig");
 
@@ -15,20 +15,20 @@ pub fn main() !void {
     var registry = Registry.init(allocator);
     defer registry.deinit();
 
-    var modules = struct {
-        http: *mods.Http,
-        process: mods.Process,
-        timeout: mods.Timeout,
-        to_upper: mods.ToUpper,
+    var components = struct {
+        http: *comps.Http,
+        process: comps.Process,
+        timeout: comps.Timeout,
+        to_upper: comps.ToUpper,
     }{
-        .http = try mods.Http.init(allocator, &registry),
+        .http = try comps.Http.init(allocator, &registry),
         .process = .{ .allocator = allocator },
         .timeout = .{ .allocator = allocator, .registry = &registry },
         .to_upper = .{},
     };
-    inline for (@typeInfo(@TypeOf(modules)).Struct.fields) |field| {
-        const value_ptr = &@field(modules, field.name);
-        try registry.modules.append(Module.init(
+    inline for (@typeInfo(@TypeOf(components)).Struct.fields) |field| {
+        const value_ptr = &@field(components, field.name);
+        try registry.components.append(Component.init(
             if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.*
             else value_ptr
         ));
@@ -57,17 +57,17 @@ pub fn main() !void {
     }
 
     inline for (.{
-        try modules.timeout.start(),
-        try modules.http.start(),
+        try components.timeout.start(),
+        try components.http.start(),
     }) |thread| thread.join();
 }
 
 test {
+    _ = comps;
+    _ = Component;
     _ = @import("enums.zig");
     _ = @import("mem.zig");
     _ = @import("meta.zig");
-    _ = mods;
-    _ = Module;
     _ = Plugin;
     _ = Registry;
     _ = @import("wasm.zig");

@@ -1,8 +1,8 @@
 const std = @import("std");
 const httpz = @import("httpz");
 
+const components = @import("../components.zig");
 const meta = @import("../meta.zig");
-const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
@@ -14,10 +14,10 @@ registry: *const Registry,
 
 allocator: std.mem.Allocator,
 
-plugin_callbacks: modules.CallbacksUnmanaged(union(enum) {
+plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
     webhook,
 
-    pub fn done(_: @This()) modules.CallbackDoneCondition {
+    pub fn done(_: @This()) components.CallbackDoneCondition {
         return .{ .on = .{} };
     }
 }) = .{},

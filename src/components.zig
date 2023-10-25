@@ -5,10 +5,10 @@ const wasm = @import("wasm.zig");
 const PluginRuntime = @import("plugin/Runtime.zig");
 const Registry = @import("Registry.zig");
 
-pub const Http = @import("modules/Http.zig");
-pub const Process = @import("modules/Process.zig");
-pub const Timeout = @import("modules/Timeout.zig");
-pub const ToUpper = @import("modules/ToUpper.zig");
+pub const Http = @import("components/Http.zig");
+pub const Process = @import("components/Process.zig");
+pub const Timeout = @import("components/Timeout.zig");
+pub const ToUpper = @import("components/ToUpper.zig");
 
 pub fn CallbacksUnmanaged(comptime Condition: type) type {
     return struct {

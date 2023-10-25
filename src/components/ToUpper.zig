@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const meta = @import("../meta.zig");
-const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");

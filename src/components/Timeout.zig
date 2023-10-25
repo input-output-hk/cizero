@@ -3,8 +3,8 @@ const std = @import("std");
 const Cron = @import("cron").Cron;
 const Datetime = @import("datetime").datetime.Datetime;
 
+const components = @import("../components.zig");
 const meta = @import("../meta.zig");
-const modules = @import("../modules.zig");
 const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
@@ -16,7 +16,7 @@ registry: *const Registry,
 
 allocator: std.mem.Allocator,
 
-plugin_callbacks: modules.CallbacksUnmanaged(union(enum) {
+plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
     /// Milliseconds since the unix epoch.
     timestamp: i64,
     cron: Cron,
@@ -33,7 +33,7 @@ plugin_callbacks: modules.CallbacksUnmanaged(union(enum) {
         };
     }
 
-    pub fn done(self: @This()) modules.CallbackDoneCondition {
+    pub fn done(self: @This()) components.CallbackDoneCondition {
         return switch (self) {
             .timestamp => .always,
             .cron => .{ .on = .{} },
