@@ -63,13 +63,5 @@ pub fn main() !void {
 }
 
 test {
-    _ = comps;
-    _ = Component;
-    _ = @import("enums.zig");
-    _ = @import("mem.zig");
-    _ = @import("meta.zig");
-    _ = Plugin;
-    _ = Registry;
-    _ = @import("wasm.zig");
-    _ = @import("wasmtime.zig");
+    std.testing.refAllDeclsRecursive(@This());
 }

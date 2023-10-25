@@ -117,7 +117,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 &.{"foo", "foo", "bar"},
                 &.{"foo-1", "foo-2", "bar-1"},
             ) |plugin_name, func_name|
-                try cbs.insert(std.testing.allocator, plugin_name, func_name, .{});
+                try cbs.insert(std.testing.allocator, plugin_name, func_name, undefined);
 
             var iter = cbs.iterator();
             inline for (
@@ -197,7 +197,3 @@ pub const CallbackDoneCondition = union(enum) {
         };
     }
 };
-
-test {
-    _ = std.testing.refAllDecls(@This());
-}

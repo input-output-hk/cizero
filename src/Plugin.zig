@@ -15,7 +15,3 @@ pub fn name(self: @This()) []const u8 {
 pub fn wasm(self: @This(), allocator: std.mem.Allocator) ![]const u8 {
     return std.fs.cwd().readFileAlloc(allocator, self.path, std.math.maxInt(usize));
 }
-
-test {
-    _ = Runtime;
-}
