@@ -69,14 +69,15 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         var runtime = try self.registry.runtime(entry.pluginName());
         defer runtime.deinit();
 
-        const linear = try runtime.linearMemory();
+        const linear = try runtime.linearMemoryAllocator();
+        const allocator = linear.allocator();
 
-        const body = if (try req.body()) |body| try linear.allocator.dupeZ(u8, body) else null;
-        defer if (body) |b| linear.allocator.free(b);
+        const body = if (try req.body()) |body| try allocator.dupeZ(u8, body) else null;
+        defer if (body) |b| allocator.free(b);
 
         const inputs = [_]wasm.Value{
             .{ .i32 = if (body) |b| @intCast(linear.memory.offset(b.ptr)) else 0 },
-        }; // TODO pass body
+        };
 
         var outputs: [1]wasm.Value = undefined;
         try entry.run(self.allocator, runtime, &inputs, &outputs);

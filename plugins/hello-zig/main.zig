@@ -16,7 +16,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         return false;
     }
 
-    export fn webhookCallback(body_ptr: [*c]const u8) bool {
+    export fn webhookCallback(body_ptr: [*:0]const u8) bool {
         const body = std.mem.span(body_ptr);
         std.debug.print("> called {s}(): {s}\n", .{@src().fn_name, body});
         return false;
