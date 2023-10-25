@@ -7,18 +7,18 @@ const allocator = std.heap.wasm_allocator;
 usingnamespace if (builtin.is_test) struct {} else struct {
     export fn timestampCallback() void {
         const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
-        std.debug.print("> called timestampCallback() at {d}s\n", .{now_s});
+        std.debug.print("> called {s}() at {d}s\n", .{@src().fn_name, now_s});
     }
 
     export fn cronCallback() bool {
         const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
-        std.debug.print("> called cronCallback() at {d}s\n", .{now_s});
+        std.debug.print("> called {s}() at {d}s\n", .{@src().fn_name, now_s});
         return false;
     }
 
     export fn webhookCallback(body_ptr: [*c]const u8) bool {
         const body = std.mem.span(body_ptr);
-        std.debug.print("> called webhookCallback(): {s}\n", .{body});
+        std.debug.print("> called {s}(): {s}\n", .{@src().fn_name, body});
         return false;
     }
 };
