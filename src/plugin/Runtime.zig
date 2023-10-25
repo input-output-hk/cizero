@@ -415,16 +415,8 @@ pub const Allocator = struct {
     }
 };
 
-pub fn linearMemory(self: @This()) !struct {
-    memory: Memory,
-    allocator: std.mem.Allocator,
-} {
-    const memory = try Memory.initFromInstance(self.wasm_instance, self.wasm_context);
-    const allocator = try Allocator.initFromInstance(memory, self.wasm_instance);
-    return .{
-        .memory = memory,
-        .allocator = allocator.allocator(),
-    };
+pub fn linearMemoryAllocator(self: @This()) !Allocator {
+    return Allocator.initFromInstance(try Memory.initFromInstance(self.wasm_instance, self.wasm_context), self.wasm_instance);
 }
 
 fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
