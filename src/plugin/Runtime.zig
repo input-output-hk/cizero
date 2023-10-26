@@ -262,7 +262,7 @@ pub const Allocator = struct {
     wasm_fn_resize: c.wasmtime_func,
     wasm_fn_free: c.wasmtime_func,
 
-    const export_names = .{"cizero_mem_alloc", "cizero_mem_resize", "cizero_mem_free"};
+    const export_names = .{ "cizero_mem_alloc", "cizero_mem_resize", "cizero_mem_free" };
 
     fn initFromCaller(memory: Memory, caller: *c.wasmtime_caller) !@This() {
         var item_fn_alloc: c.wasmtime_extern = undefined;
@@ -270,7 +270,7 @@ pub const Allocator = struct {
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{&item_fn_alloc, &item_fn_resize, &item_fn_free},
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_caller_export_get(caller, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -289,7 +289,7 @@ pub const Allocator = struct {
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{&item_fn_alloc, &item_fn_resize, &item_fn_free},
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_linker_get(linker, memory.wasm_context, null, 0, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -308,7 +308,7 @@ pub const Allocator = struct {
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{&item_fn_alloc, &item_fn_resize, &item_fn_free},
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_instance_export_get(memory.wasm_context, &instance, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -327,7 +327,7 @@ pub const Allocator = struct {
         item_fn_resize: c.wasmtime_extern,
         item_fn_free: c.wasmtime_extern,
     ) !@This() {
-        inline for (.{item_fn_alloc, item_fn_resize, item_fn_free}) |item|
+        inline for (.{ item_fn_alloc, item_fn_resize, item_fn_free }) |item|
             if (item.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
 
         return .{

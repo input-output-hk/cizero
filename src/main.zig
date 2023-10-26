@@ -28,10 +28,7 @@ pub fn main() !void {
     };
     inline for (@typeInfo(@TypeOf(components)).Struct.fields) |field| {
         const value_ptr = &@field(components, field.name);
-        try registry.components.append(Component.init(
-            if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.*
-            else value_ptr
-        ));
+        try registry.components.append(Component.init(if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.* else value_ptr));
     }
 
     {

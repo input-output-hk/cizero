@@ -114,8 +114,8 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
             defer cbs.deinit(std.testing.allocator);
 
             inline for (
-                &.{"foo", "foo", "bar"},
-                &.{"foo-1", "foo-2", "bar-1"},
+                &.{ "foo", "foo", "bar" },
+                &.{ "foo-1", "foo-2", "bar-1" },
             ) |plugin_name, func_name|
                 try cbs.insert(std.testing.allocator, plugin_name, func_name, undefined);
 
@@ -191,8 +191,7 @@ pub const CallbackDoneCondition = union(enum) {
     pub fn check(self: @This(), success: bool, outputs: []const wasm.Value) bool {
         return switch (self) {
             .always => true,
-            .on => |on|
-                on.failure and !success or
+            .on => |on| on.failure and !success or
                 if (on.output0) |v| outputs[0].i32 == @intFromBool(v) else false,
         };
     }
