@@ -113,16 +113,16 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
             defer cbs.deinit(std.testing.allocator);
 
             inline for (
-                &.{ "foo", "foo", "bar" },
-                &.{ "foo-1", "foo-2", "bar-1" },
+                .{ "foo", "foo", "bar" },
+                .{ "foo-1", "foo-2", "bar-1" },
             ) |plugin_name, func_name|
                 try cbs.insert(std.testing.allocator, plugin_name, func_name, null, undefined);
 
             var iter = cbs.iterator();
             inline for (
                 // Order is not guaranteed and may change without being a failure.
-                &.{ "bar", "foo", "foo" },
-                &.{ "bar-1", "foo-1", "foo-2" },
+                .{ "bar", "foo", "foo" },
+                .{ "bar-1", "foo-1", "foo-2" },
             ) |plugin_name, func_name| {
                 const entry = iter.next().?;
                 try std.testing.expectEqualStrings(plugin_name, entry.pluginName());
