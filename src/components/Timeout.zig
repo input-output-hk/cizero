@@ -47,7 +47,7 @@ pub fn deinit(self: *@This()) void {
     self.plugin_callbacks.deinit(self.allocator);
 }
 
-pub fn start(self: *@This()) !std.Thread {
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
     const thread = try std.Thread.spawn(.{}, loop, .{self});
     try thread.setName(name);
     return thread;

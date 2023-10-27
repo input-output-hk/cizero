@@ -29,7 +29,7 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self);
 }
 
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry) !*@This() {
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry) std.mem.Allocator.Error!*@This() {
     var self = try allocator.create(@This());
     self.* = .{
         .allocator = allocator,
@@ -43,7 +43,7 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) !*@This() {
     return self;
 }
 
-pub fn start(self: *@This()) !std.Thread {
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
     const thread = try std.Thread.spawn(.{}, listen, .{self});
     try thread.setName(name);
     return thread;
