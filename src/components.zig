@@ -38,8 +38,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
             pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
                 const callback = self.callbackPtr();
 
-                // TODO run on new thread
-                const success = try runtime.call(callback.func_name, inputs, outputs);
+                const success = try callback.run(allocator, runtime, inputs, outputs);
                 if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, self.pluginName() });
 
                 if (callback.done(success, outputs)) self.remove(allocator);
@@ -117,7 +116,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 &.{ "foo", "foo", "bar" },
                 &.{ "foo-1", "foo-2", "bar-1" },
             ) |plugin_name, func_name|
-                try cbs.insert(std.testing.allocator, plugin_name, func_name, undefined);
+                try cbs.insert(std.testing.allocator, plugin_name, func_name, null, undefined);
 
             var iter = cbs.iterator();
             inline for (
@@ -137,6 +136,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
             allocator: std.mem.Allocator,
             plugin_name: []const u8,
             func_name: []const u8,
+            user_data: ?[]const u8,
             condition: Condition,
         ) !void {
             const callbacks = blk: {
@@ -145,7 +145,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 break :blk result.value_ptr;
             };
 
-            try callbacks.append(allocator, try Callback.init(allocator, func_name, condition));
+            try callbacks.append(allocator, try Callback.init(allocator, func_name, user_data, condition));
         }
     };
 }
@@ -161,20 +161,41 @@ test CallbacksUnmanaged {
 pub fn CallbackUnmanaged(comptime T: type) type {
     return struct {
         func_name: [:0]const u8,
+        user_data: ?[]const u8,
         condition: T,
 
         pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+            if (self.user_data) |user_data| allocator.free(user_data);
             allocator.free(self.func_name);
         }
 
-        pub fn init(allocator: std.mem.Allocator, func_name: []const u8, condition: T) !@This() {
+        pub fn init(allocator: std.mem.Allocator, func_name: []const u8, user_data: ?[]const u8, condition: T) !@This() {
             return .{
                 .func_name = try allocator.dupeZ(u8, func_name),
+                .user_data = if (user_data) |ud| try allocator.dupe(u8, ud) else null,
                 .condition = condition,
             };
         }
 
-        pub fn done(self: @This(), success: bool, outputs: []const wasm.Value) bool {
+        pub fn run(self: *const @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
+            const linear = try runtime.linearMemoryAllocator();
+            const linear_allocator = linear.allocator();
+
+            const user_data = if (self.user_data) |user_data| try linear_allocator.dupe(u8, user_data) else null;
+            defer if (user_data) |ud| linear_allocator.free(ud);
+
+            var final_inputs = try allocator.alloc(wasm.Value, inputs.len + 2);
+            defer allocator.free(final_inputs);
+
+            final_inputs[0] = .{ .i32 = if (user_data) |ud| @intCast(linear.memory.offset(ud.ptr)) else 0 };
+            final_inputs[1] = .{ .i32 = if (user_data) |ud| @intCast(ud.len) else 0 };
+            for (final_inputs[2..], inputs) |*final_input, input| final_input.* = input;
+
+            // TODO run on new thread
+            return runtime.call(self.func_name, final_inputs, outputs);
+        }
+
+        pub fn done(self: *const @This(), success: bool, outputs: []const wasm.Value) bool {
             const condition: CallbackDoneCondition = self.condition.done();
             return condition.check(success, outputs);
         }

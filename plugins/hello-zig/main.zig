@@ -5,20 +5,46 @@ const cizero = @import("cizero");
 const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
-    export fn timestampCallback() void {
+    export fn timestampCallback(user_data: *const i64, user_data_len: usize) void {
+        std.debug.assert(user_data_len == @sizeOf(i64));
+
         const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
-        std.debug.print("> called {s}() at {d}s\n", .{@src().fn_name, now_s});
+
+        std.debug.print("> called {s}() at {d}s from {d}s\n", .{ @src().fn_name, now_s, user_data.* });
     }
 
-    export fn cronCallback() bool {
+    export fn cronCallback(user_data: *const i64, user_data_len: usize) bool {
+        std.debug.assert(user_data_len == @sizeOf(i64));
+
         const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
-        std.debug.print("> called {s}() at {d}s\n", .{@src().fn_name, now_s});
+
+        std.debug.print("> called {s}() at {d}s from {d}s\n", .{ @src().fn_name, now_s, user_data.* });
+
         return false;
     }
 
-    export fn webhookCallback(body_ptr: [*:0]const u8) bool {
+    export fn webhookCallbackStr(user_data_ptr: ?[*]const u8, user_data_len: usize, body_ptr: [*:0]const u8) bool {
+        const user_data: []const u8 = blk: {
+            const default = "(none)";
+            const ptr = user_data_ptr orelse default.ptr;
+            const len = if (user_data_ptr) |_| user_data_len else default.len;
+            break :blk ptr[0..len];
+        };
+
         const body = std.mem.span(body_ptr);
-        std.debug.print("> called {s}(): {s}\n", .{@src().fn_name, body});
+
+        std.debug.print("> called {s}() with body {s} and user data {s}\n", .{ @src().fn_name, body, user_data });
+
+        return false;
+    }
+
+    export fn webhookCallbackFoo(user_data: ?*const Foo, user_data_len: usize, body_ptr: [*:0]const u8) bool {
+        std.debug.assert(user_data_len == @sizeOf(Foo));
+
+        const body = std.mem.span(body_ptr);
+
+        std.debug.print("> called {s}() with body {s} and user data {any}\n", .{ @src().fn_name, body, user_data });
+
         return false;
     }
 };
@@ -52,13 +78,13 @@ fn mainZig() !u8 {
             try std.math.divFloor(i64, timeout_ms, std.time.ms_per_s),
             now_s,
         });
-        cizero.onTimestamp("timestampCallback", timeout_ms);
+        cizero.onTimestamp("timestampCallback", now_s, timeout_ms);
     }
 
     {
         const cron = "* * * * *";
         std.debug.print("> calling onCron(\"{s}\") at {d}s\n", .{ cron, now_s });
-        const next = cizero.onCron("cronCallback", cron);
+        const next = cizero.onCron("cronCallback", now_s, cron);
         std.debug.print(">> cronCallback() will be called at {d}s\n", .{
             try std.math.divFloor(i64, next, std.time.ms_per_s),
         });
@@ -92,8 +118,17 @@ fn mainZig() !u8 {
     }
 
     {
-        cizero.onWebhook("webhookCallback");
+        cizero.onWebhook("webhookCallbackStr", "user data");
+        cizero.onWebhook("webhookCallbackFoo", Foo{
+            .a = 25,
+            .b = .{ 372, 457 },
+        });
     }
 
     return 0;
 }
+
+const Foo = struct {
+    a: u8,
+    b: [2]u16,
+};

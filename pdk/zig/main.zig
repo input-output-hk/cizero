@@ -14,21 +14,53 @@ export fn cizero_mem_free(buf: [*]u8, buf_len: usize, buf_align: u8) void {
 
 const externs = struct {
     // http
-    extern "cizero" fn onWebhook([*]const u8) void;
+    extern "cizero" fn onWebhook([*]const u8, ?*const anyopaque, usize) void;
 
     // process
     extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]const usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
 
     // timeout
-    extern "cizero" fn onCron([*]const u8, [*]const u8) i64;
-    extern "cizero" fn onTimestamp([*]const u8, i64) void;
+    extern "cizero" fn onCron([*]const u8, ?*const anyopaque, usize, [*]const u8) i64;
+    extern "cizero" fn onTimestamp([*]const u8, ?*const anyopaque, usize, i64) void;
 
     // to_upper
     extern "cizero" fn toUpper([*]u8) void;
 };
 
-pub fn onWebhook(callback_func_name: [:0]const u8) void {
-    externs.onWebhook(callback_func_name.ptr);
+const MemoryRegion = struct {
+    ptr: ?*const anyopaque,
+    len: usize,
+
+    pub fn of(any: anytype) @This() {
+        const Any = @TypeOf(any);
+        return switch (@typeInfo(Any)) {
+            .Bool, .Int, .Float, .Array, .Struct, .Enum, .Union => .{
+                .ptr = &any,
+                .len = @sizeOf(Any),
+            },
+            .Optional => if (any) |a| of(a) else .{
+                .ptr = null,
+                .len = 0,
+            },
+            .Pointer => |pointer| switch (pointer.size) {
+                .One => .{
+                    .ptr = any,
+                    .len = @sizeOf(pointer.child),
+                },
+                .Slice => .{
+                    .ptr = any.ptr,
+                    .len = any.len,
+                },
+                else => |size| @compileError("unsupported pointer size: " ++ @tagName(size)),
+            },
+            else => @compileError("unsupported type: " ++ @typeName(Any)),
+        };
+    }
+};
+
+pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
+    const user_data_region = MemoryRegion.of(user_data);
+    externs.onWebhook(callback_func_name.ptr, user_data_region.ptr, user_data_region.len);
 }
 
 pub fn exec(args: struct {
@@ -91,12 +123,14 @@ pub fn exec(args: struct {
     };
 }
 
-pub fn onCron(callback_func_name: [:0]const u8, cron_expr: [:0]const u8) i64 {
-    return externs.onCron(callback_func_name.ptr, cron_expr.ptr);
+pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
+    const user_data_region = MemoryRegion.of(user_data);
+    return externs.onCron(callback_func_name.ptr, user_data_region.ptr, user_data_region.len, cron_expr.ptr);
 }
 
-pub fn onTimestamp(callback_func_name: [:0]const u8, timestamp_ms: i64) void {
-    externs.onTimestamp(callback_func_name.ptr, timestamp_ms);
+pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
+    const user_data_region = MemoryRegion.of(user_data);
+    externs.onTimestamp(callback_func_name.ptr, user_data_region.ptr, user_data_region.len, timestamp_ms);
 }
 
 pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {

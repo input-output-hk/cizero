@@ -90,7 +90,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
         .onWebhook = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{.i32},
+                .params = &.{ .i32, .i32, .i32 },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onWebhook, self),
@@ -99,13 +99,22 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
 }
 
 fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 1);
+    std.debug.assert(inputs.len == 3);
     std.debug.assert(outputs.len == 0);
+
+    const params = .{
+        .func_name = wasm.span(memory, inputs[0]),
+        .user_data_ptr = @as(?[*]const u8, @alignCast(@ptrCast(&memory[@intCast(inputs[1].i32)]))),
+        .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
+    };
+
+    const user_data = if (params.user_data_ptr) |ptr| ptr[0..params.user_data_len] else null;
 
     try self.plugin_callbacks.insert(
         self.allocator,
         plugin.name(),
-        wasm.span(memory, inputs[0]),
+        params.func_name,
+        user_data,
         .webhook,
     );
 }

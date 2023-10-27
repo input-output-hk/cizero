@@ -103,14 +103,14 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
         .onTimestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .i32, .i64 },
+                .params = &.{ .i32, .i32, .i32, .i64 },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
         },
         .onCron = Plugin.Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.Value.Type{.i32} ** 2,
+                .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{.i64},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
@@ -119,30 +119,50 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
 }
 
 fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 2);
+    std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
+
+    const params = .{
+        .func_name = wasm.span(memory, inputs[0]),
+        .user_data_ptr = @as(?[*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
+        .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
+        .timestamp = inputs[3].i64,
+    };
+
+    const user_data = if (params.user_data_ptr) |ptr| ptr[0..params.user_data_len] else null;
 
     try self.plugin_callbacks.insert(
         self.allocator,
         plugin.name(),
-        wasm.span(memory, inputs[0]),
-        .{ .timestamp = inputs[1].i64 },
+        params.func_name,
+        user_data,
+        .{ .timestamp = params.timestamp },
     );
 
     self.restart_loop.set();
 }
 
 fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 2);
+    std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 1);
 
+    const params = .{
+        .func_name = wasm.span(memory, inputs[0]),
+        .user_data_ptr = @as(?[*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
+        .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
+        .cron = wasm.span(memory, inputs[3]),
+    };
+
+    const user_data = if (params.user_data_ptr) |ptr| ptr[0..params.user_data_len] else null;
+
     var cron = Cron.init();
-    try cron.parse(wasm.span(memory, inputs[1]));
+    try cron.parse(params.cron);
 
     try self.plugin_callbacks.insert(
         self.allocator,
         plugin.name(),
-        wasm.span(memory, inputs[0]),
+        params.func_name,
+        user_data,
         .{ .cron = cron },
     );
 
