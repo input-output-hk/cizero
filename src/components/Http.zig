@@ -104,7 +104,10 @@ fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator,
 
     const params = .{
         .func_name = wasm.span(memory, inputs[0]),
-        .user_data_ptr = @as(?[*]const u8, @alignCast(@ptrCast(&memory[@intCast(inputs[1].i32)]))),
+        .user_data_ptr = blk: {
+            const addr: wasm.usize = @intCast(inputs[1].i32);
+            break :blk if (addr == 0) null else @as([*]const u8, @ptrCast(&memory[addr]));
+        },
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
     };
 

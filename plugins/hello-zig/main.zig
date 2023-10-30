@@ -118,6 +118,8 @@ fn mainZig() !u8 {
     }
 
     {
+        cizero.onWebhook("webhookCallbackStr", null);
+        cizero.onWebhook("webhookCallbackStr", @as(?[]const u8, null));
         cizero.onWebhook("webhookCallbackStr", "user data");
         cizero.onWebhook("webhookCallbackFoo", Foo{
             .a = 25,

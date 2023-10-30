@@ -249,9 +249,15 @@ pub const Memory = struct {
 
     pub fn offset(self: @This(), ptr: [*]const u8) wasm.usize {
         const ptr_addr = @intFromPtr(ptr);
+
         const memory = self.slice();
         const memory_addr = @intFromPtr(memory.ptr);
-        if (ptr_addr < memory_addr or ptr_addr >= memory_addr + memory.len) @panic("ptr is not in slice");
+
+        if (switch (memory.len) {
+            0 => ptr_addr != memory_addr,
+            else => ptr_addr < memory_addr or ptr_addr >= memory_addr + memory.len,
+        }) std.debug.panic("ptr {*} is not in slice at {*} of length {d}\n", .{ ptr, memory.ptr, memory.len });
+
         return @intCast(ptr_addr - memory_addr);
     }
 };

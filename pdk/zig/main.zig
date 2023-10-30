@@ -38,10 +38,7 @@ const MemoryRegion = struct {
                 .ptr = &any,
                 .len = @sizeOf(Any),
             },
-            .Optional => if (any) |a| of(a) else .{
-                .ptr = null,
-                .len = 0,
-            },
+            .Optional => if (any) |a| of(a) else of(null),
             .Pointer => |pointer| switch (pointer.size) {
                 .One => .{
                     .ptr = any,
@@ -52,6 +49,10 @@ const MemoryRegion = struct {
                     .len = any.len,
                 },
                 else => |size| @compileError("unsupported pointer size: " ++ @tagName(size)),
+            },
+            .Null => .{
+                .ptr = null,
+                .len = 0,
             },
             else => @compileError("unsupported type: " ++ @typeName(Any)),
         };
