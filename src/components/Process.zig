@@ -73,6 +73,10 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
         }
         return;
     };
+    defer {
+        exec_args.allocator.free(result.stdout);
+        exec_args.allocator.free(result.stderr);
+    }
 
     params.stdout_len.* = @intCast(result.stdout.len);
     params.stderr_len.* = @intCast(result.stderr.len);

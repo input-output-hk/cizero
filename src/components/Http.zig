@@ -25,6 +25,7 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
 server: httpz.ServerCtx(*@This(), *@This()),
 
 pub fn deinit(self: *@This()) void {
+    self.server.deinit();
     self.plugin_callbacks.deinit(self.allocator);
     self.allocator.destroy(self);
 }
