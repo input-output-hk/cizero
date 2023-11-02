@@ -6,11 +6,15 @@ lib LibCizero
 
   fun onCron(
     callback_name : UInt8*,
+    user_data : UInt8*,
+    user_data_size : Int32,
     cronspec : UInt8*
   ) : Int64
 
   fun onTimestamp(
     callback_name : UInt8*,
+    user_data : UInt8*,
+    user_data_size : Int32,
     timestamp_ms : Int64
   )
 
@@ -27,9 +31,16 @@ lib LibCizero
     term_tag : Int8*,
     term_code : Int32*
   ) : Int8
+
+  fun onWebhook(
+    callback_name : UInt8*,
+    body : UInt8**,
+    max_body_size : Int32
+  )
 end
 
 # This function is never actually called, it works by magic!
+# https://github.com/crystal-lang/crystal/issues/13888
 fun ensure_constants_are_set
   pointerof(ARGF)
   pointerof(ARGV)
@@ -45,18 +56,49 @@ fun ensure_constants_are_set
   pointerof(Time::DAYS_MONTH)
 end
 
+MEMORY = [] of Pointer(UInt8)
+
+fun cizero_mem_alloc(len : Int32, ptr_align : UInt8) : UInt8*
+  Pointer(UInt8).malloc(len).tap { |ptr|
+    MEMORY << ptr
+  }
+end
+
+fun cizero_mem_resize(buf : UInt8**, buf_len : Int32, buf_align : UInt8, new_len : Int32) : Bool
+  buf.realloc(new_len)
+  true
+end
+
+fun cizero_mem_free(buf : UInt8**, buf_len : Int32, buf_align : UInt8)
+  MEMORY.delete(buf)
+end
+
 module Cizero
-  def self.to_upper(str : String)
+  def self.on_webhook(callback_name : String, max_body_bytes : Int32) : String
+    output = Slice(UInt8).new(max_body_bytes)
+    LibCizero.onWebhook(callback_name, output, max_body_bytes)
+    String.new(output)
+  end
+
+  def self.to_upper(str : String) : String
     LibCizero.toUpper(str)
     str
   end
 
-  def self.on_cron(callback_name : String, cronspec : String)
-    LibCizero.onCron(callback_name, cronspec)
+  def self.on_cron(callback : String, cronspec : String, user_data : T? = nil) forall T
+    if user_data
+      LibCizero.onCron(callback, user_data.to_slice, user_data.size, cronspec)
+    else
+      LibCizero.onCron(callback, nil, 1, cronspec)
+    end
   end
 
-  def self.on_timestamp(callback_name : String, time : Time)
-    LibCizero.onTimestamp(callback_name, time.to_unix_ms)
+  def self.on_timestamp(callback : String, time : Time, user_data : T? = nil) forall T
+    if user_data
+      LibCizero.onTimestamp(callback, user_data.to_slice, user_data.size, time.to_unix_ms)
+    else
+      LibCizero.onTimestamp(callback, nil, 1, time.to_unix_ms)
+    end
   end
 
   def self.exec(args : Array(String), env : Hash(String, String), max_output_bytes : Int32)
@@ -70,7 +112,7 @@ module Cizero
       argv: args.map(&.to_unsafe),
       argv_len: args.size,
       expand_arg0: false,
-      env: env.map{|k,v| [k, v].map(&.to_unsafe) }.flatten,
+      env: env.map { |k, v| [k, v].map(&.to_unsafe) }.flatten,
       env_len: env.size * 2,
       max_output_bytes: max_output_bytes,
       output: output,
@@ -81,7 +123,7 @@ module Cizero
     )
 
     stdout = String.new(output[0...stdout_len])
-    stderr = String.new(output[stdout_len...(stdout_len+stderr_len)])
+    stderr = String.new(output[stdout_len...(stdout_len + stderr_len)])
 
     ExecResult.new(
       stdout: stdout,

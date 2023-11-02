@@ -22,7 +22,7 @@ pub fn deinit(self: *@This()) void {
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!*@This() {
     var self = try allocator.create(@This());
     self.* = .{
-        .registry = .{.allocator = allocator},
+        .registry = .{ .allocator = allocator },
         .components = .{
             .http = try comps.Http.init(allocator, &self.registry),
             .process = .{ .allocator = allocator },
