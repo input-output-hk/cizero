@@ -34,11 +34,7 @@ const MemoryRegion = struct {
     pub fn of(any: anytype) @This() {
         const Any = @TypeOf(any);
         return switch (@typeInfo(Any)) {
-            .Bool, .Int, .Float, .Array, .Struct, .Enum, .Union => .{
-                .ptr = &any,
-                .len = @sizeOf(Any),
-            },
-            .Optional => if (any) |a| of(a) else of(null),
+            .Optional => if (any) |a| if (comptime std.meta.trait.is(.Pointer)(@TypeOf(a))) of(a) else of(&a) else of(null),
             .Pointer => |pointer| switch (pointer.size) {
                 .One => .{
                     .ptr = any,
@@ -56,6 +52,50 @@ const MemoryRegion = struct {
             },
             else => @compileError("unsupported type: " ++ @typeName(Any)),
         };
+    }
+
+    test of {
+        inline for (.{ null, @as(?[]const u8, null) }) |data| {
+            const region = MemoryRegion.of(data);
+            try std.testing.expect(region.ptr == null);
+            try std.testing.expectEqual(@as(usize, 0), region.len);
+        }
+
+        {
+            const data: []const u8 = "foo";
+            const region = MemoryRegion.of(data);
+            try std.testing.expect(region.ptr != null);
+            try std.testing.expectEqual(region.ptr.?, data.ptr);
+            try std.testing.expectEqual(data.len, region.len);
+        }
+
+        {
+            const data = [_]bool{ true, false };
+            const region = MemoryRegion.of(&data);
+            try std.testing.expect(region.ptr != null);
+            try std.testing.expectEqual(region.ptr.?, &data);
+            try std.testing.expectEqual(data.len, region.len);
+        }
+
+        {
+            const Foo = struct {};
+
+            {
+                const data = Foo{};
+                const region = MemoryRegion.of(&data);
+                try std.testing.expect(region.ptr != null);
+                try std.testing.expectEqual(region.ptr.?, &data);
+                try std.testing.expectEqual(@as(usize, @sizeOf(@TypeOf(data))), region.len);
+            }
+
+            {
+                const data: ?Foo = .{};
+                const region = MemoryRegion.of(&data);
+                try std.testing.expect(region.ptr != null);
+                try std.testing.expectEqual(region.ptr.?, &data);
+                try std.testing.expectEqual(@as(usize, @sizeOf(@TypeOf(data))), region.len);
+            }
+        }
     }
 };
 
@@ -198,3 +238,7 @@ const CStringArray = struct {
         return self;
     }
 };
+
+test {
+    _ = MemoryRegion;
+}
