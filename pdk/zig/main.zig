@@ -105,7 +105,18 @@ pub fn exec(args: struct {
         &term_code,
     );
     if (err_code != 0) {
-        inline for (std.meta.tags(std.process.Child.ExecError), 1..) |err, i|
+        const E = std.process.Child.ExecError;
+
+        var err_tags = try args.allocator.dupe(E, std.meta.tags(E));
+        defer args.allocator.free(err_tags);
+
+        std.mem.sortUnstable(E, err_tags, {}, struct {
+            fn call(_: void, lhs: E, rhs: E) bool {
+                return std.mem.order(u8, @errorName(lhs), @errorName(rhs)) == .lt;
+            }
+        }.call);
+
+        for (err_tags, 1..) |err, i|
             if (err_code == i) return err;
         unreachable;
     }

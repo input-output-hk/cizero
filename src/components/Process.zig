@@ -67,11 +67,24 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
     defer self.allocator.free(exec_args.argv);
     defer if (exec_args.env_map) |m| m.deinit();
 
-    const result = std.process.Child.exec(exec_args) catch |err| {
-        inline for (std.meta.tags(@TypeOf(err)), 1..) |err_tag, i| {
-            if (err == err_tag) outputs[0] = .{ .i32 = i };
+    const result = self.exec_closure.call(.{exec_args}) catch |err| {
+        const E = std.process.Child.ExecError;
+
+        var err_tags = try self.allocator.dupe(E, std.meta.tags(E));
+        defer self.allocator.free(err_tags);
+
+        std.mem.sortUnstable(E, err_tags, {}, struct {
+            fn call(_: void, lhs: E, rhs: E) bool {
+                return std.mem.order(u8, @errorName(lhs), @errorName(rhs)) == .lt;
+            }
+        }.call);
+
+        for (err_tags, 1..) |err_tag, i| {
+            if (err != err_tag) continue;
+            outputs[0] = .{ .i32 = @intCast(i) };
+            return;
         }
-        return;
+        unreachable;
     };
     defer {
         exec_args.allocator.free(result.stdout);
