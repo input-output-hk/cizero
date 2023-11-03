@@ -173,6 +173,8 @@ pub fn CallbackUnmanaged(comptime T: type) type {
         user_data: ?[]const u8,
         condition: T,
 
+        pub const Condition = T;
+
         pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
             if (self.user_data) |user_data| allocator.free(user_data);
             allocator.free(self.func_name);

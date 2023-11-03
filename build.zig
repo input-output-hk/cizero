@@ -40,6 +40,24 @@ pub fn build(b: *Build) !void {
         const run_tests = b.addRunArtifact(tests);
         test_step.dependOn(&run_tests.step);
     }
+
+    const test_pdk_step = b.step("test-pdk", "Run PDK tests");
+    if (b.option([]const u8, "plugin", "Path to WASM module of a PDK test plugin")) |plugin_path| {
+        const build_options = b.addOptions();
+        build_options.addOption([]const u8, "plugin_path", plugin_path);
+
+        const tests = b.addTest(.{
+            .main_pkg_path = Build.LazyPath.relative("src"),
+            .root_source_file = Build.LazyPath.relative("src/plugin/pdk-test.zig"),
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+        configureCompileStep(b, tests, opts);
+        tests.addOptions("build_options", build_options);
+
+        const run_tests = b.addRunArtifact(tests);
+        test_pdk_step.dependOn(&run_tests.step);
+    }
 }
 
 fn configureCompileStep(b: *Build, step: *Build.Step.Compile, dep_args: anytype) void {

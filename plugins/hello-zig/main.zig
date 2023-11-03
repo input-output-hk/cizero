@@ -2,109 +2,92 @@ const builtin = @import("builtin");
 const std = @import("std");
 const cizero = @import("cizero");
 
+const root = @This();
+
 const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
-    export fn timestampCallback(user_data: *const i64, user_data_len: usize) void {
-        std.debug.assert(user_data_len == @sizeOf(i64));
-
-        const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
-
-        std.debug.print("> called {s}() at {d}s from {d}s\n", .{ @src().fn_name, now_s, user_data.* });
+    pub export fn toUpper() void {
+        tryFn(pdk_tests.toUpper, .{}, {});
     }
 
-    export fn cronCallback(user_data: *const i64, user_data_len: usize) bool {
+    pub export fn onTimestamp() void {
+        pdk_tests.onTimestamp();
+    }
+
+    export fn onTimestampCallback(user_data: *const i64, user_data_len: usize) void {
         std.debug.assert(user_data_len == @sizeOf(i64));
+        std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
+    }
 
-        const now_s = @divFloor(std.time.milliTimestamp(), std.time.ms_per_s);
+    pub export fn onCron() void {
+        pdk_tests.onCron();
+    }
 
-        std.debug.print("> called {s}() at {d}s from {d}s\n", .{ @src().fn_name, now_s, user_data.* });
-
+    export fn onCronCallback(user_data: *const i64, user_data_len: usize) bool {
+        std.debug.assert(user_data_len == @sizeOf(i64));
+        std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
         return false;
     }
 
-    export fn webhookCallbackStr(user_data_ptr: ?[*]const u8, user_data_len: usize, body_ptr: [*:0]const u8) bool {
-        const user_data: []const u8 = blk: {
-            const default = "(none)";
-            const ptr = user_data_ptr orelse default.ptr;
-            const len = if (user_data_ptr) |_| user_data_len else default.len;
-            break :blk ptr[0..len];
-        };
-
-        const body = std.mem.span(body_ptr);
-
-        std.debug.print("> called {s}() with body {s} and user data {s}\n", .{ @src().fn_name, body, user_data });
-
-        return false;
+    pub export fn exec() void {
+        tryFn(pdk_tests.exec, .{}, {});
     }
 
-    export fn webhookCallbackFoo(user_data: ?*const Foo, user_data_len: usize, body_ptr: [*:0]const u8) bool {
-        std.debug.assert(user_data_len == @sizeOf(Foo));
+    pub export fn onWebhook() void {
+        pdk_tests.onWebhook();
+    }
+
+    export fn onWebhookCallback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
+        std.debug.assert(user_data_len == @sizeOf(root.pdk_tests.OnWebhookUserData));
 
         const body = std.mem.span(body_ptr);
 
-        std.debug.print("> called {s}() with body {s} and user data {any}\n", .{ @src().fn_name, body, user_data });
+        std.debug.print("{s}(.{{ {d}, {d} }}, \"{s}\")\n", .{ @src().fn_name, user_data.?.a, user_data.?.b, body });
 
         return false;
     }
 };
 
-pub fn main() u8 {
-    return mainZig() catch |err| {
-        std.log.err("{}\n", .{err});
-        return 1;
-    };
-}
-
-fn mainZig() !u8 {
-    {
-        var args = try std.process.argsWithAllocator(allocator);
-        defer args.deinit();
-
-        while (args.next()) |arg| {
+const pdk_tests = struct {
+    pub fn toUpper() !void {
+        inline for (.{ "foo", "bar" }) |arg| {
             const upper = try cizero.toUpper(allocator, arg);
             defer allocator.free(upper);
 
-            std.debug.print("> {s} → {s}\n", .{ arg, upper });
+            std.debug.print("cizero.{s}({s}) {s}\n", .{ @src().fn_name, arg, upper });
         }
     }
 
-    const now_ms = std.time.milliTimestamp();
-    const now_s = try std.math.divFloor(i64, now_ms, std.time.ms_per_s);
+    pub fn onTimestamp() void {
+        const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 
-    {
-        const timeout_ms = now_ms + 2 * std.time.ms_per_s;
-        std.debug.print("> calling onTimestamp({d}) at {d}s\n", .{
-            try std.math.divFloor(i64, timeout_ms, std.time.ms_per_s),
-            now_s,
-        });
-        cizero.onTimestamp("timestampCallback", now_s, timeout_ms);
+        std.debug.print("cizero.{s}(\"{s}\", {d}, {d})\n", .{ @src().fn_name, "onTimestampCallback", now_ms, now_ms + 2 * std.time.ms_per_s });
+        cizero.onTimestamp("onTimestampCallback", &now_ms, now_ms + 2 * std.time.ms_per_s);
     }
 
-    {
-        const cron = "* * * * *";
-        std.debug.print("> calling onCron(\"{s}\") at {d}s\n", .{ cron, now_s });
-        const next = cizero.onCron("cronCallback", now_s, cron);
-        std.debug.print(">> cronCallback() will be called at {d}s\n", .{
-            try std.math.divFloor(i64, next, std.time.ms_per_s),
-        });
+    pub fn onCron() void {
+        const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
+
+        const result = cizero.onCron("onCronCallback", &now_ms, "* * * * *");
+        std.debug.print("cizero.{s}(\"{s}\", {d}, \"{s}\") {d}\n", .{ @src().fn_name, "onCronCallback", now_ms, "* * * * *" } ++ .{result});
     }
 
-    {
+    pub fn exec() !void {
         var env = std.process.EnvMap.init(allocator);
-        try env.put("hey", "there");
+        try env.put("foo", "bar");
         defer env.deinit();
 
         const result = cizero.exec(.{
             .allocator = allocator,
             .argv = &.{
                 "sh", "-c",
-                \\echo     this goes to stdout
-                \\echo >&2 \$hey="$hey" goes to stderr
+                \\echo     stdout
+                \\echo >&2 stderr \$foo="$foo"
             },
             .env_map = &env,
         }) catch |err| {
-            std.debug.print("> cizero.exec() failed: {}\n", .{err});
+            std.debug.print("cizero.{s}(…) {}\n", .{ @src().fn_name, err });
             return err;
         };
         defer {
@@ -112,25 +95,58 @@ fn mainZig() !u8 {
             allocator.free(result.stderr);
         }
 
-        std.debug.print("> term: {any}\n", .{result.term});
-        std.debug.print("> stdout: {s}\n", .{result.stdout});
-        std.debug.print("> stderr: {s}\n", .{result.stderr});
+        std.debug.print(
+            \\term tag: {s}
+            \\term code: {d}
+            \\stdout: {s}
+            \\stderr: {s}
+            \\
+        , .{ @tagName(result.term), switch (result.term) {
+            .Exited => |code| code,
+            .Signal, .Stopped, .Unknown => |code| code,
+        }, result.stdout, result.stderr });
     }
 
-    {
-        cizero.onWebhook("webhookCallbackStr", null);
-        cizero.onWebhook("webhookCallbackStr", @as(?[]const u8, null));
-        cizero.onWebhook("webhookCallbackStr", "user data");
-        cizero.onWebhook("webhookCallbackFoo", Foo{
+    const OnWebhookUserData = packed struct {
+        a: u8,
+        b: u16,
+    };
+
+    pub fn onWebhook() void {
+        const user_data = OnWebhookUserData{
             .a = 25,
-            .b = .{ 372, 457 },
-        });
+            .b = 372,
+        };
+        std.debug.print("cizero.{s}(\"{s}\", .{{ {d}, {d} }})\n", .{ @src().fn_name, "onWebhookCallback", user_data.a, user_data.b });
+        cizero.onWebhook("onWebhookCallback", &user_data);
     }
+};
 
-    return 0;
+fn isPdkTest() bool {
+    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch @panic("OOM");
 }
 
-const Foo = struct {
-    a: u8,
-    b: [2]u16,
-};
+fn FnErrorUnionPayload(comptime Fn: type) type {
+    return @typeInfo(@typeInfo(Fn).Fn.return_type.?).ErrorUnion.payload;
+}
+
+fn tryFn(func: anytype, args: anytype, default: FnErrorUnionPayload(@TypeOf(func))) FnErrorUnionPayload(@TypeOf(func)) {
+    return @call(.auto, func, args) catch |err| {
+        std.log.err("{}\n", .{err});
+        return default;
+    };
+}
+
+pub fn main() u8 {
+    return tryFn(mainZig, .{}, 1);
+}
+
+fn mainZig() !u8 {
+    if (!isPdkTest()) inline for (@typeInfo(pdk_tests).Struct.decls) |decl| {
+        const func = @field(pdk_tests, decl.name);
+        if (@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?) == .ErrorUnion) {
+            try func();
+        } else func();
+    };
+    return 0;
+}

@@ -9,6 +9,8 @@ pub const name = "process";
 
 allocator: std.mem.Allocator,
 
+exec_closure: meta.Closure(@TypeOf(std.process.Child.exec), true) = meta.disclosure(std.process.Child.exec, true),
+
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
         .exec = Plugin.Runtime.HostFunctionDef{

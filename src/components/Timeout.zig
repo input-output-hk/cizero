@@ -43,6 +43,8 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
 
 restart_loop: std.Thread.ResetEvent = .{},
 
+milli_timestamp_closure: meta.Closure(@TypeOf(std.time.milliTimestamp), true) = meta.disclosure(std.time.milliTimestamp, true),
+
 pub fn deinit(self: *@This()) void {
     self.plugin_callbacks.deinit(self.allocator);
 }
@@ -55,7 +57,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!
 
 fn loop(self: *@This()) !void {
     while (true) {
-        const now_ms = std.time.milliTimestamp();
+        const now_ms = self.milli_timestamp_closure.call(.{});
 
         const next_callback = blk: {
             var next: ?@TypeOf(self.plugin_callbacks).Entry = null;
@@ -172,7 +174,7 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, in
         .{ .cron = cron },
     );
 
-    const next = try cron.next(Datetime.now());
+    const next = try cron.next(Datetime.fromTimestamp(self.milli_timestamp_closure.call(.{})));
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
 
     self.restart_loop.set();
