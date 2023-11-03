@@ -78,7 +78,7 @@ pub fn exec(args: struct {
     defer if (env_map) |env| env.deinit();
 
     var output = try args.allocator.alloc(u8, args.max_output_bytes);
-    errdefer args.allocator.free(output);
+    defer args.allocator.free(output);
 
     var stdout_len: usize = undefined;
     var stderr_len: usize = undefined;
@@ -121,8 +121,6 @@ pub fn exec(args: struct {
         unreachable;
     }
 
-    output = try args.allocator.realloc(output, stdout_len + stderr_len);
-
     return .{
         .term = switch (term_tag) {
             .Exited => .{ .Exited = @intCast(term_code) },
@@ -130,8 +128,8 @@ pub fn exec(args: struct {
             .Stopped => .{ .Stopped = term_code },
             .Unknown => .{ .Unknown = term_code },
         },
-        .stdout = output[0..stdout_len],
-        .stderr = output[stdout_len .. stdout_len + stderr_len],
+        .stdout = try args.allocator.dupe(u8, output[0..stdout_len]),
+        .stderr = try args.allocator.dupe(u8, output[stdout_len .. stdout_len + stderr_len]),
     };
 }
 
