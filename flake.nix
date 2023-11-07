@@ -19,6 +19,7 @@
       systems = ["x86_64-linux"];
 
       imports = [
+        nix/checks
         nix/packages
         nix/devShells.nix
         nix/formatter.nix
