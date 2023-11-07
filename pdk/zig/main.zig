@@ -38,7 +38,7 @@ const MemoryRegion = struct {
             .Pointer => |pointer| switch (pointer.size) {
                 .One => .{
                     .ptr = any,
-                    .len = @sizeOf(pointer.child),
+                    .len = @bitSizeOf(pointer.child) / @bitSizeOf(u8) + @bitSizeOf(pointer.child) % @bitSizeOf(u8),
                 },
                 .Slice => .{
                     .ptr = any.ptr,
@@ -94,6 +94,21 @@ const MemoryRegion = struct {
                 try std.testing.expect(region.ptr != null);
                 try std.testing.expectEqual(region.ptr.?, &data);
                 try std.testing.expectEqual(@as(usize, @sizeOf(@TypeOf(data))), region.len);
+            }
+        }
+
+        {
+            const Foo = packed struct {
+                a: u8 = 1,
+                b: u16 = 2,
+            };
+
+            {
+                const data = Foo{};
+                const region = MemoryRegion.of(&data);
+                try std.testing.expect(region.ptr != null);
+                try std.testing.expectEqual(region.ptr.?, &data);
+                try std.testing.expectEqual(@as(usize, @bitSizeOf(@TypeOf(data))), region.len * @bitSizeOf(u8));
             }
         }
     }
