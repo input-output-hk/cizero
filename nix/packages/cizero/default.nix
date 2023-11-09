@@ -31,6 +31,7 @@
         cron = "1ci56xsrkzdr2js5k3qsyb6pm2awslp481lif1c1mljg85swq351";
         datetime = "15skn6rhybxkjr0jcj866blpr4pdxp072n2nhcfgngcv52d3r46w";
         httpz = "0ndlvysij7l5djlypxxvqzz65y8n8kqd41bgnr0k6wp8q6mli3l4";
+        known-folders = "0xhqs9mv9dp7pdcsrg1vi9i0kfaq1lrhr3zjy9kbpkh273xfg5vd";
       };
 
       preCheck = ''

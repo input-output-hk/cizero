@@ -45,7 +45,26 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
         var rt = try self.runtime(plugin_name);
         defer rt.deinit();
 
-        if (!try rt.main()) return error.PluginMainFailed;
+        const log_wasi_output = comptime std.log.defaultLogEnabled(.debug);
+
+        const wasi_collect = if (log_wasi_output) blk: {
+            var wasi_config = Plugin.Runtime.WasiConfig{};
+            var out = try wasi_config.collectOutput(self.allocator);
+            try rt.configureWasi(wasi_config);
+            break :blk out;
+        };
+        defer if (log_wasi_output) wasi_collect.deinit();
+
+        const success = try rt.main();
+
+        if (log_wasi_output) {
+            const wasi_output = try wasi_collect.collect(std.math.maxInt(usize));
+            defer wasi_output.deinit();
+
+            std.log.debug("plugin \"{s}\" registration output:\nstdout: {s}\nstderr: {s}\n", .{ plugin_name, wasi_output.stdout, wasi_output.stderr });
+        }
+
+        if (!success) return error.PluginMainFailed;
     }
 
     return register;

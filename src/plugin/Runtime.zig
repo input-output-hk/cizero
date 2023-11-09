@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const c = @import("../c.zig");
+const fs = @import("../fs.zig");
 const wasm = @import("../wasm.zig");
 const wasmtime = @import("../wasmtime.zig");
 
@@ -17,6 +18,183 @@ plugin: Plugin,
 plugin_wasm: []const u8,
 
 host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
+
+pub const WasiConfig = struct {
+    argv: ?union(enum) {
+        inherit,
+        argv: [][]const u8,
+    } = null,
+    env: ?union(enum) {
+        inherit,
+        env: std.StringArrayHashMapUnmanaged([]const u8),
+    } = null,
+    stdin: ?union(enum) {
+        inherit,
+        buffer: []const u8,
+        file: []const u8,
+    } = null,
+    stdout: ?Stdio = null,
+    stderr: ?Stdio = null,
+
+    pub const Stdio = union(enum) {
+        inherit,
+        file: []const u8,
+    };
+
+    pub const CollectOutput = struct {
+        allocator: std.mem.Allocator,
+        stdout_path: []const u8,
+        stderr_path: []const u8,
+
+        pub const Output = struct {
+            allocator: std.mem.Allocator,
+            stdout: []u8,
+            stderr: []u8,
+
+            pub fn deinit(self: @This()) void {
+                self.allocator.free(self.stdout);
+                self.allocator.free(self.stderr);
+            }
+        };
+
+        pub fn deinit(self: @This()) void {
+            const err_msg = "Could not delete temporary file \"{s}\": {}\n";
+            std.fs.deleteFileAbsolute(self.stdout_path) catch |err| std.log.warn(err_msg, .{ self.stdout_path, err });
+            std.fs.deleteFileAbsolute(self.stderr_path) catch |err| std.log.warn(err_msg, .{ self.stderr_path, err });
+
+            self.allocator.free(self.stdout_path);
+            self.allocator.free(self.stderr_path);
+        }
+
+        pub fn collect(self: @This(), max_bytes_each: usize) !Output {
+            return .{
+                .allocator = self.allocator,
+                .stdout = blk: {
+                    const file = try std.fs.openFileAbsolute(self.stdout_path, .{});
+                    defer file.close();
+
+                    break :blk try file.readToEndAlloc(self.allocator, max_bytes_each);
+                },
+                .stderr = blk: {
+                    const file = try std.fs.openFileAbsolute(self.stderr_path, .{});
+                    defer file.close();
+
+                    break :blk try file.readToEndAlloc(self.allocator, max_bytes_each);
+                },
+            };
+        }
+    };
+
+    pub fn collectOutput(self: *@This(), allocator: std.mem.Allocator) !CollectOutput {
+        const collect = .{
+            .allocator = allocator,
+            .stdout_path = try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
+            .stderr_path = try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
+        };
+
+        self.stdout = .{ .file = collect.stdout_path };
+        self.stderr = .{ .file = collect.stderr_path };
+
+        return collect;
+    }
+
+    fn new(self: @This(), allocator: std.mem.Allocator) !*c.wasi_config_t {
+        var wasi_config = c.wasi_config_new().?;
+
+        if (self.argv) |argv_config| switch (argv_config) {
+            .inherit => c.wasi_config_inherit_argv(wasi_config),
+            .argv => |argv| {
+                var argv_z = try allocator.alloc([:0]const u8, argv.len);
+                defer {
+                    for (argv_z) |arg_z| allocator.free(arg_z);
+                    allocator.free(argv_z);
+                }
+
+                const argv_c = try allocator.alloc([*c]const u8, argv_z.len);
+                defer allocator.free(argv_c);
+
+                for (argv, argv_z, argv_c) |arg, *arg_z, *arg_c| {
+                    arg_z.* = try allocator.dupeZ(u8, arg);
+                    arg_c.* = arg_z.*.ptr;
+                }
+
+                c.wasi_config_set_argv(wasi_config, @intCast(argv_c.len), argv_c.ptr);
+            },
+        };
+
+        if (self.env) |env_config| switch (env_config) {
+            .inherit => c.wasi_config_inherit_env(wasi_config),
+            .env => |env| {
+                const keys_z = try allocator.alloc([:0]const u8, env.count());
+                defer {
+                    for (keys_z) |key_z| allocator.free(key_z);
+                    allocator.free(keys_z);
+                }
+
+                const keys_c = try allocator.alloc([*c]const u8, keys_z.len);
+                defer allocator.free(keys_c);
+
+                const values_z = try allocator.alloc([:0]const u8, keys_z.len);
+                defer {
+                    for (values_z) |value_z| allocator.free(value_z);
+                    allocator.free(values_z);
+                }
+
+                const values_c = try allocator.alloc([*c]const u8, values_z.len);
+                defer allocator.free(values_c);
+
+                for (env.keys(), env.values(), keys_z, values_z, keys_c, values_c) |key, value, *key_z, *value_z, *key_c, *value_c| {
+                    key_z.* = try allocator.dupeZ(u8, key);
+                    value_z.* = try allocator.dupeZ(u8, value);
+
+                    key_c.* = key_z.*.ptr;
+                    value_c.* = value_z.*.ptr;
+                }
+
+                c.wasi_config_set_env(wasi_config, @intCast(keys_c.len), keys_c.ptr, values_c.ptr);
+            },
+        };
+
+        if (self.stdin) |stdin_config| switch (stdin_config) {
+            .inherit => c.wasi_config_inherit_stdin(wasi_config),
+            .buffer => |buffer| {
+                var wasm_buffer: c.wasm_byte_vec_t = undefined;
+                c.wasm_byte_vec_new(&wasm_buffer, buffer.len, buffer.ptr);
+                errdefer c.wasm_byte_vec_delete(&wasm_buffer);
+
+                c.wasi_config_set_stdin_bytes(wasi_config, &wasm_buffer);
+            },
+            .file => |path| {
+                const path_z = try allocator.dupeZ(c.wasm_byte_t, path);
+                defer allocator.free(path_z);
+
+                if (!c.wasi_config_set_stdin_file(wasi_config, path_z)) return error.WasiFileNotFound;
+            },
+        };
+
+        if (self.stdout) |stdout_config| switch (stdout_config) {
+            .inherit => c.wasi_config_inherit_stdout(wasi_config),
+            .file => |path| {
+                const path_z = try allocator.dupeZ(c.wasm_byte_t, path);
+                defer allocator.free(path_z);
+
+                if (!c.wasi_config_set_stdout_file(wasi_config, path_z)) return error.WasiFileNotFound;
+            },
+        };
+
+        if (self.stderr) |stderr_config| switch (stderr_config) {
+            .inherit => c.wasi_config_inherit_stderr(wasi_config),
+            .file => |path| {
+                const path_z = try allocator.dupeZ(c.wasm_byte_t, path);
+                defer allocator.free(path_z);
+
+                if (!c.wasi_config_set_stderr_file(wasi_config, path_z)) return error.WasiFileNotFound;
+            },
+        };
+
+        return wasi_config;
+    }
+};
 
 pub fn deinit(self: *@This()) void {
     const self_on_heap: *@This() = @alignCast(@ptrCast(c.wasmtime_context_get_data(self.wasm_context)));
@@ -39,23 +217,6 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
     const wasm_store = c.wasmtime_store_new(wasm_engine, null, null).?;
     const wasm_context = c.wasmtime_store_context(wasm_store).?;
     c.wasmtime_context_set_epoch_deadline(wasm_context, 1);
-
-    {
-        var wasi_config = c.wasi_config_new();
-        std.debug.assert(wasi_config != null);
-
-        c.wasi_config_inherit_argv(wasi_config);
-        c.wasi_config_inherit_env(wasi_config);
-        c.wasi_config_inherit_stdin(wasi_config);
-        c.wasi_config_inherit_stdout(wasi_config);
-        c.wasi_config_inherit_stderr(wasi_config);
-
-        try handleError(
-            "failed to instantiate WASI",
-            c.wasmtime_context_set_wasi(wasm_context, wasi_config),
-            null,
-        );
-    }
 
     const wasm_linker = c.wasmtime_linker_new(wasm_engine).?;
     defer c.wasmtime_linker_delete(wasm_linker);
@@ -138,7 +299,17 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
     }
 
+    try self.configureWasi(.{});
+
     return self;
+}
+
+pub fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
+    try handleError(
+        "failed to configure WASI",
+        c.wasmtime_context_set_wasi(self.wasm_context, try wasi_config.new(self.allocator)),
+        null,
+    );
 }
 
 pub const HostFunctionDef = struct {
