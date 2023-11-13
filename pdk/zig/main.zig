@@ -147,7 +147,7 @@ pub fn exec(args: struct {
     var term_code: usize = undefined;
 
     const err_code = externs.exec(
-        @ptrCast(argv.c.ptr),
+        argv.c.ptr,
         argv.c.len,
         args.expand_arg0 == .expand,
         if (env_map) |env| @ptrCast(env.c.ptr) else null,
