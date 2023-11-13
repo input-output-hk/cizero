@@ -27,7 +27,9 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
     };
     const plugin_name = plugin.name();
 
-    const register = if (try self.plugins.fetchPut(self.allocator, plugin_name, plugin)) |prev| {
+    if (try self.plugins.fetchPut(self.allocator, plugin_name, plugin)) |prev| {
+        defer self.allocator.free(prev.value.path);
+
         std.debug.assert(std.mem.eql(u8, plugin.name(), prev.value.name()));
 
         const prev_wasm = try prev.value.wasm(self.allocator);
@@ -37,37 +39,35 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
         defer self.allocator.free(plugin_wasm);
 
         return !std.mem.eql(u8, plugin_wasm, prev_wasm);
-    } else true;
-
-    if (register) {
-        std.log.info("registering plugin \"{s}\"…", .{plugin_name});
-
-        var rt = try self.runtime(plugin_name);
-        defer rt.deinit();
-
-        const log_wasi_output = comptime std.log.defaultLogEnabled(.debug);
-
-        const wasi_collect = if (log_wasi_output) blk: {
-            var wasi_config = Plugin.Runtime.WasiConfig{};
-            var out = try wasi_config.collectOutput(self.allocator);
-            try rt.configureWasi(wasi_config);
-            break :blk out;
-        };
-        defer if (log_wasi_output) wasi_collect.deinit();
-
-        const success = try rt.main();
-
-        if (log_wasi_output) {
-            const wasi_output = try wasi_collect.collect(std.math.maxInt(usize));
-            defer wasi_output.deinit();
-
-            std.log.debug("plugin \"{s}\" registration output:\nstdout: {s}\nstderr: {s}\n", .{ plugin_name, wasi_output.stdout, wasi_output.stderr });
-        }
-
-        if (!success) return error.PluginMainFailed;
     }
 
-    return register;
+    std.log.info("registering plugin \"{s}\"…", .{plugin_name});
+
+    var rt = try self.runtime(plugin_name);
+    defer rt.deinit();
+
+    const log_wasi_output = comptime std.log.defaultLogEnabled(.debug);
+
+    const wasi_collect = if (log_wasi_output) blk: {
+        var wasi_config = Plugin.Runtime.WasiConfig{};
+        var out = try wasi_config.collectOutput(self.allocator);
+        try rt.configureWasi(wasi_config);
+        break :blk out;
+    };
+    defer if (log_wasi_output) wasi_collect.deinit();
+
+    const success = try rt.main();
+
+    if (log_wasi_output) {
+        const wasi_output = try wasi_collect.collect(std.math.maxInt(usize));
+        defer wasi_output.deinit();
+
+        std.log.debug("plugin \"{s}\" registration output:\nstdout: {s}\nstderr: {s}\n", .{ plugin_name, wasi_output.stdout, wasi_output.stderr });
+    }
+
+    if (!success) return error.PluginMainFailed;
+
+    return true;
 }
 
 /// Remember to deinit after use.
