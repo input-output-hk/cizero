@@ -45,6 +45,8 @@ pub const WasiConfig = struct {
         allocator: std.mem.Allocator,
         stdout_path: []const u8,
         stderr_path: []const u8,
+        owns_stdout: bool,
+        owns_stderr: bool,
 
         pub const Output = struct {
             allocator: std.mem.Allocator,
@@ -59,11 +61,16 @@ pub const WasiConfig = struct {
 
         pub fn deinit(self: @This()) void {
             const err_msg = "Could not delete temporary file \"{s}\": {}\n";
-            std.fs.deleteFileAbsolute(self.stdout_path) catch |err| std.log.warn(err_msg, .{ self.stdout_path, err });
-            std.fs.deleteFileAbsolute(self.stderr_path) catch |err| std.log.warn(err_msg, .{ self.stderr_path, err });
 
-            self.allocator.free(self.stdout_path);
-            self.allocator.free(self.stderr_path);
+            if (self.owns_stdout) {
+                std.fs.deleteFileAbsolute(self.stdout_path) catch |err| std.log.warn(err_msg, .{ self.stdout_path, err });
+                self.allocator.free(self.stdout_path);
+            }
+
+            if (self.owns_stderr) {
+                std.fs.deleteFileAbsolute(self.stderr_path) catch |err| std.log.warn(err_msg, .{ self.stderr_path, err });
+                self.allocator.free(self.stderr_path);
+            }
         }
 
         pub fn collect(self: @This(), max_bytes_each: usize) !Output {
@@ -86,10 +93,15 @@ pub const WasiConfig = struct {
     };
 
     pub fn collectOutput(self: *@This(), allocator: std.mem.Allocator) !CollectOutput {
+        const keep_stdout = self.stdout != null and self.stdout.? == .file;
+        const keep_stderr = self.stderr != null and self.stderr.? == .file;
+
         const collect = .{
             .allocator = allocator,
-            .stdout_path = try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
-            .stderr_path = try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
+            .stdout_path = if (keep_stdout) self.stdout.?.file else try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
+            .stderr_path = if (keep_stderr) self.stderr.?.file else try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
+            .owns_stdout = !keep_stdout,
+            .owns_stderr = !keep_stderr,
         };
 
         self.stdout = .{ .file = collect.stdout_path };
