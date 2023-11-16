@@ -27,93 +27,6 @@ const externs = struct {
     extern "cizero" fn toUpper([*]u8) void;
 };
 
-const MemoryRegion = struct {
-    ptr: ?*const anyopaque,
-    len: usize,
-
-    pub fn of(any: anytype) @This() {
-        const Any = @TypeOf(any);
-        return switch (@typeInfo(Any)) {
-            .Optional => if (any) |a| if (comptime std.meta.trait.is(.Pointer)(@TypeOf(a))) of(a) else of(&a) else of(null),
-            .Pointer => |pointer| switch (pointer.size) {
-                .One => .{
-                    .ptr = any,
-                    .len = sizeOfUnpad(pointer.child),
-                },
-                .Slice => .{
-                    .ptr = any.ptr,
-                    .len = any.len,
-                },
-                else => |size| @compileError("unsupported pointer size: " ++ @tagName(size)),
-            },
-            .Null => .{
-                .ptr = null,
-                .len = 0,
-            },
-            else => @compileError("unsupported type: " ++ @typeName(Any)),
-        };
-    }
-
-    test of {
-        inline for (.{ null, @as(?[]const u8, null) }) |data| {
-            const region = MemoryRegion.of(data);
-            try std.testing.expect(region.ptr == null);
-            try std.testing.expectEqual(@as(usize, 0), region.len);
-        }
-
-        {
-            const data: []const u8 = "foo";
-            const region = MemoryRegion.of(data);
-            try std.testing.expect(region.ptr != null);
-            try std.testing.expectEqual(region.ptr.?, data.ptr);
-            try std.testing.expectEqual(data.len, region.len);
-        }
-
-        {
-            const data = [_]bool{ true, false };
-            const region = MemoryRegion.of(&data);
-            try std.testing.expect(region.ptr != null);
-            try std.testing.expectEqual(region.ptr.?, &data);
-            try std.testing.expectEqual(data.len, region.len);
-        }
-
-        {
-            const Foo = struct {};
-
-            {
-                const data = Foo{};
-                const region = MemoryRegion.of(&data);
-                try std.testing.expect(region.ptr != null);
-                try std.testing.expectEqual(region.ptr.?, &data);
-                try std.testing.expectEqual(@as(usize, @sizeOf(@TypeOf(data))), region.len);
-            }
-
-            {
-                const data: ?Foo = .{};
-                const region = MemoryRegion.of(&data);
-                try std.testing.expect(region.ptr != null);
-                try std.testing.expectEqual(region.ptr.?, &data);
-                try std.testing.expectEqual(@as(usize, @sizeOf(@TypeOf(data))), region.len);
-            }
-        }
-
-        {
-            const Foo = packed struct {
-                a: u8 = 1,
-                b: u16 = 2,
-            };
-
-            {
-                const data = Foo{};
-                const region = MemoryRegion.of(&data);
-                try std.testing.expect(region.ptr != null);
-                try std.testing.expectEqual(region.ptr.?, &data);
-                try std.testing.expectEqual(@as(usize, @bitSizeOf(@TypeOf(data))), region.len * @bitSizeOf(u8));
-            }
-        }
-    }
-};
-
 /// Like `@sizeOf()` without padding.
 pub fn sizeOfUnpad(comptime T: type) usize {
     const size_t = @bitSizeOf(T);
@@ -122,8 +35,7 @@ pub fn sizeOfUnpad(comptime T: type) usize {
 }
 
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    const user_data_region = MemoryRegion.of(user_data);
-    externs.onWebhook(callback_func_name.ptr, user_data_region.ptr, user_data_region.len);
+    externs.onWebhook(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))));
 }
 
 pub fn exec(args: struct {
@@ -196,13 +108,11 @@ pub fn exec(args: struct {
 }
 
 pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    const user_data_region = MemoryRegion.of(user_data);
-    return externs.onCron(callback_func_name.ptr, user_data_region.ptr, user_data_region.len, cron_expr.ptr);
+    return externs.onCron(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), cron_expr.ptr);
 }
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    const user_data_region = MemoryRegion.of(user_data);
-    externs.onTimestamp(callback_func_name.ptr, user_data_region.ptr, user_data_region.len, timestamp_ms);
+    externs.onTimestamp(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), timestamp_ms);
 }
 
 pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
@@ -260,7 +170,3 @@ const CStringArray = struct {
         return self;
     }
 };
-
-test {
-    _ = MemoryRegion;
-}
