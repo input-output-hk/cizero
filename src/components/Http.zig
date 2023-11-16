@@ -81,7 +81,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         };
 
         var outputs: [1]wasm.Value = undefined;
-        try entry.run(self.allocator, runtime, &inputs, &outputs);
+        _ = try entry.run(self.allocator, runtime, &inputs, &outputs);
     }
 
     res.status = 204;

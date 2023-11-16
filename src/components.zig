@@ -35,13 +35,22 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 return self.callback_idx < self.map_entry.value_ptr.items.len;
             }
 
-            pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+            pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !struct {
+                success: bool,
+                done: bool,
+            } {
                 const callback = self.callbackPtr();
 
                 const success = try callback.run(allocator, runtime, inputs, outputs);
                 if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, self.pluginName() });
 
-                if (callback.done(success, outputs)) self.remove(allocator);
+                const done = callback.done(success, outputs);
+                if (done) self.remove(allocator);
+
+                return .{
+                    .success = success,
+                    .done = done,
+                };
             }
 
             pub fn remove(self: @This(), allocator: std.mem.Allocator) void {

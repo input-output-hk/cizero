@@ -92,7 +92,7 @@ fn loop(self: *@This()) !void {
             var runtime = try self.registry.runtime(next.pluginName());
             defer runtime.deinit();
 
-            try next.run(self.allocator, runtime, &.{}, outputs);
+            _ = try next.run(self.allocator, runtime, &.{}, outputs);
         } else self.restart_loop.wait();
 
         self.restart_loop.reset();
