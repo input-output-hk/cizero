@@ -27,20 +27,31 @@
 
     mission-control = {
       wrapperName = "just";
-      scripts = {
+      scripts = rec {
         run = {
           description = "run cizero without any plugins";
           exec = ''
-            nix run .#cizero
+            zig build run -- "$@"
+          '';
+        };
+
+        run-plugin = {
+          description = "run cizero with a certain plugin";
+          exec = ''
+            result=$(nix build .#cizero-plugin-"$1" --no-link --print-out-paths)
+            shift
+            set -x
+            zig build run -- "$result"/libexec/cizero/plugins/* "$@"
           '';
         };
 
         run-plugins = {
           description = "run cizero with all plugins";
           exec = ''
-            result=$(nix build --no-link --print-out-paths)
+            #shellcheck disable=SC2016
+            readarray -t plugins <<<"$($BASH <<<${lib.escapeShellArg build-plugins.exec})"
             set -x
-            "$result"/bin/cizero "$result"/libexec/cizero/plugins/*
+            zig build run -- "''${plugins[@]}" "$@"
           '';
         };
 
@@ -80,6 +91,16 @@
               nix build --no-link --print-out-paths "''${attrs[@]}"
             '')
           ];
+        };
+
+        test-pdk = {
+          description = "test the PDK of a certain language";
+          exec = ''
+            plugin=$(echo "$(nix build .#cizero-plugin-hello-"$1" --no-link --print-out-paths)"/libexec/cizero/plugins/*)
+            shift
+            set -x
+            zig build test-pdk --summary all -Dplugin="$plugin" "$@"
+          '';
         };
       };
     };
