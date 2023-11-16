@@ -8,6 +8,8 @@ allocator: std.mem.Allocator,
 components: std.ArrayListUnmanaged(Component) = .{}, // TODO should this be comptimestringmap?
 plugins: std.StringArrayHashMapUnmanaged(Plugin) = .{},
 
+wasi_config: Plugin.Runtime.WasiConfig = .{},
+
 pub fn deinit(self: *@This()) void {
     for (self.plugins.values()) |v| self.allocator.free(v.path);
     self.plugins.deinit(self.allocator);
@@ -49,7 +51,7 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
     const log_wasi_output = comptime std.log.defaultLogEnabled(.debug);
 
     const wasi_collect = if (log_wasi_output) blk: {
-        var wasi_config = Plugin.Runtime.WasiConfig{};
+        var wasi_config = self.wasi_config;
         var out = try wasi_config.collectOutput(self.allocator);
         try rt.configureWasi(wasi_config);
         break :blk out;
@@ -77,7 +79,9 @@ pub fn runtime(self: @This(), plugin_name: []const u8) !Plugin.Runtime {
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
 
-    return try Plugin.Runtime.init(self.allocator, p, host_functions);
+    const rt = try Plugin.Runtime.init(self.allocator, p, host_functions);
+    try rt.configureWasi(self.wasi_config);
+    return rt;
 }
 
 /// Remember to deinit after use.
