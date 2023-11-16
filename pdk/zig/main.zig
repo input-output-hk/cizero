@@ -38,7 +38,7 @@ const MemoryRegion = struct {
             .Pointer => |pointer| switch (pointer.size) {
                 .One => .{
                     .ptr = any,
-                    .len = @bitSizeOf(pointer.child) / @bitSizeOf(u8) + @bitSizeOf(pointer.child) % @bitSizeOf(u8),
+                    .len = sizeOfUnpad(pointer.child),
                 },
                 .Slice => .{
                     .ptr = any.ptr,
@@ -113,6 +113,13 @@ const MemoryRegion = struct {
         }
     }
 };
+
+/// Like `@sizeOf()` without padding.
+pub fn sizeOfUnpad(comptime T: type) usize {
+    const size_t = @bitSizeOf(T);
+    const size_u8 = @bitSizeOf(u8);
+    return size_t / size_u8 + size_t % size_u8;
+}
 
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
     const user_data_region = MemoryRegion.of(user_data);

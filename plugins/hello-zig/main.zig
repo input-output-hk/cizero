@@ -39,7 +39,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     export fn onWebhookCallback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
-        std.debug.assert(user_data_len == @sizeOf(root.pdk_tests.OnWebhookUserData));
+        std.debug.assert(user_data_len == cizero.sizeOfUnpad(root.pdk_tests.OnWebhookUserData));
 
         const body = std.mem.span(body_ptr);
 
