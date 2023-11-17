@@ -96,7 +96,7 @@ test "on_timestamp" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onTimestamp("pdk_test_on_timestamp_callback", 1000, 3000)
+        \\cizero.on_timestamp("pdk_test_on_timestamp_callback", 1000, 3000)
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
@@ -141,7 +141,7 @@ test "on_cron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onCron("pdk_test_on_cron_callback", 1000, "* * * * *") 60000
+        \\cizero.on_cron("pdk_test_on_cron_callback", 1000, "* * * * *") 60000
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
@@ -272,7 +272,7 @@ test "on_webhook" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onWebhook("pdk_test_on_webhook_callback", .{ 25, 372 })
+        \\cizero.on_webhook("pdk_test_on_webhook_callback", .{ 25, 372 })
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {

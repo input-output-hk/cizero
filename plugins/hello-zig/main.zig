@@ -49,7 +49,7 @@ const pdk_tests = struct {
     pub fn onTimestamp() void {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 
-        std.debug.print("cizero.{s}(\"{s}\", {d}, {d})\n", .{ @src().fn_name, "pdk_test_on_timestamp_callback", now_ms, now_ms + 2 * std.time.ms_per_s });
+        std.debug.print("cizero.on_timestamp(\"{s}\", {d}, {d})\n", .{ "pdk_test_on_timestamp_callback", now_ms, now_ms + 2 * std.time.ms_per_s });
         cizero.onTimestamp("pdk_test_on_timestamp_callback", &now_ms, now_ms + 2 * std.time.ms_per_s);
     }
 
@@ -57,7 +57,7 @@ const pdk_tests = struct {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 
         const result = cizero.onCron("pdk_test_on_cron_callback", &now_ms, "* * * * *");
-        std.debug.print("cizero.{s}(\"{s}\", {d}, \"{s}\") {d}\n", .{ @src().fn_name, "pdk_test_on_cron_callback", now_ms, "* * * * *" } ++ .{result});
+        std.debug.print("cizero.on_cron(\"{s}\", {d}, \"{s}\") {d}\n", .{ "pdk_test_on_cron_callback", now_ms, "* * * * *" } ++ .{result});
     }
 
     pub fn exec() !void {
@@ -104,7 +104,7 @@ const pdk_tests = struct {
             .a = 25,
             .b = 372,
         };
-        std.debug.print("cizero.{s}(\"{s}\", .{{ {d}, {d} }})\n", .{ @src().fn_name, "pdk_test_on_webhook_callback", user_data.a, user_data.b });
+        std.debug.print("cizero.on_webhook(\"{s}\", .{{ {d}, {d} }})\n", .{ "pdk_test_on_webhook_callback", user_data.a, user_data.b });
         cizero.onWebhook("pdk_test_on_webhook_callback", &user_data);
     }
 };
