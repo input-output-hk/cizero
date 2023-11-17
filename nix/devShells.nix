@@ -20,8 +20,8 @@
       };
 
       crystal = pkgs.mkShell {
-        packages = with pkgs; [config.packages.zls config.packages.cizero crystal crystalline watchexec];
-        inputsFrom = [config.mission-control.devShell];
+        packages = with pkgs; [crystal crystalline];
+        inputsFrom = [config.devShells.default];
       };
     };
 
