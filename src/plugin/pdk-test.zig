@@ -89,7 +89,7 @@ fn expectEqualStdio(
     try testing.expectEqualStrings(stderr, output.stderr);
 }
 
-test "onTimestamp" {
+test "on_timestamp" {
     const mocks = Mocks{};
 
     var self = try init(mocks);
@@ -134,7 +134,7 @@ test "onTimestamp" {
     }.call);
 }
 
-test "onCron" {
+test "on_cron" {
     const mocks = Mocks{};
 
     var self = try init(mocks);
@@ -265,7 +265,7 @@ test "exec" {
     if (mocks.process.exec_test_err) |err| return err;
 }
 
-test "onWebhook" {
+test "on_webhook" {
     const mocks = Mocks{};
 
     var self = try init(mocks);

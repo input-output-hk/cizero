@@ -14,17 +14,17 @@ export fn cizero_mem_free(buf: [*]u8, buf_len: usize, buf_align: u8) void {
 
 const externs = struct {
     // http
-    extern "cizero" fn onWebhook([*]const u8, ?*const anyopaque, usize) void;
+    extern "cizero" fn on_webhook([*]const u8, ?*const anyopaque, usize) void;
 
     // process
     extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]const usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
 
     // timeout
-    extern "cizero" fn onCron([*]const u8, ?*const anyopaque, usize, [*]const u8) i64;
-    extern "cizero" fn onTimestamp([*]const u8, ?*const anyopaque, usize, i64) void;
+    extern "cizero" fn on_cron([*]const u8, ?*const anyopaque, usize, [*]const u8) i64;
+    extern "cizero" fn on_timestamp([*]const u8, ?*const anyopaque, usize, i64) void;
 
     // to_upper
-    extern "cizero" fn toUpper([*]u8) void;
+    extern "cizero" fn to_upper([*]u8) void;
 };
 
 /// Like `@sizeOf()` without padding.
@@ -35,7 +35,7 @@ pub fn sizeOfUnpad(comptime T: type) usize {
 }
 
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    externs.onWebhook(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))));
+    externs.on_webhook(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))));
 }
 
 pub fn exec(args: struct {
@@ -108,16 +108,16 @@ pub fn exec(args: struct {
 }
 
 pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    return externs.onCron(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), cron_expr.ptr);
+    return externs.on_cron(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), cron_expr.ptr);
 }
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    externs.onTimestamp(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), timestamp_ms);
+    externs.on_timestamp(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), timestamp_ms);
 }
 
 pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
     var buf = try alloc.dupeZ(u8, lower);
-    externs.toUpper(buf.ptr);
+    externs.to_upper(buf.ptr);
     return buf;
 }
 

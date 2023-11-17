@@ -103,14 +103,14 @@ fn loop(self: *@This()) !void {
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .onTimestamp = Plugin.Runtime.HostFunctionDef{
+        .on_timestamp = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32, .i64 },
                 .returns = &.{},
             },
             .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
         },
-        .onCron = Plugin.Runtime.HostFunctionDef{
+        .on_cron = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{.i64},

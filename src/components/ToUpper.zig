@@ -9,7 +9,7 @@ pub const name = "to_upper";
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .toUpper = Plugin.Runtime.HostFunctionDef{
+        .to_upper = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{.i32},
                 .returns = &.{},

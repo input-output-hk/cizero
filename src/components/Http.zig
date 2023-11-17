@@ -89,7 +89,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .onWebhook = Plugin.Runtime.HostFunctionDef{
+        .on_webhook = Plugin.Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32 },
                 .returns = &.{},
