@@ -38,7 +38,7 @@
         run-plugin = {
           description = "run cizero with a certain plugin";
           exec = ''
-            result=$(nix build .#cizero-plugin-"$1" --no-link --print-out-paths)
+            result=$(nix build .#cizero-plugin-"$1" --no-link --print-build-logs --print-out-paths)
             shift
             set -x
             zig build run -- "$result"/libexec/cizero/plugins/* "$@"
@@ -88,7 +88,7 @@
               for attr in ${lib.escapeShellArgs ks}; do
                   attrs+=(".#$attr")
               done
-              nix build --no-link --print-out-paths "''${attrs[@]}"
+              nix build --no-link --print-build-logs --print-out-paths "''${attrs[@]}"
             '')
           ];
         };
@@ -96,7 +96,7 @@
         test-pdk = {
           description = "test the PDK of a certain language";
           exec = ''
-            plugin=$(echo "$(nix build .#cizero-plugin-hello-"$1" --no-link --print-out-paths)"/libexec/cizero/plugins/*)
+            plugin=$(echo "$(nix build .#cizero-plugin-hello-"$1" --no-link --print-build-logs --print-out-paths)"/libexec/cizero/plugins/*)
             shift
             set -x
             zig build test-pdk --summary all -Dplugin="$plugin" "$@"
