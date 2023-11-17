@@ -291,22 +291,10 @@ test "on_webhook" {
         break :blk entry.callbackPtr();
     };
 
-    {
-        const UserData = packed struct {
-            a: u8,
-            b: u16,
-        };
-
-        const user_data: [mem.sizeOfUnpad(UserData)]u8 = @bitCast(UserData{
-            .a = 25,
-            .b = 372,
-        });
-
-        try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
-        try testing.expect(callback.user_data != null);
-        try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
-        try testing.expectEqualDeep(Callback.Condition.webhook, callback.condition);
-    }
+    try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
+    try testing.expect(callback.user_data != null);
+    try testing.expectEqualSlices(u8, &[_]u8{ 25, 116, 1 }, callback.user_data.?);
+    try testing.expectEqualDeep(Callback.Condition.webhook, callback.condition);
 
     {
         const body = "body";
