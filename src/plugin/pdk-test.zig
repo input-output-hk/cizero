@@ -96,11 +96,11 @@ test "onTimestamp" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onTimestamp("pdkTestOnTimestampCallback", 1000, 3000)
+        \\cizero.onTimestamp("pdk_test_on_timestamp_callback", 1000, 3000)
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdkTestOnTimestamp", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_on_timestamp", &.{}, &.{}));
         }
     }.call);
 
@@ -118,14 +118,14 @@ test "onTimestamp" {
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
 
-        try testing.expectEqualStrings("pdkTestOnTimestampCallback", callback.func_name);
+        try testing.expectEqualStrings("pdk_test_on_timestamp_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqualDeep(Callback.Condition{ .timestamp = 3 * std.time.ms_per_s }, callback.condition);
     }
 
     try self.expectEqualStdio("",
-        \\pdkTestOnTimestampCallback(1000)
+        \\pdk_test_on_timestamp_callback(1000)
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
@@ -141,11 +141,11 @@ test "onCron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onCron("pdkTestOnCronCallback", 1000, "* * * * *") 60000
+        \\cizero.onCron("pdk_test_on_cron_callback", 1000, "* * * * *") 60000
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdkTestOnCron", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_on_cron", &.{}, &.{}));
         }
     }.call);
 
@@ -163,7 +163,7 @@ test "onCron" {
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
 
-        try testing.expectEqualStrings("pdkTestOnCronCallback", callback.func_name);
+        try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqual(Callback.Condition.cron, callback.condition);
@@ -182,7 +182,7 @@ test "onCron" {
     }
 
     try self.expectEqualStdio("",
-        \\pdkTestOnCronCallback(1000)
+        \\pdk_test_on_cron_callback(1000)
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
@@ -258,7 +258,7 @@ test "exec" {
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdkTestExec", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_exec", &.{}, &.{}));
         }
     }.call);
 
@@ -272,11 +272,11 @@ test "onWebhook" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onWebhook("pdkTestOnWebhookCallback", .{ 25, 372 })
+        \\cizero.onWebhook("pdk_test_on_webhook_callback", .{ 25, 372 })
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdkTestOnWebhook", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_on_webhook", &.{}, &.{}));
         }
     }.call);
 
@@ -302,7 +302,7 @@ test "onWebhook" {
             .b = 372,
         });
 
-        try testing.expectEqualStrings("pdkTestOnWebhookCallback", callback.func_name);
+        try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqualDeep(Callback.Condition.webhook, callback.condition);
@@ -312,7 +312,7 @@ test "onWebhook" {
         const body = "body";
 
         try self.expectEqualStdio("",
-            \\pdkTestOnWebhookCallback(.{ 25, 372 }, "
+            \\pdk_test_on_webhook_callback(.{ 25, 372 }, "
         ++ body ++
             \\")
             \\
