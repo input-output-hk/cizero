@@ -7,38 +7,38 @@ const root = @This();
 const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
-    pub export fn toUpper() void {
+    pub export fn pdkTestToUpper() void {
         tryFn(pdk_tests.toUpper, .{}, {});
     }
 
-    pub export fn onTimestamp() void {
+    pub export fn pdkTestOnTimestamp() void {
         pdk_tests.onTimestamp();
     }
 
-    export fn onTimestampCallback(user_data: *const i64, user_data_len: usize) void {
+    export fn pdkTestOnTimestampCallback(user_data: *const i64, user_data_len: usize) void {
         std.debug.assert(user_data_len == @sizeOf(i64));
         std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
     }
 
-    pub export fn onCron() void {
+    pub export fn pdkTestOnCron() void {
         pdk_tests.onCron();
     }
 
-    export fn onCronCallback(user_data: *const i64, user_data_len: usize) bool {
+    export fn pdkTestOnCronCallback(user_data: *const i64, user_data_len: usize) bool {
         std.debug.assert(user_data_len == @sizeOf(i64));
         std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
         return false;
     }
 
-    pub export fn exec() void {
+    pub export fn pdkTestExec() void {
         tryFn(pdk_tests.exec, .{}, {});
     }
 
-    pub export fn onWebhook() void {
+    pub export fn pdkTestOnWebhook() void {
         pdk_tests.onWebhook();
     }
 
-    export fn onWebhookCallback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
+    export fn pdkTestOnWebhookCallback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
         std.debug.assert(user_data_len == cizero.sizeOfUnpad(root.pdk_tests.OnWebhookUserData));
 
         const body = std.mem.span(body_ptr);
@@ -62,15 +62,15 @@ const pdk_tests = struct {
     pub fn onTimestamp() void {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 
-        std.debug.print("cizero.{s}(\"{s}\", {d}, {d})\n", .{ @src().fn_name, "onTimestampCallback", now_ms, now_ms + 2 * std.time.ms_per_s });
-        cizero.onTimestamp("onTimestampCallback", &now_ms, now_ms + 2 * std.time.ms_per_s);
+        std.debug.print("cizero.{s}(\"{s}\", {d}, {d})\n", .{ @src().fn_name, "pdkTestOnTimestampCallback", now_ms, now_ms + 2 * std.time.ms_per_s });
+        cizero.onTimestamp("pdkTestOnTimestampCallback", &now_ms, now_ms + 2 * std.time.ms_per_s);
     }
 
     pub fn onCron() void {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 
-        const result = cizero.onCron("onCronCallback", &now_ms, "* * * * *");
-        std.debug.print("cizero.{s}(\"{s}\", {d}, \"{s}\") {d}\n", .{ @src().fn_name, "onCronCallback", now_ms, "* * * * *" } ++ .{result});
+        const result = cizero.onCron("pdkTestOnCronCallback", &now_ms, "* * * * *");
+        std.debug.print("cizero.{s}(\"{s}\", {d}, \"{s}\") {d}\n", .{ @src().fn_name, "pdkTestOnCronCallback", now_ms, "* * * * *" } ++ .{result});
     }
 
     pub fn exec() !void {
@@ -117,8 +117,8 @@ const pdk_tests = struct {
             .a = 25,
             .b = 372,
         };
-        std.debug.print("cizero.{s}(\"{s}\", .{{ {d}, {d} }})\n", .{ @src().fn_name, "onWebhookCallback", user_data.a, user_data.b });
-        cizero.onWebhook("onWebhookCallback", &user_data);
+        std.debug.print("cizero.{s}(\"{s}\", .{{ {d}, {d} }})\n", .{ @src().fn_name, "pdkTestOnWebhookCallback", user_data.a, user_data.b });
+        cizero.onWebhook("pdkTestOnWebhookCallback", &user_data);
     }
 };
 

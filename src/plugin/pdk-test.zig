@@ -96,11 +96,11 @@ test "onTimestamp" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onTimestamp("onTimestampCallback", 1000, 3000)
+        \\cizero.onTimestamp("pdkTestOnTimestampCallback", 1000, 3000)
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("onTimestamp", &.{}, &.{}));
+            try testing.expect(try rt.call("pdkTestOnTimestamp", &.{}, &.{}));
         }
     }.call);
 
@@ -118,14 +118,14 @@ test "onTimestamp" {
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
 
-        try testing.expectEqualStrings("onTimestampCallback", callback.func_name);
+        try testing.expectEqualStrings("pdkTestOnTimestampCallback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqualDeep(Callback.Condition{ .timestamp = 3 * std.time.ms_per_s }, callback.condition);
     }
 
     try self.expectEqualStdio("",
-        \\onTimestampCallback(1000)
+        \\pdkTestOnTimestampCallback(1000)
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
@@ -141,11 +141,11 @@ test "onCron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onCron("onCronCallback", 1000, "* * * * *") 60000
+        \\cizero.onCron("pdkTestOnCronCallback", 1000, "* * * * *") 60000
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("onCron", &.{}, &.{}));
+            try testing.expect(try rt.call("pdkTestOnCron", &.{}, &.{}));
         }
     }.call);
 
@@ -163,7 +163,7 @@ test "onCron" {
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
 
-        try testing.expectEqualStrings("onCronCallback", callback.func_name);
+        try testing.expectEqualStrings("pdkTestOnCronCallback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqual(Callback.Condition.cron, callback.condition);
@@ -182,7 +182,7 @@ test "onCron" {
     }
 
     try self.expectEqualStdio("",
-        \\onCronCallback(1000)
+        \\pdkTestOnCronCallback(1000)
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
@@ -258,7 +258,7 @@ test "exec" {
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("exec", &.{}, &.{}));
+            try testing.expect(try rt.call("pdkTestExec", &.{}, &.{}));
         }
     }.call);
 
@@ -272,11 +272,11 @@ test "onWebhook" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.onWebhook("onWebhookCallback", .{ 25, 372 })
+        \\cizero.onWebhook("pdkTestOnWebhookCallback", .{ 25, 372 })
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
-            try testing.expect(try rt.call("onWebhook", &.{}, &.{}));
+            try testing.expect(try rt.call("pdkTestOnWebhook", &.{}, &.{}));
         }
     }.call);
 
@@ -302,7 +302,7 @@ test "onWebhook" {
             .b = 372,
         });
 
-        try testing.expectEqualStrings("onWebhookCallback", callback.func_name);
+        try testing.expectEqualStrings("pdkTestOnWebhookCallback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
         try testing.expectEqualDeep(Callback.Condition.webhook, callback.condition);
@@ -312,7 +312,7 @@ test "onWebhook" {
         const body = "body";
 
         try self.expectEqualStdio("",
-            \\onWebhookCallback(.{ 25, 372 }, "
+            \\pdkTestOnWebhookCallback(.{ 25, 372 }, "
         ++ body ++
             \\")
             \\
