@@ -1,13 +1,13 @@
 @[Link(wasm_import_module: "cizero")]
 lib LibCizero
-  fun onCron(
+  fun on_cron(
     callback_name : UInt8*,
     user_data : UInt8*,
     user_data_size : Int32,
     cronspec : UInt8*
   ) : Int64
 
-  fun onTimestamp(
+  fun on_timestamp(
     callback_name : UInt8*,
     user_data : UInt8*,
     user_data_size : Int32,
@@ -28,10 +28,10 @@ lib LibCizero
     term_code : Int32*
   ) : Int8
 
-  fun onWebhook(
+  fun on_webhook(
     callback_name : UInt8*,
-    body : UInt8**,
-    max_body_size : Int32
+    user_data : UInt8*,
+    user_data_size : Int32
   )
 end
 
@@ -52,12 +52,19 @@ fun ensure_constants_are_set
   pointerof(Time::DAYS_MONTH)
 end
 
+fun main(argc : Int32, argv : UInt8**) : Int32
+  if argc > 0
+    Crystal.main(argc, argv)
+  else
+    fake_argv = Slice(Pointer(UInt8)).new(1, "foo".to_slice.to_unsafe)
+    Crystal.main(1, fake_argv.to_unsafe)
+  end
+end
+
 MEMORY = [] of Pointer(UInt8)
 
 fun cizero_mem_alloc(len : Int32, ptr_align : UInt8) : UInt8*
-  Pointer(UInt8).malloc(len).tap { |ptr|
-    MEMORY << ptr
-  }
+  Pointer(UInt8).malloc(len).tap { |ptr| MEMORY << ptr }
 end
 
 fun cizero_mem_resize(buf : UInt8**, buf_len : Int32, buf_align : UInt8, new_len : Int32) : Bool
@@ -70,27 +77,42 @@ fun cizero_mem_free(buf : UInt8**, buf_len : Int32, buf_align : UInt8)
 end
 
 module Cizero
-  def self.on_webhook(callback_name : String, max_body_bytes : Int32) : String
-    output = Slice(UInt8).new(max_body_bytes)
-    LibCizero.onWebhook(callback_name, output, max_body_bytes)
-    String.new(output)
+  def self.on_webhook(callback : String, user_data : T) forall T
+    LibCizero.on_webhook(callback, pointerof(user_data).as(Pointer(UInt8)), sizeof(T))
   end
 
-  def self.on_cron(callback : String, cronspec : String, user_data : T? = nil) forall T
-    if user_data
-      LibCizero.onCron(callback, user_data.to_slice, user_data.size, cronspec)
-    else
-      LibCizero.onCron(callback, nil, 1, cronspec)
-    end
+  def self.on_cron(callback : String, cronspec : String, user_data : T) forall T
+    LibCizero.on_cron(callback, pointerof(user_data).as(Pointer(UInt8)), sizeof(T), cronspec)
   end
 
-  def self.on_timestamp(callback : String, time : Time, user_data : T? = nil) forall T
-    if user_data
-      LibCizero.onTimestamp(callback, user_data.to_slice, user_data.size, time.to_unix_ms)
-    else
-      LibCizero.onTimestamp(callback, nil, 1, time.to_unix_ms)
-    end
+  def self.on_timestamp(callback : String, time : Time, user_data : T) forall T
+    LibCizero.on_timestamp(callback, pointerof(user_data).as(Pointer(UInt8)), sizeof(T), time.to_unix_ms)
   end
+
+  # def self.on_timestamp(callback : String, time : Time, user_data : Int64)
+  #   s = Slice(Int64).new(pointerof(user_data), 8)
+  #   LibCizero.on_timestamp(callback, s.to_unsafe_bytes, s.size, time.to_unix_ms)
+  # end
+
+  # def self.on_timestamp(callback : String, time : Time, user_data : T? = nil) forall T
+  #   case user_data
+  #   in Struct
+  #     LibCizero.on_timestamp(callback, user_data, user_data.size, time.to_unix_ms)
+  #   in Int32
+  #     s = Slice(Int32).new(pointerof(user_data), 3)
+  #     LibCizero.on_timestamp(callback, s.to_unsafe_bytes, s.size, time.to_unix_ms)
+  #   in Int64
+  #     s = Slice(Int64).new(pointerof(user_data), 4)
+  #     LibCizero.on_timestamp(callback, s.to_unsafe_bytes, s.size, time.to_unix_ms)
+  #   end
+  #   # if user_data.responds_to?(:to_unsafe)
+  #   #   LibCizero.on_timestamp(callback, user_data, instance_sizeof(typeof(user_data)), time.to_unix_ms)
+  #   # elsif user_data
+  #   #   LibCizero.on_timestamp(callback, pointerof(user_data).as(Pointer(UInt8)), sizeof(typeof(user_data)), time.to_unix_ms)
+  #   # else
+  #   #   LibCizero.on_timestamp(callback, nil, 0, time.to_unix_ms)
+  #   # end
+  # end
 
   def self.exec(args : Array(String), env : Hash(String, String), max_output_bytes : Int32)
     output = Slice(UInt8).new(max_output_bytes)
@@ -119,16 +141,29 @@ module Cizero
     ExecResult.new(
       stdout: stdout,
       stderr: stderr,
-      exit_code: term_code,
+      term_code: term_code,
+      term_tag: ExecResult::TermTag.new(term_tag),
     )
   end
 
   struct ExecResult
-    def initialize(@stdout : String, @stderr : String, @exit_code : Int32)
+    enum TermTag
+      Exited
+      Signal
+      Stopped
+      Unknown
+    end
+
+    property stdout : String
+    property stderr : String
+    property term_code : Int32
+    property term_tag : TermTag
+
+    def initialize(@stdout, @stderr, @term_code, @term_tag)
     end
 
     def success?
-      @exit_code == 0
+      @term_code == 0
     end
   end
 end

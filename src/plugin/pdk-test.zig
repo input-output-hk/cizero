@@ -206,6 +206,7 @@ test "exec" {
             pub fn exec(self: *@This(), args: info.params[0].type.?) info.return_type.? {
                 execTest(args) catch |err| {
                     self.exec_test_err = err;
+                    if (@errorReturnTrace()) |trace| trace.format("", .{}, std.io.getStdErr().writer()) catch unreachable;
                 };
 
                 return .{
@@ -234,9 +235,9 @@ test "exec" {
                 try testing.expect(args.cwd == null);
                 try testing.expect(args.cwd_dir == null);
 
-                try testing.expectEqual(args.max_output_bytes, 50 * 1024);
+                try testing.expectEqual(@as(usize, 50 * 1024), args.max_output_bytes);
 
-                try testing.expectEqual(args.expand_arg0, .no_expand);
+                try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
             }
         } = .{},
     }{};
