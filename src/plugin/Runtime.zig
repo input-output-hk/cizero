@@ -20,10 +20,7 @@ plugin_wasm: []const u8,
 host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
 
 pub const WasiConfig = struct {
-    argv: ?union(enum) {
-        inherit,
-        argv: [][]const u8,
-    } = null,
+    argv: ?[]const []const u8 = null,
     env: ?union(enum) {
         inherit,
         env: std.StringArrayHashMapUnmanaged([]const u8),
@@ -113,26 +110,23 @@ pub const WasiConfig = struct {
     fn new(self: @This(), allocator: std.mem.Allocator) !*c.wasi_config_t {
         var wasi_config = c.wasi_config_new().?;
 
-        if (self.argv) |argv_config| switch (argv_config) {
-            .inherit => c.wasi_config_inherit_argv(wasi_config),
-            .argv => |argv| {
-                var argv_z = try allocator.alloc([:0]const u8, argv.len);
-                defer {
-                    for (argv_z) |arg_z| allocator.free(arg_z);
-                    allocator.free(argv_z);
-                }
+        if (self.argv) |argv| {
+            var argv_z = try allocator.alloc([:0]const u8, argv.len);
+            defer {
+                for (argv_z) |arg_z| allocator.free(arg_z);
+                allocator.free(argv_z);
+            }
 
-                const argv_c = try allocator.alloc([*c]const u8, argv_z.len);
-                defer allocator.free(argv_c);
+            const argv_c = try allocator.alloc([*c]const u8, argv_z.len);
+            defer allocator.free(argv_c);
 
-                for (argv, argv_z, argv_c) |arg, *arg_z, *arg_c| {
-                    arg_z.* = try allocator.dupeZ(u8, arg);
-                    arg_c.* = arg_z.*.ptr;
-                }
+            for (argv, argv_z, argv_c) |arg, *arg_z, *arg_c| {
+                arg_z.* = try allocator.dupeZ(u8, arg);
+                arg_c.* = arg_z.*.ptr;
+            }
 
-                c.wasi_config_set_argv(wasi_config, @intCast(argv_c.len), argv_c.ptr);
-            },
-        };
+            c.wasi_config_set_argv(wasi_config, @intCast(argv_c.len), argv_c.ptr);
+        }
 
         if (self.env) |env_config| switch (env_config) {
             .inherit => c.wasi_config_inherit_env(wasi_config),
@@ -317,9 +311,23 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
 }
 
 pub fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
+    var new_wasi_config = wasi_config;
+
+    var args: ?[][]const u8 = null;
+    defer if (args) |a| self.allocator.free(a);
+    {
+        const default_args: []const []const u8 = &.{self.plugin.name()};
+        new_wasi_config.argv = if (new_wasi_config.argv) |argv| blk: {
+            args = try self.allocator.alloc([]const u8, default_args.len + argv.len);
+            @memcpy(args.?[0..default_args.len], default_args);
+            @memcpy(args.?[default_args.len..], argv);
+            break :blk args.?;
+        } else default_args;
+    }
+
     try handleError(
         "failed to configure WASI",
-        c.wasmtime_context_set_wasi(self.wasm_context, try wasi_config.new(self.allocator)),
+        c.wasmtime_context_set_wasi(self.wasm_context, try new_wasi_config.new(self.allocator)),
         null,
     );
 }
