@@ -7,10 +7,6 @@ const root = @This();
 const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
-    pub export fn pdk_test_to_upper() void {
-        tryFn(pdk_tests.toUpper, .{}, {});
-    }
-
     pub export fn pdk_test_on_timestamp() void {
         pdk_tests.onTimestamp();
     }
@@ -50,15 +46,6 @@ usingnamespace if (builtin.is_test) struct {} else struct {
 };
 
 const pdk_tests = struct {
-    pub fn toUpper() !void {
-        inline for (.{ "foo", "bar" }) |arg| {
-            const upper = try cizero.toUpper(allocator, arg);
-            defer allocator.free(upper);
-
-            std.debug.print("cizero.{s}({s}) {s}\n", .{ @src().fn_name, arg, upper });
-        }
-    }
-
     pub fn onTimestamp() void {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
 

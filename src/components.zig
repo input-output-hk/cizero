@@ -8,7 +8,6 @@ const Registry = @import("Registry.zig");
 pub const Http = @import("components/Http.zig");
 pub const Process = @import("components/Process.zig");
 pub const Timeout = @import("components/Timeout.zig");
-pub const ToUpper = @import("components/ToUpper.zig");
 
 pub fn CallbacksUnmanaged(comptime Condition: type) type {
     return struct {

@@ -8,7 +8,6 @@ const Components = struct {
     http: *comps.Http,
     process: comps.Process,
     timeout: comps.Timeout,
-    to_upper: comps.ToUpper,
 };
 
 registry: Registry,
@@ -27,7 +26,6 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!*@This() {
             .http = try comps.Http.init(allocator, &self.registry),
             .process = .{ .allocator = allocator },
             .timeout = .{ .allocator = allocator, .registry = &self.registry },
-            .to_upper = .{},
         },
     };
 

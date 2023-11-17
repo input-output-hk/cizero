@@ -1,7 +1,5 @@
 require "../../pdk/crystal/main"
 
-puts Cizero.to_upper("Hello World!")
-
 fun on_timestamp(ptr : UInt8*, len : Int32)
   if ptr.null?
     puts "onTimestamp (no userdata)"

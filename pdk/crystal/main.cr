@@ -1,9 +1,5 @@
 @[Link(wasm_import_module: "cizero")]
 lib LibCizero
-  fun toUpper(
-    str : UInt8*
-  )
-
   fun onCron(
     callback_name : UInt8*,
     user_data : UInt8*,
@@ -78,11 +74,6 @@ module Cizero
     output = Slice(UInt8).new(max_body_bytes)
     LibCizero.onWebhook(callback_name, output, max_body_bytes)
     String.new(output)
-  end
-
-  def self.to_upper(str : String) : String
-    LibCizero.toUpper(str)
-    str
   end
 
   def self.on_cron(callback : String, cronspec : String, user_data : T? = nil) forall T

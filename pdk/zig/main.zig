@@ -22,9 +22,6 @@ const externs = struct {
     // timeout
     extern "cizero" fn on_cron([*]const u8, ?*const anyopaque, usize, [*]const u8) i64;
     extern "cizero" fn on_timestamp([*]const u8, ?*const anyopaque, usize, i64) void;
-
-    // to_upper
-    extern "cizero" fn to_upper([*]u8) void;
 };
 
 /// Like `@sizeOf()` without padding.
@@ -113,12 +110,6 @@ pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
     externs.on_timestamp(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), timestamp_ms);
-}
-
-pub fn toUpper(alloc: std.mem.Allocator, lower: []const u8) ![]const u8 {
-    var buf = try alloc.dupeZ(u8, lower);
-    externs.to_upper(buf.ptr);
-    return buf;
 }
 
 const CStringArray = struct {
