@@ -6,6 +6,7 @@ const PluginRuntime = @import("Plugin.zig").Runtime;
 const Registry = @import("Registry.zig");
 
 pub const Http = @import("components/Http.zig");
+pub const Nix = @import("components/Nix.zig");
 pub const Process = @import("components/Process.zig");
 pub const Timeout = @import("components/Timeout.zig");
 

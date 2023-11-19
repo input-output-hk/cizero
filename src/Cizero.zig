@@ -6,6 +6,7 @@ const Registry = @import("Registry.zig");
 
 const Components = struct {
     http: *comps.Http,
+    nix: comps.Nix,
     process: comps.Process,
     timeout: comps.Timeout,
 };
@@ -28,6 +29,7 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!*@This() {
         .registry = .{ .allocator = allocator },
         .components = .{
             .http = http,
+            .nix = .{},
             .process = .{ .allocator = allocator },
             .timeout = .{ .allocator = allocator, .registry = &self.registry },
         },

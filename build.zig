@@ -28,6 +28,18 @@ pub fn build(b: *Build) !void {
         run_step.dependOn(&run_exe.step);
     }
 
+    {
+        const exe = b.addExecutable(.{
+            .name = "build-hook",
+            .root_source_file = Build.LazyPath.relative("src/components/nix/build-hook/main.zig"),
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+
+        const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/components/nix" } } });
+        b.getInstallStep().dependOn(&install_exe.step);
+    }
+
     const test_step = b.step("test", "Run unit tests");
     {
         const tests = b.addTest(.{
