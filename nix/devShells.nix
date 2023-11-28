@@ -12,7 +12,7 @@
   }: {
     devShells = {
       default = pkgs.mkShell {
-        packages = [config.packages.zls];
+        packages = with pkgs; [config.packages.zls wasm-tools];
         inputsFrom = [
           config.mission-control.devShell
           config.packages.cizero
