@@ -20,10 +20,14 @@ pub fn deinit(self: *@This()) void {
 
 pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!*@This() {
     var self = try allocator.create(@This());
+
+    var http = try comps.Http.init(allocator, &self.registry);
+    errdefer http.deinit();
+
     self.* = .{
         .registry = .{ .allocator = allocator },
         .components = .{
-            .http = try comps.Http.init(allocator, &self.registry),
+            .http = http,
             .process = .{ .allocator = allocator },
             .timeout = .{ .allocator = allocator, .registry = &self.registry },
         },
