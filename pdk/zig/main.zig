@@ -14,14 +14,40 @@ export fn cizero_mem_free(buf: [*]u8, buf_len: usize, buf_align: u8) void {
 
 const externs = struct {
     // http
-    extern "cizero" fn on_webhook([*]const u8, ?*const anyopaque, usize) void;
+    extern "cizero" fn on_webhook(
+        func_name: [*:0]const u8,
+        user_data_ptr: ?*const anyopaque,
+        user_data_len: usize,
+    ) void;
 
     // process
-    extern "cizero" fn exec([*]const [*]const u8, usize, bool, ?[*]const usize, usize, usize, [*]u8, *usize, *usize, *u8, *usize) u8;
+    extern "cizero" fn exec(
+        argv_ptr: [*]const [*:0]const u8,
+        argc: usize,
+        expand_arg0: bool,
+        env_map: ?[*]const usize,
+        env_map_len: usize,
+        max_output_bytes: usize,
+        output_ptr: [*]u8,
+        stdout_len: *usize,
+        stderr_len: *usize,
+        term_tag: *u8,
+        term_code: *usize,
+    ) u8;
 
     // timeout
-    extern "cizero" fn on_cron([*]const u8, ?*const anyopaque, usize, [*]const u8) i64;
-    extern "cizero" fn on_timestamp([*]const u8, ?*const anyopaque, usize, i64) void;
+    extern "cizero" fn on_cron(
+        func_name: [*:0]const u8,
+        user_data_ptr: ?*const anyopaque,
+        user_data_len: usize,
+        cron: [*:0]const u8,
+    ) i64;
+    extern "cizero" fn on_timestamp(
+        func_name: [*:0]const u8,
+        user_data_ptr: ?*const anyopaque,
+        user_data_len: usize,
+        timestamp: i64,
+    ) void;
 };
 
 /// Like `@sizeOf()` without padding.
@@ -116,7 +142,7 @@ const CStringArray = struct {
     allocator: std.mem.Allocator,
 
     z: ?[]const [:0]const u8,
-    c: []const [*]const u8,
+    c: []const [*:0]const u8,
 
     pub fn deinit(self: @This()) void {
         self.allocator.free(self.c);
@@ -138,7 +164,7 @@ const CStringArray = struct {
     }
 
     pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
-        const c = try allocator.alloc([*]const u8, z.len);
+        const c = try allocator.alloc([*:0]const u8, z.len);
         for (c, z) |*ce, ze| ce.* = ze.ptr;
 
         return .{ .allocator = allocator, .z = null, .c = c };
