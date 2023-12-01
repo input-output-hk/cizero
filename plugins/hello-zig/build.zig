@@ -1,6 +1,7 @@
 const std = @import("std");
+const Build = std.Build;
 
-pub fn build(b: *std.Build) !void {
+pub fn build(b: *Build) !void {
     b.enable_wasmtime = true;
 
     const target = b.standardTargetOptions(.{ .default_target = .{
@@ -9,7 +10,7 @@ pub fn build(b: *std.Build) !void {
     } });
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
 
-    const source = std.Build.LazyPath.relative("main.zig");
+    const source = Build.LazyPath.relative("main.zig");
 
     {
         const exe = b.addExecutable(.{
@@ -39,9 +40,9 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn configureCompileStep(step: *std.Build.Step.Compile) void {
+fn configureCompileStep(step: *Build.Step.Compile) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
 
-    step.addAnonymousModule("cizero", .{ .source_file = std.Build.LazyPath.relative("../../pdk/zig/main.zig") });
+    step.addAnonymousModule("cizero", .{ .source_file = Build.LazyPath.relative("../../pdk/zig/main.zig") });
 }
