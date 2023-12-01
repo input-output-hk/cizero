@@ -6,7 +6,7 @@ pub fn build(b: *Build) !void {
 
     const opts = .{
         .target = b.standardTargetOptions(.{}),
-        .optimize = b.standardOptimizeOption(.{}),
+        .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe }),
     };
 
     const source = Build.LazyPath.relative("src/main.zig");
