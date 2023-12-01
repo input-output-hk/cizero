@@ -137,5 +137,8 @@ fn mainZig() !u8 {
             try func();
         } else func();
     };
+
+    try cizero.nixBuild(allocator, "github:nixos/nixpkgs/nixos-23.05#hello", &.{"--no-substitute"});
+
     return 0;
 }

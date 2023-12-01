@@ -20,6 +20,13 @@ const externs = struct {
         user_data_len: usize,
     ) void;
 
+    // nix
+    extern "cizero" fn nix_build(
+        flake_url: [*:0]const u8,
+        args_ptr: [*]const [*:0]const u8,
+        args_len: usize,
+    ) void;
+
     // process
     extern "cizero" fn exec(
         argv_ptr: [*]const [*:0]const u8,
@@ -76,6 +83,13 @@ test anyAsBytesUnpad {
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
     const user_data_bytes = anyAsBytesUnpad(user_data);
     externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
+}
+
+pub fn nixBuild(allocator: std.mem.Allocator, flake_url: [:0]const u8, args: []const []const u8) !void {
+    const args_c = try CStringArray.initDupe(allocator, args);
+    defer args_c.deinit();
+
+    externs.nix_build(flake_url, args_c.c.ptr, args_c.c.len);
 }
 
 pub fn exec(args: struct {
