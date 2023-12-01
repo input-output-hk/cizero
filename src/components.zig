@@ -3,7 +3,6 @@ const std = @import("std");
 const wasm = @import("wasm.zig");
 
 const PluginRuntime = @import("Plugin.zig").Runtime;
-const Registry = @import("Registry.zig");
 
 pub const Http = @import("components/Http.zig");
 pub const Nix = @import("components/Nix.zig");

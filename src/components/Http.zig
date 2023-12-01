@@ -30,7 +30,9 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self);
 }
 
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry) std.mem.Allocator.Error!*@This() {
+pub const InitError = std.mem.Allocator.Error;
+
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*@This() {
     var self = try allocator.create(@This());
     self.* = .{
         .allocator = allocator,
