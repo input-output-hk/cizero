@@ -7,6 +7,8 @@ const Plugin = @import("../Plugin.zig");
 
 pub const name = "process";
 
+const log = std.log.scoped(.process);
+
 allocator: std.mem.Allocator,
 
 exec_closure: meta.Closure(@TypeOf(std.process.Child.exec), true) = meta.disclosure(std.process.Child.exec, true),
@@ -92,6 +94,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
         exec_args.allocator.free(result.stdout);
         exec_args.allocator.free(result.stderr);
     }
+    log.debug("process {s} terminated with {}", .{ exec_args.argv, result.term });
 
     params.stdout_len.* = @intCast(result.stdout.len);
     params.stderr_len.* = @intCast(result.stderr.len);
