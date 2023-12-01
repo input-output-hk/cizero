@@ -110,7 +110,7 @@ const pdk_tests = struct {
 };
 
 fn isPdkTest() bool {
-    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch @panic("OOM");
+    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch std.debug.panic("OOM", .{});
 }
 
 fn FnErrorUnionPayload(comptime Fn: type) type {
