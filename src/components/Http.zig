@@ -45,13 +45,13 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) std.mem.All
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
-    const thread = try std.Thread.spawn(.{}, listen, .{self});
+    const thread = try self.server.listenInNewThread();
     try thread.setName(name);
     return thread;
 }
 
-fn listen(self: *@This()) !void {
-    return self.server.listen();
+pub fn stop(self: *@This()) void {
+    self.server.stop();
 }
 
 fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
@@ -73,7 +73,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         const linear = try runtime.linearMemoryAllocator();
         const allocator = linear.allocator();
 
-        const body = if (try req.body()) |body| try allocator.dupeZ(u8, body) else null;
+        const body = if (req.body()) |body| try allocator.dupeZ(u8, body) else null;
         defer if (body) |b| allocator.free(b);
 
         const inputs = [_]wasm.Value{

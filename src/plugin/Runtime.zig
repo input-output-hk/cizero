@@ -40,10 +40,39 @@ pub const WasiConfig = struct {
 
     pub const CollectOutput = struct {
         allocator: std.mem.Allocator,
-        stdout_path: []const u8,
-        stderr_path: []const u8,
-        owns_stdout: bool,
-        owns_stderr: bool,
+        stdout: StdioFile,
+        stderr: StdioFile,
+
+        pub const StdioFile = union(enum) {
+            own: fs.TmpFile,
+            brw: []const u8,
+
+            pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+                switch (self) {
+                    .own => |own| own.deinit(alloc),
+                    .brw => |brw| alloc.free(brw),
+                }
+            }
+
+            fn path(self: @This()) []const u8 {
+                return switch (self) {
+                    .own => |own| own.path,
+                    .brw => |brw| brw,
+                };
+            }
+
+            fn read(self: @This(), alloc: std.mem.Allocator, max_bytes: usize) ![]u8 {
+                return switch (self) {
+                    .own => |own| try own.file.readToEndAlloc(alloc, max_bytes),
+                    .brw => |brw| blk: {
+                        const file = try std.fs.openFileAbsolute(brw, .{});
+                        defer file.close();
+
+                        break :blk try file.readToEndAlloc(alloc, max_bytes);
+                    },
+                };
+            }
+        };
 
         pub const Output = struct {
             allocator: std.mem.Allocator,
@@ -57,34 +86,15 @@ pub const WasiConfig = struct {
         };
 
         pub fn deinit(self: @This()) void {
-            const err_msg = "Could not delete temporary file \"{s}\": {}\n";
-
-            if (self.owns_stdout) {
-                std.fs.deleteFileAbsolute(self.stdout_path) catch |err| std.log.warn(err_msg, .{ self.stdout_path, err });
-                self.allocator.free(self.stdout_path);
-            }
-
-            if (self.owns_stderr) {
-                std.fs.deleteFileAbsolute(self.stderr_path) catch |err| std.log.warn(err_msg, .{ self.stderr_path, err });
-                self.allocator.free(self.stderr_path);
-            }
+            self.stdout.deinit(self.allocator);
+            self.stderr.deinit(self.allocator);
         }
 
-        pub fn collect(self: @This(), max_bytes_each: usize) !Output {
+        pub fn collect(self: @This(), max_bytes: usize) !Output {
             return .{
                 .allocator = self.allocator,
-                .stdout = blk: {
-                    const file = try std.fs.openFileAbsolute(self.stdout_path, .{});
-                    defer file.close();
-
-                    break :blk try file.readToEndAlloc(self.allocator, max_bytes_each);
-                },
-                .stderr = blk: {
-                    const file = try std.fs.openFileAbsolute(self.stderr_path, .{});
-                    defer file.close();
-
-                    break :blk try file.readToEndAlloc(self.allocator, max_bytes_each);
-                },
+                .stdout = try self.stdout.read(self.allocator, max_bytes),
+                .stderr = try self.stderr.read(self.allocator, max_bytes),
             };
         }
     };
@@ -95,14 +105,12 @@ pub const WasiConfig = struct {
 
         const collect = .{
             .allocator = allocator,
-            .stdout_path = if (keep_stdout) self.stdout.?.file else try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
-            .stderr_path = if (keep_stderr) self.stderr.?.file else try fs.tmpPath(allocator, null) orelse return error.NoTmpDir,
-            .owns_stdout = !keep_stdout,
-            .owns_stderr = !keep_stderr,
+            .stdout = if (keep_stdout) CollectOutput.StdioFile{ .brw = self.stdout.?.file } else CollectOutput.StdioFile{ .own = try fs.tmpFile(allocator, .{ .read = true }) },
+            .stderr = if (keep_stderr) CollectOutput.StdioFile{ .brw = self.stderr.?.file } else CollectOutput.StdioFile{ .own = try fs.tmpFile(allocator, .{ .read = true }) },
         };
 
-        self.stdout = .{ .file = collect.stdout_path };
-        self.stderr = .{ .file = collect.stderr_path };
+        self.stdout = .{ .file = collect.stdout.path() };
+        self.stderr = .{ .file = collect.stderr.path() };
 
         return collect;
     }

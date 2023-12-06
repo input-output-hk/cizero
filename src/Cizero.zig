@@ -47,3 +47,8 @@ pub fn run(self: *@This()) !void {
         try self.components.timeout.start(),
     }) |thread| thread.join();
 }
+
+pub fn stop(self: *@This()) void {
+    self.components.http.stop();
+    self.components.timeout.stop();
+}

@@ -41,6 +41,7 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
     }
 }) = .{},
 
+run_loop: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
 restart_loop: std.Thread.ResetEvent = .{},
 
 milli_timestamp_closure: meta.Closure(@TypeOf(std.time.milliTimestamp), true) = meta.disclosure(std.time.milliTimestamp, true),
@@ -55,8 +56,14 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!
     return thread;
 }
 
+/// Cannot be started again once stopped.
+pub fn stop(self: *@This()) void {
+    self.run_loop.store(false, .Monotonic);
+    self.restart_loop.set();
+}
+
 fn loop(self: *@This()) !void {
-    while (true) {
+    while (self.run_loop.load(.Monotonic)) : (self.restart_loop.reset()) {
         const now_ms = self.milli_timestamp_closure.call(.{});
 
         const next_callback = blk: {
@@ -79,7 +86,11 @@ fn loop(self: *@This()) !void {
                 const next_timestamp = try callback.condition.next(now_ms);
                 if (now_ms < next_timestamp) {
                     const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
-                    self.restart_loop.timedWait(timeout_ns) catch {};
+                    if (!std.meta.isError(self.restart_loop.timedWait(timeout_ns))) {
+                        // `timedWait()` did not time out so `restart_loop` was `set()`.
+                        // This could have been done by `stop()`. If so, we don't want to run the callback.
+                        if (!self.run_loop.load(.Monotonic)) break;
+                    }
                 }
             }
 
@@ -96,8 +107,6 @@ fn loop(self: *@This()) !void {
 
             _ = try next.run(self.allocator, runtime, &.{}, outputs);
         } else self.restart_loop.wait();
-
-        self.restart_loop.reset();
     }
 }
 
