@@ -164,8 +164,12 @@ const CStringArray = struct {
     }
 
     pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
-        const c = try allocator.alloc([*:0]const u8, z.len);
-        for (c, z) |*ce, ze| ce.* = ze.ptr;
+        // for some reason a pointer to a zero-length slice from the allocator becomes negative
+        const c = if (z.len == 0) &.{} else blk: {
+            const cc = try allocator.alloc([*:0]const u8, z.len);
+            for (cc, z) |*ce, ze| ce.* = ze.ptr;
+            break :blk cc;
+        };
 
         return .{ .allocator = allocator, .z = null, .c = c };
     }
