@@ -25,8 +25,20 @@ pub fn main() void {
         std.debug.panic("could not log error: {}\n", .{err});
 }
 
-// Translated from `src/build-remote/build-remote.cc`.
+// Translated from nix' `src/build-remote/build-remote.cc`,
+// which is spawned by `src/libstore/build/derivation-goal.cc`
+// and fed mostly in `tryBuildHook()`.
 fn innerMain(allocator: std.mem.Allocator) !void {
+    {
+        var args = try std.process.argsWithAllocator(allocator);
+        defer args.deinit();
+
+        _ = args.next();
+
+        const verbosity: log.Action.Verbosity = @enumFromInt(try std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), args.next().?, 10));
+        std.log.info("log verbosity: {s}", .{@tagName(verbosity)});
+    }
+
     var settings = try protocol.readStringStringMap(allocator, stdin);
     defer settings.deinit(allocator);
 
