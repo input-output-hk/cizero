@@ -11,9 +11,11 @@ const Components = struct {
     process: comps.Process,
     timeout: comps.Timeout,
 
+    const fields = @typeInfo(@This()).Struct.fields;
+
     const InitError = blk: {
         var set = error{};
-        inline for (@typeInfo(@This()).Struct.fields) |field| {
+        inline for (fields) |field| {
             const T = meta.OptionalChild(field.type) orelse field.type;
             if (@hasDecl(T, "InitError")) set = set || T.InitError;
         }
@@ -21,7 +23,7 @@ const Components = struct {
     };
 
     fn register(self: *@This(), registry: *Registry) !void {
-        inline for (@typeInfo(@This()).Struct.fields) |field| {
+        inline for (fields) |field| {
             const value_ptr = &@field(self, field.name);
             try registry.registerComponent(if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.* else value_ptr);
         }
