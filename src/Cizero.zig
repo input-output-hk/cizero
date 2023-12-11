@@ -42,13 +42,18 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!*@This() {
 }
 
 pub fn run(self: *@This()) !void {
-    inline for (.{
-        try self.components.http.start(),
-        try self.components.timeout.start(),
-    }) |thread| thread.join();
+    var threads_buf: [Components.fields.len]std.Thread = undefined;
+    var threads: []const std.Thread = threads_buf[0..0];
+
+    for (self.registry.components.items) |component|
+        if (try component.start()) |thread| {
+            threads_buf[threads.len] = thread;
+            threads = threads_buf[0..threads.len + 1];
+        };
+
+    for (threads) |thread| thread.join();
 }
 
 pub fn stop(self: *@This()) void {
-    self.components.http.stop();
-    self.components.timeout.stop();
+    for (self.registry.components.items) |component| component.stop();
 }
