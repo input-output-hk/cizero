@@ -20,9 +20,11 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         pdk_tests.onCron();
     }
 
-    export fn pdk_test_on_cron_callback(user_data: *const i64, user_data_len: usize) bool {
-        std.debug.assert(user_data_len == @sizeOf(i64));
-        std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
+    export fn pdk_test_on_cron_callback(user_data_ptr: [*]const u8, user_data_len: usize) bool {
+        std.debug.assert(user_data_len == "* * * * *".len);
+        const user_data = user_data_ptr[0..user_data_len];
+
+        std.debug.print("{s}(\"{s}\")\n", .{ @src().fn_name, user_data });
         return false;
     }
 
@@ -54,10 +56,10 @@ const pdk_tests = struct {
     }
 
     pub fn onCron() void {
-        const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
-
-        const result = cizero.onCron("pdk_test_on_cron_callback", &now_ms, "* * * * *");
-        std.debug.print("cizero.on_cron(\"{s}\", {d}, \"{s}\") {d}\n", .{ "pdk_test_on_cron_callback", now_ms, "* * * * *" } ++ .{result});
+        const cron = "* * * * *";
+        const args = .{ "pdk_test_on_cron_callback", @as([]const u8, cron), cron};
+        const result = @call(.auto, cizero.onCron, args);
+        std.debug.print("cizero.on_cron(\"{s}\", \"{s}\", \"{s}\") {d}\n", args ++ .{result});
     }
 
     pub fn exec() !void {

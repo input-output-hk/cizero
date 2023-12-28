@@ -141,7 +141,7 @@ test "on_cron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_cron("pdk_test_on_cron_callback", 1000, "* * * * *") 60000
+        \\cizero.on_cron("pdk_test_on_cron_callback", "* * * * *", "* * * * *") 60000
         \\
     , {}, struct {
         fn call(_: void, rt: Plugin.Runtime) anyerror!void {
@@ -160,29 +160,25 @@ test "on_cron" {
         break :blk entry.callbackPtr();
     };
 
+    try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
+    try testing.expect(callback.user_data != null);
+    try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
+    try testing.expectEqual(Callback.Condition.cron, callback.condition);
+
     {
-        const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
+        const Cron = @import("cron").Cron;
+        const Datetime = @import("datetime").datetime.Datetime;
 
-        try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
-        try testing.expect(callback.user_data != null);
-        try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
-        try testing.expectEqual(Callback.Condition.cron, callback.condition);
+        var cron = Cron.init();
+        try cron.parse("* * * * *");
+        const now = Datetime.fromTimestamp(mocks.timeout.milli_timestamp.call(.{}));
 
-        {
-            const Cron = @import("cron").Cron;
-            const Datetime = @import("datetime").datetime.Datetime;
-
-            var cron = Cron.init();
-            try cron.parse("* * * * *");
-            const now = Datetime.fromTimestamp(mocks.timeout.milli_timestamp.call(.{}));
-
-            try testing.expect((try cron.next(now)).eql(try callback.condition.cron.next(now)));
-            try testing.expect((try cron.previous(now)).eql(try callback.condition.cron.previous(now)));
-        }
+        try testing.expect((try cron.next(now)).eql(try callback.condition.cron.next(now)));
+        try testing.expect((try cron.previous(now)).eql(try callback.condition.cron.previous(now)));
     }
 
     try self.expectEqualStdio("",
-        \\pdk_test_on_cron_callback(1000)
+        \\pdk_test_on_cron_callback("* * * * *")
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
