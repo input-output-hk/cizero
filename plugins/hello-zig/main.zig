@@ -12,7 +12,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     export fn pdk_test_on_timestamp_callback(user_data: *const i64, user_data_len: usize) void {
-        std.debug.assert(user_data_len == @sizeOf(i64));
+        std.debug.assert(user_data_len == cizero.sizeOfUnpad(i64));
         std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
     }
 

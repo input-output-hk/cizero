@@ -51,14 +51,30 @@ const externs = struct {
 };
 
 /// Like `@sizeOf()` without padding.
-pub fn sizeOfUnpad(comptime T: type) usize {
-    const size_t = @bitSizeOf(T);
-    const size_u8 = @bitSizeOf(u8);
-    return size_t / size_u8 + size_t % size_u8;
+pub fn sizeOfUnpad(comptime T: type) comptime_int {
+    return std.math.divCeil(comptime_int, @bitSizeOf(T), 8) catch unreachable;
+}
+
+fn paddingOf(comptime T: type) comptime_int {
+    return @sizeOf(T) - sizeOfUnpad(T);
+}
+
+fn anyAsBytesUnpad(any: anytype) (if (std.meta.trait.isConstPtr(@TypeOf(any))) []const u8 else []u8) {
+    const Any = @TypeOf(any);
+    const bytes = if (comptime std.meta.trait.isSlice(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
+    return bytes[0 .. bytes.len - paddingOf(std.meta.Child(Any))];
+}
+
+test anyAsBytesUnpad {
+    try std.testing.expectEqualSlices(u8, switch (@import("builtin").cpu.arch.endian()) {
+        .Little => "\x11\x00\x00\x00\x12\x00\x00",
+        .Big => "\x00\x00\x11\x00\x00\x00\x12",
+    }, anyAsBytesUnpad(@as([]const u17, &.{ 17, 18 })));
 }
 
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    externs.on_webhook(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))));
+    const user_data_bytes = anyAsBytesUnpad(user_data);
+    externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
 }
 
 pub fn exec(args: struct {
@@ -131,11 +147,13 @@ pub fn exec(args: struct {
 }
 
 pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    return externs.on_cron(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), cron_expr.ptr);
+    const user_data_bytes = anyAsBytesUnpad(user_data);
+    return externs.on_cron(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, cron_expr.ptr);
 }
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    externs.on_timestamp(callback_func_name.ptr, user_data, sizeOfUnpad(std.meta.Child(@TypeOf(user_data))), timestamp_ms);
+    const user_data_bytes = anyAsBytesUnpad(user_data);
+    externs.on_timestamp(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, timestamp_ms);
 }
 
 const CStringArray = struct {
