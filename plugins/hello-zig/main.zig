@@ -57,7 +57,7 @@ const pdk_tests = struct {
 
     pub fn onCron() void {
         const cron = "* * * * *";
-        const args = .{ "pdk_test_on_cron_callback", @as([]const u8, cron), cron};
+        const args = .{ "pdk_test_on_cron_callback", @as([]const u8, cron), cron };
         const result = @call(.auto, cizero.onCron, args);
         std.debug.print("cizero.on_cron(\"{s}\", \"{s}\", \"{s}\") {d}\n", args ++ .{result});
     }

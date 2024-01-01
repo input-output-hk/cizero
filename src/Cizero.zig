@@ -48,7 +48,7 @@ pub fn run(self: *@This()) !void {
     for (self.registry.components.items) |component|
         if (try component.start()) |thread| {
             threads_buf[threads.len] = thread;
-            threads = threads_buf[0..threads.len + 1];
+            threads = threads_buf[0 .. threads.len + 1];
         };
 
     for (threads) |thread| thread.join();
