@@ -61,6 +61,7 @@ fn paddingOf(comptime T: type) comptime_int {
 
 fn anyAsBytesUnpad(any: anytype) (if (std.meta.trait.isConstPtr(@TypeOf(any))) []const u8 else []u8) {
     const Any = @TypeOf(any);
+    if (Any == @TypeOf(null)) return &.{};
     const bytes = if (comptime std.meta.trait.isSlice(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
     return bytes[0 .. bytes.len - paddingOf(std.meta.Child(Any))];
 }
