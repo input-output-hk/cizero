@@ -51,7 +51,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
         .allocator = self.allocator,
         .argv = blk: {
             var argv = try self.allocator.alloc([]const u8, params.argc);
-            for (argv, 0..) |*arg, i| arg.* = wasm.span(memory, params.argv_ptr[i]);
+            for (argv, params.argv_ptr) |*arg, argv_ptr| arg.* = wasm.span(memory, argv_ptr);
             break :blk argv;
         },
         .env_map = if (params.env_map) |env_array| blk: {
