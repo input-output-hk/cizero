@@ -22,9 +22,10 @@ const externs = struct {
 
     // nix
     extern "cizero" fn nix_build(
+        func_name: [*:0]const u8,
+        user_data_ptr: ?*const anyopaque,
+        user_data_len: usize,
         flake_url: [*:0]const u8,
-        args_ptr: [*]const [*:0]const u8,
-        args_len: usize,
     ) void;
 
     // process
@@ -78,6 +79,8 @@ test anyAsBytesUnpad {
         .Little => "\x11\x00\x00\x00\x12\x00\x00",
         .Big => "\x00\x00\x11\x00\x00\x00\x12",
     }, anyAsBytesUnpad(@as([]const u17, &.{ 17, 18 })));
+
+    try std.testing.expectEqualSlices(u8, &.{}, anyAsBytesUnpad(null));
 }
 
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
@@ -85,11 +88,9 @@ pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
     externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
 }
 
-pub fn nixBuild(allocator: std.mem.Allocator, flake_url: [:0]const u8, args: []const []const u8) !void {
-    const args_c = try CStringArray.initDupe(allocator, args);
-    defer args_c.deinit();
-
-    externs.nix_build(flake_url, args_c.c.ptr, args_c.c.len);
+pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8) !void {
+    const user_data_bytes = anyAsBytesUnpad(user_data);
+    externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url);
 }
 
 pub fn exec(args: struct {

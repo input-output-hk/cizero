@@ -41,7 +41,6 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 const callback = self.callbackPtr();
 
                 const success = try callback.run(allocator, runtime, inputs, outputs);
-                if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ callback.func_name, self.pluginName() });
 
                 const done = callback.done(success, outputs);
                 if (done) self.remove(allocator);
@@ -54,7 +53,8 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
 
             pub fn remove(self: @This(), allocator: std.mem.Allocator) void {
                 const plugin_callbacks = self.map_entry.value_ptr;
-                plugin_callbacks.swapRemove(self.callback_idx).deinit(allocator);
+                var removed = plugin_callbacks.swapRemove(self.callback_idx);
+                removed.deinit(allocator);
                 if (plugin_callbacks.items.len == 0) {
                     deallocateCallbacks(allocator, plugin_callbacks);
                     self.callbacks.map.removeByPtr(self.map_entry.key_ptr);
@@ -105,7 +105,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
         }
 
         fn deallocateCallbacks(allocator: std.mem.Allocator, callbacks: *std.ArrayListUnmanaged(Callback)) void {
-            for (callbacks.items) |callback| callback.deinit(allocator);
+            for (callbacks.items) |*callback| callback.deinit(allocator);
             callbacks.deinit(allocator);
         }
 
@@ -174,7 +174,8 @@ pub fn CallbackUnmanaged(comptime T: type) type {
 
         pub const Condition = T;
 
-        pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            if (comptime std.meta.trait.hasFn("deinit")(T)) self.condition.deinit(allocator);
             if (self.user_data) |user_data| allocator.free(user_data);
             allocator.free(self.func_name);
         }
@@ -202,7 +203,10 @@ pub fn CallbackUnmanaged(comptime T: type) type {
             for (final_inputs[2..], inputs) |*final_input, input| final_input.* = input;
 
             // TODO run on new thread
-            return runtime.call(self.func_name, final_inputs, outputs);
+            const success = try runtime.call(self.func_name, final_inputs, outputs);
+            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin.name() });
+
+            return success;
         }
 
         pub fn done(self: *const @This(), success: bool, outputs: []const wasm.Value) bool {

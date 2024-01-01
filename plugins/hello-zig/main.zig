@@ -45,6 +45,33 @@ usingnamespace if (builtin.is_test) struct {} else struct {
 
         return false;
     }
+
+    pub export fn pdk_test_nix_build() void {
+        tryFn(pdk_tests.nixBuild, .{}, {});
+    }
+
+    export fn pdk_test_nix_build_callback(
+        user_data: ?*const root.pdk_tests.OnWebhookUserData,
+        user_data_len: usize,
+        flake_url_locked: [*:0]const u8,
+        store_drv: [*:0]const u8,
+        outputs_ptr: [*]const [*:0]const u8,
+        outputs_len: usize,
+        failed_drv: ?[*:0]const u8,
+    ) void {
+        std.debug.assert(user_data == null);
+        std.debug.assert(user_data_len == 0);
+
+        _ = failed_drv;
+        _ = outputs_len;
+        _ = outputs_ptr;
+        _ = store_drv;
+        _ = flake_url_locked;
+
+        std.debug.print(">>>>>>>>>>>>>>>>>>> {s}(null)\n", .{@src().fn_name});
+
+        // TODO implement
+    }
 };
 
 const pdk_tests = struct {
@@ -109,6 +136,16 @@ const pdk_tests = struct {
         std.debug.print("cizero.on_webhook(\"{s}\", .{{ {d}, {d} }})\n", .{ "pdk_test_on_webhook_callback", user_data.a, user_data.b });
         cizero.onWebhook("pdk_test_on_webhook_callback", &user_data);
     }
+
+    pub fn nixBuild() !void {
+        const args = .{
+            "pdk_test_nix_build_callback",
+            null,
+            "github:NixOS/nixpkgs/nixos-23.11#hello^out",
+        };
+        std.debug.print("cizero.nix_build(\"{s}\", {}, \"{s}\")\n", args);
+        try @call(.auto, cizero.nixBuild, args);
+    }
 };
 
 fn isPdkTest() bool {
@@ -137,8 +174,5 @@ fn mainZig() !u8 {
             try func();
         } else func();
     };
-
-    try cizero.nixBuild(allocator, "github:nixos/nixpkgs/nixos-23.05#hello", &.{"--no-substitute"});
-
     return 0;
 }

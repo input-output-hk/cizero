@@ -44,7 +44,7 @@ pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
     var http = try comps.Http.init(allocator, &self.registry);
     errdefer http.deinit();
 
-    var nix = try comps.Nix.init(allocator);
+    var nix = try comps.Nix.init(allocator, &self.registry);
     errdefer nix.deinit();
 
     self.* = .{

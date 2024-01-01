@@ -469,7 +469,7 @@ pub const Memory = struct {
         return ptr[0..len];
     }
 
-    pub fn offset(self: @This(), ptr: [*]const u8) wasm.usize {
+    pub fn offset(self: @This(), ptr: anytype) wasm.usize {
         const ptr_addr = @intFromPtr(ptr);
 
         const memory = self.slice();
