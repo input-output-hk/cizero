@@ -75,7 +75,7 @@ pub const WasiConfig = struct {
             pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
                 switch (self) {
                     .own => |own| own.deinit(alloc),
-                    .brw => |brw| alloc.free(brw),
+                    .brw => {},
                 }
             }
 
