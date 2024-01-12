@@ -88,12 +88,12 @@ pub const WasiConfig = struct {
 
             fn read(self: @This(), alloc: std.mem.Allocator, max_bytes: usize) ![]u8 {
                 return switch (self) {
-                    .own => |own| try own.file.readToEndAlloc(alloc, max_bytes),
+                    .own => |own| own.file.readToEndAlloc(alloc, max_bytes),
                     .brw => |brw| blk: {
                         const file = try std.fs.openFileAbsolute(brw, .{});
                         defer file.close();
 
-                        break :blk try file.readToEndAlloc(alloc, max_bytes);
+                        break :blk file.readToEndAlloc(alloc, max_bytes);
                     },
                 };
             }
