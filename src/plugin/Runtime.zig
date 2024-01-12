@@ -647,16 +647,16 @@ pub fn linearMemoryAllocator(self: @This()) !Allocator {
     return Allocator.initFromInstance(try Memory.initFromInstance(self.wasm_instance, self.wasm_context), self.wasm_instance);
 }
 
-fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
+fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !?c_int {
     if (err) |e| {
         var exit_status: c_int = undefined;
         if (c.wasmtime_error_exit_status(e, &exit_status))
-            return exit_status == 0;
+            return exit_status;
     }
 
     try handleError("failed to call function", err, trap);
 
-    return true;
+    return null;
 }
 
 pub fn main(self: @This()) !bool {
@@ -725,7 +725,12 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
         std.log.debug("stdout: {s}\nstderr: {s}", .{ wasi_output.stdout, wasi_output.stderr });
     }
 
-    return handleExit(wasmtime_err, trap);
+    if (try handleExit(wasmtime_err, trap)) |exit_status| {
+        std.log.debug("exit status: {?d}", .{exit_status});
+        return exit_status == 0;
+    }
+
+    return true;
 }
 
 fn handleError(
