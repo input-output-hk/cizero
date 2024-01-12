@@ -11,7 +11,6 @@ const Plugin = @import("../Plugin.zig");
 
 cizero: *Cizero,
 plugin: Plugin,
-wasi_config: Plugin.Runtime.WasiConfig,
 
 const Mocks = struct {
     timeout: struct {
@@ -34,7 +33,7 @@ const Mocks = struct {
 };
 
 fn deinit(self: *@This()) void {
-    self.wasi_config.env.?.env.deinit(testing.allocator);
+    self.cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
     self.cizero.deinit();
 }
 
@@ -57,7 +56,6 @@ fn init(mocks: Mocks) !@This() {
     return .{
         .cizero = cizero,
         .plugin = plugin,
-        .wasi_config = cizero.registry.wasi_config,
     };
 }
 
@@ -75,10 +73,10 @@ fn expectEqualStdio(
     var rt = try self.runtime();
     defer rt.deinit();
 
-    var wasi_config = self.wasi_config;
+    var wasi_config = self.cizero.registry.wasi_config;
     const collect_output = try wasi_config.collectOutput(testing.allocator);
     defer collect_output.deinit();
-    try rt.configureWasi(wasi_config);
+    rt.wasi_config = &wasi_config;
 
     try run_fn(run_fn_ctx, rt);
 

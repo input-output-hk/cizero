@@ -48,39 +48,20 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
     var rt = try self.runtime(plugin_name);
     defer rt.deinit();
 
-    const log_wasi_output = comptime std.log.defaultLogEnabled(.debug);
-
-    const wasi_collect = if (log_wasi_output) blk: {
-        var wasi_config = self.wasi_config;
-        var out = try wasi_config.collectOutput(self.allocator);
-        try rt.configureWasi(wasi_config);
-        break :blk out;
-    };
-    defer if (log_wasi_output) wasi_collect.deinit();
-
-    const success = try rt.main();
-
-    if (log_wasi_output) {
-        const wasi_output = try wasi_collect.collect(std.math.maxInt(usize));
-        defer wasi_output.deinit();
-
-        std.log.debug("plugin \"{s}\" registration output:\nstdout: {s}\nstderr: {s}\n", .{ plugin_name, wasi_output.stdout, wasi_output.stderr });
-    }
-
-    if (!success) return error.PluginMainFailed;
+    if (!try rt.main()) return error.PluginMainFailed;
 
     return true;
 }
 
 /// Remember to deinit after use.
-pub fn runtime(self: @This(), plugin_name: []const u8) !Plugin.Runtime {
+pub fn runtime(self: *const @This(), plugin_name: []const u8) !Plugin.Runtime {
     const p = self.plugins.get(plugin_name) orelse return error.NoSuchPlugin;
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
 
-    const rt = try Plugin.Runtime.init(self.allocator, p, host_functions);
-    try rt.configureWasi(self.wasi_config);
+    var rt = try Plugin.Runtime.init(self.allocator, p, host_functions);
+    rt.wasi_config = &self.wasi_config;
     return rt;
 }
 

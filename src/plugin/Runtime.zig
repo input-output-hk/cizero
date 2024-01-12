@@ -12,6 +12,31 @@ wasm_store: *c.wasmtime_store,
 wasm_context: *c.wasmtime_context,
 wasm_instance: c.wasmtime_instance,
 
+// WASI config to apply before calling functions.
+// This cannot be applied directly due to issues with logging:
+//
+// Applying the WASI config truncates the stdout and stderr files, if any.
+//
+// In order to log output in `call()`, we first make a new WASI config
+// that points to the files that wasmtime should log to.
+// Before returning from `call()` we have to reapply the previous WASI config
+// though, because if we didn't, calling a function would change the WASI config,
+// which the caller would not expect.
+//
+// However, reapplying the previous WASI config
+// would immediately truncate the stdout and stderr files.
+// That doesn't matter to our own logging, because at that time
+// we have already read and logged the output;
+// the caller however might still want to read those files.
+// That could be the case if he initially created them and we're just leaving them in place.
+// In that case, we would have truncated files the caller is about to read!
+//
+// So resetting before returing is not an option.
+// By delaying application until right before actually calling a function,
+// we are making sure the stdout and stderr files
+// are not truncated unless we are about to write to them.
+wasi_config: ?*const WasiConfig = null,
+
 allocator: std.mem.Allocator,
 
 plugin: Plugin,
@@ -313,12 +338,10 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
     }
 
-    try self.configureWasi(.{});
-
     return self;
 }
 
-pub fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
+fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
     var new_wasi_config = wasi_config;
 
     var args: ?[][]const u8 = null;
@@ -637,20 +660,31 @@ fn handleExit(err: ?*c.wasmtime_error, trap: ?*c.wasm_trap_t) !bool {
 }
 
 pub fn main(self: @This()) !bool {
-    const wasi_main_export_name = "_start";
-    var wasi_main: c.wasmtime_extern = undefined;
-    if (!c.wasmtime_instance_export_get(self.wasm_context, &self.wasm_instance, wasi_main_export_name, wasi_main_export_name.len, &wasi_main)) return error.NoSuchItem;
-    defer c.wasmtime_extern_delete(&wasi_main);
-    if (wasi_main.kind != c.WASMTIME_EXTERN_FUNC) return error.NotAFunction;
-
-    var trap: ?*c.wasm_trap_t = null;
-    return handleExit(
-        c.wasmtime_func_call(self.wasm_context, &wasi_main.of.func, null, 0, null, 0, &trap),
-        trap,
-    );
+    return self.call("_start", &.{}, &.{});
 }
 
 pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
+    std.log.debug("calling plugin \"{s}\" function \"{s}\"", .{ self.plugin.name(), func_name });
+
+    if (self.wasi_config) |wc| try self.configureWasi(wc.*);
+
+    const wasi_collect = if (self.wasi_config) |wc| blk: {
+        if (!comptime std.log.defaultLogEnabled(.debug)) break :blk null;
+
+        if (wc.stdout != null and wc.stdout.? == .inherit or
+            wc.stderr != null and wc.stderr.? == .inherit)
+        {
+            std.log.debug("cannot capture WASI output because stdout or stderr is inherited", .{});
+            break :blk null;
+        }
+
+        var wasi_config = wc.*;
+        var collect = try wasi_config.collectOutput(self.allocator);
+        try self.configureWasi(wasi_config);
+        break :blk collect;
+    } else null;
+    defer if (wasi_collect) |wc| wc.deinit();
+
     var c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
     for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
     defer {
@@ -683,6 +717,13 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
     for (outputs, c_outputs) |*output, *c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
         error.UnknownWasmtimeVal => return false,
     };
+
+    if (wasi_collect) |wc| {
+        const wasi_output = try wc.collect(std.math.maxInt(usize));
+        defer wasi_output.deinit();
+
+        std.log.debug("stdout: {s}\nstderr: {s}", .{ wasi_output.stdout, wasi_output.stderr });
+    }
 
     return handleExit(wasmtime_err, trap);
 }
