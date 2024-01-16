@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const build_options = @import("build_options");
 
+const components = @import("../components.zig");
 const mem = @import("../mem.zig");
 const meta = @import("../meta.zig");
 const wasm = @import("../wasm.zig");
@@ -22,13 +23,35 @@ const Mocks = struct {
     } = .{},
 
     process: struct {
-        exec: meta.Closure(@TypeOf(std.process.Child.exec), true) = meta.disclosure(struct {
-            const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
+        const Exec = @TypeOf(std.process.Child.exec);
+
+        exec: meta.Closure(Exec, true) = meta.disclosure(struct {
+            const info = @typeInfo(Exec).Fn;
 
             fn call(_: info.params[0].type.?) info.return_type.? {
                 return error.Unexpected;
             }
         }.call, true),
+    } = .{},
+
+    nix: struct {
+        const LockFlakeUrlClosure = std.meta.fieldInfo(components.Nix, .lock_flake_url_closure).type;
+
+        const lock_flake_url_input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
+        const lock_flake_url_output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
+
+        const StartBuildLoopClosure = std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type;
+
+        lock_flake_url: LockFlakeUrlClosure = meta.disclosure(struct {
+            const info = @typeInfo(LockFlakeUrlClosure.Fn).Fn;
+
+            fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
+                if (!std.mem.eql(u8, flake_url, lock_flake_url_input)) return error.CouldNotLockFlake;
+                return allocator.dupe(u8, lock_flake_url_output);
+            }
+        }.call, true),
+
+        start_build_loop: StartBuildLoopClosure = null,
     } = .{},
 };
 
@@ -49,6 +72,8 @@ fn init(mocks: Mocks) !@This() {
 
     cizero.components.timeout.milli_timestamp_closure = mocks.timeout.milli_timestamp;
     cizero.components.process.exec_closure = mocks.process.exec;
+    cizero.components.nix.lock_flake_url_closure = mocks.nix.lock_flake_url;
+    cizero.components.nix.mock_start_build_loop = mocks.nix.start_build_loop;
 
     const plugin = .{ .path = build_options.plugin_path };
     _ = try cizero.registry.registerPlugin(plugin);
@@ -313,4 +338,97 @@ test "on_webhook" {
             }
         }.call);
     }
+}
+
+test "nix_build" {
+    const MockStateNixStartBuildLoop = struct {
+        allocator: std.mem.Allocator,
+        flake_url: []const u8,
+        plugin_name: []const u8,
+        callback: components.Nix.Callback,
+
+        const info = @typeInfo(std.meta.Child(std.meta.fieldInfo(Mocks, .nix).type.StartBuildLoopClosure).Fn).Fn;
+
+        fn call(
+            ctx: *@This(),
+            allocator: std.mem.Allocator,
+            flake_url: []const u8,
+            plugin_name: []const u8,
+            callback: components.Nix.Callback,
+        ) info.return_type.? {
+            ctx.* = .{
+                .allocator = allocator,
+                .flake_url = flake_url,
+                .plugin_name = plugin_name,
+                .callback = callback,
+            };
+        }
+    };
+    var mock_state_nix_start_build_loop: MockStateNixStartBuildLoop = undefined;
+    defer {
+        var ctx = &mock_state_nix_start_build_loop;
+        ctx.allocator.free(ctx.flake_url);
+        ctx.callback.deinit(ctx.allocator);
+    }
+
+    var mocks = Mocks{};
+    mocks.nix.start_build_loop = meta.closure(MockStateNixStartBuildLoop.call, &mock_state_nix_start_build_loop);
+
+    var self = try init(mocks);
+    defer self.deinit();
+
+    try self.expectEqualStdio("",
+        \\cizero.nix_build("pdk_test_nix_build_callback", null, "
+    ++ @TypeOf(mocks.nix).lock_flake_url_input ++
+        \\")
+        \\
+    , {}, struct {
+        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+            try testing.expect(try rt.call("pdk_test_nix_build", &.{}, &.{}));
+        }
+    }.call);
+
+    try testing.expectEqualStrings("pdk_test_nix_build_callback", mock_state_nix_start_build_loop.callback.func_name);
+    try testing.expect(mock_state_nix_start_build_loop.callback.user_data == null);
+    try testing.expectEqualStrings(@TypeOf(mocks.nix).lock_flake_url_output, mock_state_nix_start_build_loop.flake_url);
+
+    const store_drv_output = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-example";
+    const store_drv = store_drv_output ++ ".drv";
+
+    try self.expectEqualStdio("",
+        \\pdk_test_nix_build_callback(null, 0, "
+    ++ @TypeOf(mocks.nix).lock_flake_url_output ++
+        \\", "
+    ++ store_drv ++
+        \\", {
+    ++ " " ++ store_drv_output ++
+        \\ }, null)
+        \\
+    , &mock_state_nix_start_build_loop.callback, struct {
+        fn call(cb: *const components.Nix.Callback, rt: Plugin.Runtime) anyerror!void {
+            const linear = try rt.linearMemoryAllocator();
+            const allocator = linear.allocator();
+
+            const flake_url_wasm = try allocator.dupeZ(u8, std.meta.fieldInfo(Mocks, .nix).type.lock_flake_url_output);
+            defer allocator.free(flake_url_wasm);
+
+            const store_drv_wasm = try allocator.dupeZ(u8, store_drv);
+            defer allocator.free(store_drv_wasm);
+
+            const store_drv_output_wasm = try allocator.dupeZ(u8, store_drv_output);
+            defer allocator.free(store_drv_output_wasm);
+
+            var store_drv_outputs_wasm = try allocator.alloc(wasm.usize, 1);
+            defer allocator.free(store_drv_outputs_wasm);
+            store_drv_outputs_wasm[0] = linear.memory.offset(store_drv_output_wasm.ptr);
+
+            try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
+                .{ .i32 = @intCast(linear.memory.offset(flake_url_wasm.ptr)) },
+                .{ .i32 = @intCast(linear.memory.offset(store_drv_wasm.ptr)) },
+                .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },
+                .{ .i32 = @intCast(store_drv_outputs_wasm.len) },
+                .{ .i32 = 0 },
+            }, &.{}));
+        }
+    }.call);
 }

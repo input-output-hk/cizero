@@ -61,16 +61,15 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     ) void {
         std.debug.assert(user_data == null);
         std.debug.assert(user_data_len == 0);
+        std.debug.assert(failed_drv == null);
 
-        _ = failed_drv;
-        _ = outputs_len;
-        _ = outputs_ptr;
-        _ = store_drv;
-        _ = flake_url_locked;
-
-        std.debug.print(">>>>>>>>>>>>>>>>>>> {s}(null)\n", .{@src().fn_name});
-
-        // TODO implement
+        std.debug.print("{s}(null, 0, \"{s}\", \"{s}\", {s}, {any})\n", .{
+            @src().fn_name,
+            flake_url_locked,
+            store_drv,
+            outputs_ptr[0..outputs_len],
+            failed_drv,
+        });
     }
 };
 

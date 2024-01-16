@@ -25,6 +25,14 @@ builds: std.DoublyLinkedList(Build) = .{},
 loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
+lock_flake_url_closure: meta.Closure(@TypeOf(lockFlakeUrl), true) = meta.disclosure(lockFlakeUrl, true),
+mock_start_build_loop: ?meta.Closure(fn (
+    allocator: std.mem.Allocator,
+    flake_url: []const u8,
+    plugin_name: []const u8,
+    callback: Callback,
+) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void, true) = null,
+
 const Build = struct {
     flake_url: []const u8,
     output_spec: []const u8,
@@ -43,7 +51,7 @@ const Build = struct {
     }
 };
 
-const Callback = components.CallbackUnmanaged(struct {
+pub const Callback = components.CallbackUnmanaged(struct {
     pub fn done(_: @This()) components.CallbackDoneCondition {
         return .always;
     }
@@ -99,7 +107,7 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
         .flake_url = wasm.span(memory, inputs[3]),
     };
 
-    const flake_url_locked = try lockFlakeUrl(self.allocator, params.flake_url);
+    const flake_url_locked = try self.lock_flake_url_closure.call(.{ self.allocator, params.flake_url });
     errdefer self.allocator.free(flake_url_locked);
 
     if (!std.mem.eql(u8, params.flake_url, flake_url_locked))
@@ -216,6 +224,13 @@ fn startBuildLoop(
     plugin_name: []const u8,
     callback: Callback,
 ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void {
+    if (self.mock_start_build_loop) |mock| return mock.call(.{
+        self.allocator,
+        flake_url,
+        plugin_name,
+        callback,
+    });
+
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
     node.data = .{
         .flake_url = flake_url,
@@ -270,7 +285,11 @@ fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
     instantiate: while (true) {
         log.debug("instantiating {s}", .{node.data.flake_url});
 
-        const instantiation = try self.instantiate(node.data.flake_url);
+        const instantiation = try instantiate(
+            self.allocator,
+            self.build_hook,
+            node.data.flake_url,
+        );
         node.data.instantiation.deinit();
         node.data.instantiation = instantiation;
 
@@ -355,9 +374,9 @@ const Instantiation = union(enum) {
     }
 };
 
-fn instantiate(self: @This(), flake_url: []const u8) !Instantiation {
-    const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
-    defer ifds_tmp.deinit(self.allocator);
+fn instantiate(allocator: std.mem.Allocator, build_hook: []const u8, flake_url: []const u8) !Instantiation {
+    const ifds_tmp = try fs.tmpFile(allocator, .{ .read = true });
+    defer ifds_tmp.deinit(allocator);
 
     {
         const args = .{
@@ -366,7 +385,7 @@ fn instantiate(self: @This(), flake_url: []const u8) !Instantiation {
             "--restrict-eval",
             "--allow-import-from-derivation",
             "--build-hook",
-            self.build_hook,
+            build_hook,
             "--max-jobs",
             "0",
             "--builders",
@@ -380,29 +399,29 @@ fn instantiate(self: @This(), flake_url: []const u8) !Instantiation {
         };
 
         const result = try std.process.Child.exec(.{
-            .allocator = self.allocator,
+            .allocator = allocator,
             .argv = &args,
         });
-        defer self.allocator.free(result.stderr);
+        defer allocator.free(result.stderr);
 
         if (result.term == .Exited and result.term.Exited == 0) {
-            return .{ .drv = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stdout) };
+            return .{ .drv = std.ArrayList(u8).fromOwnedSlice(allocator, result.stdout) };
         } else {
             log.debug("command {s} terminated with {}\n{s}", .{ @as([]const []const u8, &args), result.term, result.stderr });
-            self.allocator.free(result.stdout);
+            allocator.free(result.stdout);
         }
     }
 
-    var ifds = std.BufSet.init(self.allocator);
+    var ifds = std.BufSet.init(allocator);
     errdefer ifds.deinit();
 
     {
         const ifds_tmp_reader = ifds_tmp.file.reader();
 
         var ifd = std.ArrayListUnmanaged(u8){};
-        defer ifd.deinit(self.allocator);
+        defer ifd.deinit(allocator);
 
-        const ifd_writer = ifd.writer(self.allocator);
+        const ifd_writer = ifd.writer(allocator);
 
         while (ifds_tmp_reader.streamUntilDelimiter(ifd_writer, '\n', null) != error.EndOfStream) : (ifd.clearRetainingCapacity())
             try ifds.insert(ifd.items);
