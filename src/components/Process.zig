@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const meta = @import("../meta.zig");
@@ -11,7 +12,16 @@ const log = std.log.scoped(.process);
 
 allocator: std.mem.Allocator,
 
-exec_closure: meta.Closure(@TypeOf(std.process.Child.exec), true) = meta.disclosure(std.process.Child.exec, true),
+mock_child_exec: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.exec), true) else void = if (builtin.is_test) null,
+
+fn childExec(
+    self: @This(),
+    args: @typeInfo(@TypeOf(std.process.Child.exec)).Fn.params[0].type.?,
+) @typeInfo(@TypeOf(std.process.Child.exec)).Fn.return_type.? {
+    if (@TypeOf(self.mock_child_exec) != void)
+        if (self.mock_child_exec) |mock| return mock.call(.{args});
+    return std.process.Child.exec(args);
+}
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
@@ -71,7 +81,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
     defer self.allocator.free(exec_args.argv);
     defer if (exec_args.env_map) |m| m.deinit();
 
-    const result = self.exec_closure.call(.{exec_args}) catch |err| {
+    const result = @call(.auto, childExec, .{ self.*, exec_args }) catch |err| {
         const E = std.process.Child.ExecError;
 
         var err_tags = try self.allocator.dupe(E, std.meta.tags(E));

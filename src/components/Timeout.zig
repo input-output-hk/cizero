@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const Cron = @import("cron").Cron;
@@ -44,7 +45,13 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
 loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
-milli_timestamp_closure: meta.Closure(@TypeOf(std.time.milliTimestamp), true) = meta.disclosure(std.time.milliTimestamp, true),
+mock_milli_timestamp: if (builtin.is_test) ?meta.Closure(@TypeOf(std.time.milliTimestamp), true) else void = if (builtin.is_test) null,
+
+fn milliTimestamp(self: @This()) i64 {
+    if (@TypeOf(self.mock_milli_timestamp) != void)
+        if (self.mock_milli_timestamp) |mock| return mock.call(.{});
+    return std.time.milliTimestamp();
+}
 
 pub fn deinit(self: *@This()) void {
     self.plugin_callbacks.deinit(self.allocator);
@@ -64,7 +71,7 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const now_ms = self.milli_timestamp_closure.call(.{});
+        const now_ms = self.milliTimestamp();
 
         const next_callback = blk: {
             var next: ?@TypeOf(self.plugin_callbacks).Entry = null;
@@ -180,7 +187,7 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, in
         .{ .cron = cron },
     );
 
-    const next = try cron.next(Datetime.fromTimestamp(self.milli_timestamp_closure.call(.{})));
+    const next = try cron.next(Datetime.fromTimestamp(self.milliTimestamp()));
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
 
     self.loop_wait.set();

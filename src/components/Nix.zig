@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const components = @import("../components.zig");
@@ -25,13 +26,16 @@ builds: std.DoublyLinkedList(Build) = .{},
 loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
-lock_flake_url_closure: meta.Closure(@TypeOf(lockFlakeUrl), true) = meta.disclosure(lockFlakeUrl, true),
-mock_start_build_loop: ?meta.Closure(fn (
+mock_lock_flake_url: if (builtin.is_test) ?meta.Closure(fn (
+    allocator: std.mem.Allocator,
+    flake_url: []const u8,
+) LockFlakeUrlError![]const u8, true) else void = if (builtin.is_test) null,
+mock_start_build_loop: if (builtin.is_test) ?meta.Closure(fn (
     allocator: std.mem.Allocator,
     flake_url: []const u8,
     plugin_name: []const u8,
     callback: Callback,
-) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void, true) = null,
+) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void, true) else void = if (builtin.is_test) null,
 
 const Build = struct {
     flake_url: []const u8,
@@ -107,7 +111,7 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
         .flake_url = wasm.span(memory, inputs[3]),
     };
 
-    const flake_url_locked = try self.lock_flake_url_closure.call(.{ self.allocator, params.flake_url });
+    const flake_url_locked = try self.lockFlakeUrl(params.flake_url);
     errdefer self.allocator.free(flake_url_locked);
 
     if (!std.mem.eql(u8, params.flake_url, flake_url_locked))
@@ -125,11 +129,21 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
     );
 }
 
-fn lockFlakeUrl(allocator: std.mem.Allocator, flake_url: []const u8) ![]const u8 {
+pub const LockFlakeUrlError =
+    error{CouldNotLockFlake} ||
+    std.mem.Allocator.Error ||
+    std.process.Child.ExecError ||
+    std.json.ParseError(std.json.Scanner);
+
+fn lockFlakeUrl(self: @This(), flake_url: []const u8) LockFlakeUrlError![]const u8 {
+    if (comptime @TypeOf(self.mock_lock_flake_url) != void)
+        if (self.mock_lock_flake_url) |mock|
+            return mock.call(.{ self.allocator, flake_url });
+
     const flake_base_url = std.mem.sliceTo(flake_url, '#');
 
     const result = try std.process.Child.exec(.{
-        .allocator = allocator,
+        .allocator = self.allocator,
         .argv = &.{
             "nix",
             "flake",
@@ -139,8 +153,8 @@ fn lockFlakeUrl(allocator: std.mem.Allocator, flake_url: []const u8) ![]const u8
         },
     });
     defer {
-        allocator.free(result.stdout);
-        allocator.free(result.stderr);
+        self.allocator.free(result.stdout);
+        self.allocator.free(result.stderr);
     }
 
     if (result.term != .Exited or result.term.Exited != 0) {
@@ -151,7 +165,7 @@ fn lockFlakeUrl(allocator: std.mem.Allocator, flake_url: []const u8) ![]const u8
     const metadata = try std.json.parseFromSlice(struct {
         lockedUrl: ?[]const u8 = null,
         url: ?[]const u8 = null,
-    }, allocator, result.stdout, .{
+    }, self.allocator, result.stdout, .{
         .ignore_unknown_fields = true,
     });
     defer metadata.deinit();
@@ -161,7 +175,7 @@ fn lockFlakeUrl(allocator: std.mem.Allocator, flake_url: []const u8) ![]const u8
     // but it is actually called just `url`.
     const locked_url = metadata.value.lockedUrl orelse metadata.value.url.?;
 
-    return std.mem.concat(allocator, u8, &.{ locked_url, flake_url[flake_base_url.len..] });
+    return std.mem.concat(self.allocator, u8, &.{ locked_url, flake_url[flake_base_url.len..] });
 }
 
 test lockFlakeUrl {
@@ -224,12 +238,13 @@ fn startBuildLoop(
     plugin_name: []const u8,
     callback: Callback,
 ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void {
-    if (self.mock_start_build_loop) |mock| return mock.call(.{
-        self.allocator,
-        flake_url,
-        plugin_name,
-        callback,
-    });
+    if (comptime @TypeOf(self.mock_start_build_loop) != void)
+        if (self.mock_start_build_loop) |mock| return mock.call(.{
+            self.allocator,
+            flake_url,
+            plugin_name,
+            callback,
+        });
 
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
     node.data = .{

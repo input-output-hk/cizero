@@ -35,15 +35,15 @@ const Mocks = struct {
     } = .{},
 
     nix: struct {
-        const LockFlakeUrlClosure = std.meta.fieldInfo(components.Nix, .lock_flake_url_closure).type;
+        const MockLockFlakeUrl = std.meta.fieldInfo(components.Nix, .mock_lock_flake_url).type;
 
         const lock_flake_url_input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
         const lock_flake_url_output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
 
-        const StartBuildLoopClosure = std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type;
+        const MockStartBuildLoop = std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type;
 
-        lock_flake_url: LockFlakeUrlClosure = meta.disclosure(struct {
-            const info = @typeInfo(LockFlakeUrlClosure.Fn).Fn;
+        lock_flake_url: MockLockFlakeUrl = meta.disclosure(struct {
+            const info = @typeInfo(std.meta.Child(MockLockFlakeUrl).Fn).Fn;
 
             fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
                 if (!std.mem.eql(u8, flake_url, lock_flake_url_input)) return error.CouldNotLockFlake;
@@ -51,7 +51,7 @@ const Mocks = struct {
             }
         }.call, true),
 
-        start_build_loop: StartBuildLoopClosure = null,
+        start_build_loop: MockStartBuildLoop = null,
     } = .{},
 };
 
@@ -70,9 +70,9 @@ fn init(mocks: Mocks) !@This() {
         }) },
     };
 
-    cizero.components.timeout.milli_timestamp_closure = mocks.timeout.milli_timestamp;
-    cizero.components.process.exec_closure = mocks.process.exec;
-    cizero.components.nix.lock_flake_url_closure = mocks.nix.lock_flake_url;
+    cizero.components.timeout.mock_milli_timestamp = mocks.timeout.milli_timestamp;
+    cizero.components.process.mock_child_exec = mocks.process.exec;
+    cizero.components.nix.mock_lock_flake_url = mocks.nix.lock_flake_url;
     cizero.components.nix.mock_start_build_loop = mocks.nix.start_build_loop;
 
     const plugin = .{ .path = build_options.plugin_path };
@@ -347,7 +347,7 @@ test "nix_build" {
         plugin_name: []const u8,
         callback: components.Nix.Callback,
 
-        const info = @typeInfo(std.meta.Child(std.meta.fieldInfo(Mocks, .nix).type.StartBuildLoopClosure).Fn).Fn;
+        const info = @typeInfo(std.meta.Child(std.meta.fieldInfo(Mocks, .nix).type.MockStartBuildLoop).Fn).Fn;
 
         fn call(
             ctx: *@This(),
