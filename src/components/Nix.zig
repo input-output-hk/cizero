@@ -22,8 +22,8 @@ build_hook: []const u8,
 builds_mutex: std.Thread.Mutex = .{},
 builds: std.DoublyLinkedList(Build) = .{},
 
-run_loop: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
-restart_loop: std.Thread.ResetEvent = .{},
+loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
+loop_wait: std.Thread.ResetEvent = .{},
 
 const Build = struct {
     flake_url: []const u8,
@@ -187,12 +187,12 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!
 
 /// Cannot be started again once stopped.
 pub fn stop(self: *@This()) void {
-    self.run_loop.store(false, .Monotonic);
-    self.restart_loop.set();
+    self.loop_run.store(false, .Monotonic);
+    self.loop_wait.set();
 }
 
 fn loop(self: *@This()) !void {
-    while (self.run_loop.load(.Monotonic)) : (self.restart_loop.reset()) {
+    while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
         if (self.builds.first) |node| {
             node.data.thread.join();
 
@@ -206,7 +206,7 @@ fn loop(self: *@This()) !void {
             }
 
             self.allocator.destroy(node);
-        } else self.restart_loop.wait();
+        } else self.loop_wait.wait();
     }
 }
 

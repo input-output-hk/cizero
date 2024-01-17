@@ -41,8 +41,8 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
     }
 }) = .{},
 
-run_loop: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
-restart_loop: std.Thread.ResetEvent = .{},
+loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
+loop_wait: std.Thread.ResetEvent = .{},
 
 milli_timestamp_closure: meta.Closure(@TypeOf(std.time.milliTimestamp), true) = meta.disclosure(std.time.milliTimestamp, true),
 
@@ -58,12 +58,12 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!
 
 /// Cannot be started again once stopped.
 pub fn stop(self: *@This()) void {
-    self.run_loop.store(false, .Monotonic);
-    self.restart_loop.set();
+    self.loop_run.store(false, .Monotonic);
+    self.loop_wait.set();
 }
 
 fn loop(self: *@This()) !void {
-    while (self.run_loop.load(.Monotonic)) : (self.restart_loop.reset()) {
+    while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
         const now_ms = self.milli_timestamp_closure.call(.{});
 
         const next_callback = blk: {
@@ -86,10 +86,10 @@ fn loop(self: *@This()) !void {
                 const next_timestamp = try callback.condition.next(now_ms);
                 if (now_ms < next_timestamp) {
                     const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
-                    if (!std.meta.isError(self.restart_loop.timedWait(timeout_ns))) {
-                        // `timedWait()` did not time out so `restart_loop` was `set()`.
+                    if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
+                        // `timedWait()` did not time out so `loop_wait` was `set()`.
                         // This could have been done by `stop()`. If so, we don't want to run the callback.
-                        if (!self.run_loop.load(.Monotonic)) break;
+                        if (!self.loop_run.load(.Monotonic)) break;
                     }
                 }
             }
@@ -106,7 +106,7 @@ fn loop(self: *@This()) !void {
             defer runtime.deinit();
 
             _ = try next.run(self.allocator, runtime, &.{}, outputs);
-        } else self.restart_loop.wait();
+        } else self.loop_wait.wait();
     }
 }
 
@@ -150,7 +150,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
         .{ .timestamp = params.timestamp },
     );
 
-    self.restart_loop.set();
+    self.loop_wait.set();
 }
 
 fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
@@ -183,5 +183,5 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, in
     const next = try cron.next(Datetime.fromTimestamp(self.milli_timestamp_closure.call(.{})));
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
 
-    self.restart_loop.set();
+    self.loop_wait.set();
 }
