@@ -13,54 +13,12 @@ const Plugin = @import("../Plugin.zig");
 cizero: *Cizero,
 plugin: Plugin,
 
-const Mocks = struct {
-    timeout: struct {
-        milli_timestamp: meta.Closure(fn () i64, true) = meta.disclosure(struct {
-            fn call() i64 {
-                return std.time.ms_per_s;
-            }
-        }.call, true),
-    } = .{},
-
-    process: struct {
-        const Exec = @TypeOf(std.process.Child.exec);
-
-        exec: meta.Closure(Exec, true) = meta.disclosure(struct {
-            const info = @typeInfo(Exec).Fn;
-
-            fn call(_: info.params[0].type.?) info.return_type.? {
-                return error.Unexpected;
-            }
-        }.call, true),
-    } = .{},
-
-    nix: struct {
-        const MockLockFlakeUrl = std.meta.fieldInfo(components.Nix, .mock_lock_flake_url).type;
-
-        const lock_flake_url_input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
-        const lock_flake_url_output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
-
-        const MockStartBuildLoop = std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type;
-
-        lock_flake_url: MockLockFlakeUrl = meta.disclosure(struct {
-            const info = @typeInfo(std.meta.Child(MockLockFlakeUrl).Fn).Fn;
-
-            fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
-                if (!std.mem.eql(u8, flake_url, lock_flake_url_input)) return error.CouldNotLockFlake;
-                return allocator.dupe(u8, lock_flake_url_output);
-            }
-        }.call, true),
-
-        start_build_loop: MockStartBuildLoop = null,
-    } = .{},
-};
-
 fn deinit(self: *@This()) void {
     self.cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
     self.cizero.deinit();
 }
 
-fn init(mocks: Mocks) !@This() {
+fn init() !@This() {
     var cizero = try Cizero.init(testing.allocator);
     errdefer cizero.deinit();
 
@@ -70,10 +28,19 @@ fn init(mocks: Mocks) !@This() {
         }) },
     };
 
-    cizero.components.timeout.mock_milli_timestamp = mocks.timeout.milli_timestamp;
-    cizero.components.process.mock_child_exec = mocks.process.exec;
-    cizero.components.nix.mock_lock_flake_url = mocks.nix.lock_flake_url;
-    cizero.components.nix.mock_start_build_loop = mocks.nix.start_build_loop;
+    cizero.components.timeout.mock_milli_timestamp = meta.disclosure(struct {
+        fn call() i64 {
+            return std.time.ms_per_s;
+        }
+    }.call, true);
+
+    cizero.components.process.mock_child_exec = meta.disclosure(struct {
+        const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
+
+        fn call(_: info.params[0].type.?) info.return_type.? {
+            return error.Unexpected;
+        }
+    }.call, true);
 
     const plugin = .{ .path = build_options.plugin_path };
     _ = try cizero.registry.registerPlugin(plugin);
@@ -113,9 +80,7 @@ fn expectEqualStdio(
 }
 
 test "on_timestamp" {
-    const mocks = Mocks{};
-
-    var self = try init(mocks);
+    var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
@@ -139,7 +104,7 @@ test "on_timestamp" {
     };
 
     {
-        const user_data: [@sizeOf(i64)]u8 = @bitCast(mocks.timeout.milli_timestamp.call(.{}));
+        const user_data: [@sizeOf(i64)]u8 = @bitCast(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
 
         try testing.expectEqualStrings("pdk_test_on_timestamp_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
@@ -158,9 +123,7 @@ test "on_timestamp" {
 }
 
 test "on_cron" {
-    const mocks = Mocks{};
-
-    var self = try init(mocks);
+    var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
@@ -194,7 +157,7 @@ test "on_cron" {
 
         var cron = Cron.init();
         try cron.parse("* * * * *");
-        const now = Datetime.fromTimestamp(mocks.timeout.milli_timestamp.call(.{}));
+        const now = Datetime.fromTimestamp(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
 
         try testing.expect((try cron.next(now)).eql(try callback.condition.cron.next(now)));
         try testing.expect((try cron.previous(now)).eql(try callback.condition.cron.previous(now)));
@@ -213,67 +176,66 @@ test "on_cron" {
 }
 
 test "exec" {
-    var mocks = struct {
-        process: struct {
-            exec_test_err: ?anyerror = null,
-
-            pub const stdout = "stdout";
-            pub const stderr = "stderr $foo=bar";
-
-            const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
-
-            pub fn exec(self: *@This(), args: info.params[0].type.?) info.return_type.? {
-                execTest(args) catch |err| {
-                    self.exec_test_err = err;
-                    if (@errorReturnTrace()) |trace| trace.format("", .{}, std.io.getStdErr().writer()) catch unreachable;
-                };
-
-                return .{
-                    .term = .{ .Exited = 0 },
-                    .stdout = try args.allocator.dupe(u8, stdout),
-                    .stderr = try args.allocator.dupe(u8, stderr),
-                };
-            }
-
-            fn execTest(args: info.params[0].type.?) !void {
-                inline for (.{
-                    "sh", "-c",
-                    \\echo     stdout
-                    \\echo >&2 stderr \$foo="$foo"
-                }, args.argv) |expected, actual|
-                    try testing.expectEqualStrings(expected, actual);
-
-                try testing.expect(args.env_map != null);
-                try testing.expectEqual(@as(std.process.EnvMap.Size, 1), args.env_map.?.count());
-                {
-                    const foo = args.env_map.?.get("foo");
-                    try testing.expect(foo != null);
-                    try testing.expectEqualStrings("bar", foo.?);
-                }
-
-                try testing.expect(args.cwd == null);
-                try testing.expect(args.cwd_dir == null);
-
-                try testing.expectEqual(@as(usize, 50 * 1024), args.max_output_bytes);
-
-                try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
-            }
-        } = .{},
-    }{};
-
-    var self = try init(.{
-        .process = .{ .exec = meta.closure(@TypeOf(mocks.process).exec, &mocks.process) },
-    });
+    var self = try init();
     defer self.deinit();
+
+    const MockChildExec = struct {
+        exec_test_err: ?anyerror = null,
+
+        pub const stdout = "stdout";
+        pub const stderr = "stderr $foo=bar";
+
+        const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
+
+        pub fn exec(mock: *@This(), args: info.params[0].type.?) info.return_type.? {
+            execTest(args) catch |err| {
+                mock.exec_test_err = err;
+                if (@errorReturnTrace()) |trace| trace.format("", .{}, std.io.getStdErr().writer()) catch unreachable;
+            };
+
+            return .{
+                .term = .{ .Exited = 0 },
+                .stdout = try args.allocator.dupe(u8, stdout),
+                .stderr = try args.allocator.dupe(u8, stderr),
+            };
+        }
+
+        fn execTest(args: info.params[0].type.?) !void {
+            inline for (.{
+                "sh", "-c",
+                \\echo     stdout
+                \\echo >&2 stderr \$foo="$foo"
+            }, args.argv) |expected, actual|
+                try testing.expectEqualStrings(expected, actual);
+
+            try testing.expect(args.env_map != null);
+            try testing.expectEqual(@as(std.process.EnvMap.Size, 1), args.env_map.?.count());
+            {
+                const foo = args.env_map.?.get("foo");
+                try testing.expect(foo != null);
+                try testing.expectEqualStrings("bar", foo.?);
+            }
+
+            try testing.expect(args.cwd == null);
+            try testing.expect(args.cwd_dir == null);
+
+            try testing.expectEqual(@as(usize, 50 * 1024), args.max_output_bytes);
+
+            try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
+        }
+    };
+    var mock_child_exec = MockChildExec{};
+
+    self.cizero.components.process.mock_child_exec = meta.closure(MockChildExec.exec, &mock_child_exec);
 
     try self.expectEqualStdio("",
         \\term tag: Exited
         \\term code: 0
         \\stdout:
-    ++ " " ++ @TypeOf(mocks.process).stdout ++
+    ++ " " ++ MockChildExec.stdout ++
         \\
         \\stderr:
-    ++ " " ++ @TypeOf(mocks.process).stderr ++
+    ++ " " ++ MockChildExec.stderr ++
         \\
         \\
     , {}, struct {
@@ -282,13 +244,11 @@ test "exec" {
         }
     }.call);
 
-    if (mocks.process.exec_test_err) |err| return err;
+    if (mock_child_exec.exec_test_err) |err| return err;
 }
 
 test "on_webhook" {
-    const mocks = Mocks{};
-
-    var self = try init(mocks);
+    var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
@@ -341,13 +301,16 @@ test "on_webhook" {
 }
 
 test "nix_build" {
-    const MockStateNixStartBuildLoop = struct {
+    var self = try init();
+    defer self.deinit();
+
+    const MockStartBuildLoop = struct {
         allocator: std.mem.Allocator,
         flake_url: []const u8,
         plugin_name: []const u8,
         callback: components.Nix.Callback,
 
-        const info = @typeInfo(std.meta.Child(std.meta.fieldInfo(Mocks, .nix).type.MockStartBuildLoop).Fn).Fn;
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type).Optional.child.Fn).Fn;
 
         fn call(
             ctx: *@This(),
@@ -364,22 +327,32 @@ test "nix_build" {
             };
         }
     };
-    var mock_state_nix_start_build_loop: MockStateNixStartBuildLoop = undefined;
+    var mock_start_build_loop: MockStartBuildLoop = undefined;
     defer {
-        var ctx = &mock_state_nix_start_build_loop;
+        var ctx = &mock_start_build_loop;
         ctx.allocator.free(ctx.flake_url);
         ctx.callback.deinit(ctx.allocator);
     }
 
-    var mocks = Mocks{};
-    mocks.nix.start_build_loop = meta.closure(MockStateNixStartBuildLoop.call, &mock_state_nix_start_build_loop);
+    self.cizero.components.nix.mock_start_build_loop = meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
 
-    var self = try init(mocks);
-    defer self.deinit();
+    const MockLockFlakeUrl = struct {
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
+
+        const input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
+        const output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
+
+        fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
+            if (!std.mem.eql(u8, flake_url, input)) return error.CouldNotLockFlake;
+            return allocator.dupe(u8, output);
+        }
+    };
+
+    self.cizero.components.nix.mock_lock_flake_url = meta.disclosure(MockLockFlakeUrl.call, true);
 
     try self.expectEqualStdio("",
         \\cizero.nix_build("pdk_test_nix_build_callback", null, "
-    ++ @TypeOf(mocks.nix).lock_flake_url_input ++
+    ++ MockLockFlakeUrl.input ++
         \\")
         \\
     , {}, struct {
@@ -388,28 +361,28 @@ test "nix_build" {
         }
     }.call);
 
-    try testing.expectEqualStrings("pdk_test_nix_build_callback", mock_state_nix_start_build_loop.callback.func_name);
-    try testing.expect(mock_state_nix_start_build_loop.callback.user_data == null);
-    try testing.expectEqualStrings(@TypeOf(mocks.nix).lock_flake_url_output, mock_state_nix_start_build_loop.flake_url);
+    try testing.expectEqualStrings("pdk_test_nix_build_callback", mock_start_build_loop.callback.func_name);
+    try testing.expect(mock_start_build_loop.callback.user_data == null);
+    try testing.expectEqualStrings(MockLockFlakeUrl.output, mock_start_build_loop.flake_url);
 
     const store_drv_output = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-example";
     const store_drv = store_drv_output ++ ".drv";
 
     try self.expectEqualStdio("",
         \\pdk_test_nix_build_callback(null, 0, "
-    ++ @TypeOf(mocks.nix).lock_flake_url_output ++
+    ++ MockLockFlakeUrl.output ++
         \\", "
     ++ store_drv ++
         \\", {
     ++ " " ++ store_drv_output ++
         \\ }, null)
         \\
-    , &mock_state_nix_start_build_loop.callback, struct {
+    , &mock_start_build_loop.callback, struct {
         fn call(cb: *const components.Nix.Callback, rt: Plugin.Runtime) anyerror!void {
             const linear = try rt.linearMemoryAllocator();
             const allocator = linear.allocator();
 
-            const flake_url_wasm = try allocator.dupeZ(u8, std.meta.fieldInfo(Mocks, .nix).type.lock_flake_url_output);
+            const flake_url_wasm = try allocator.dupeZ(u8, MockLockFlakeUrl.output);
             defer allocator.free(flake_url_wasm);
 
             const store_drv_wasm = try allocator.dupeZ(u8, store_drv);
