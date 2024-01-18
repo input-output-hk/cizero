@@ -1,22 +1,22 @@
 .{
-	.name = "cizero",
-	.version = "0.0.0",
-	.dependencies = .{
-		.cron = .{
-			.url = "https://github.com/dying-will-bullet/cron/archive/refs/tags/v0.2.0.tar.gz",
-			.hash = "1220f3f1e6659f434657452f4727889a2424c1b78ac88775bd1f036858a1e974ad41",
-		},
-		.datetime = .{
-			.url = "https://github.com/frmdstryr/zig-datetime/archive/ddecb4e508e99ad6ab1314378225413959d54756.tar.gz",
-			.hash = "12202cbb909feb6b09164ac997307c6b1ab35cb05a846198cf41f7ec608d842c1761",
-		},
-		.httpz = .{
-			.url = "https://github.com/karlseguin/http.zig/archive/c2489311fba07dd58b4859aaa6b3dc64599d52fd.tar.gz",
-			.hash = "12204cd30c67448e513fc24feddf97be2c06fbbfce9e34b695e39f75e8f65e8766de",
-		},
-		.@"known-folders" = .{
-			.url = "https://github.com/ziglibs/known-folders/archive/a564f582122326328dad6b59209d070d57c4e6ae.tar.gz",
-			.hash = "1220bb12c9bfe291eed1afe6a2070c7c39918ab1979f24a281bba39dfb23f5bcd544",
-		},
-	},
+    .name = "cizero",
+    .version = "0.0.0",
+    .dependencies = .{
+        .cron = .{
+            .url = "https://github.com/dying-will-bullet/cron/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "1220f3f1e6659f434657452f4727889a2424c1b78ac88775bd1f036858a1e974ad41",
+        },
+        .datetime = .{
+            .url = "https://github.com/frmdstryr/zig-datetime/archive/ddecb4e508e99ad6ab1314378225413959d54756.tar.gz",
+            .hash = "12202cbb909feb6b09164ac997307c6b1ab35cb05a846198cf41f7ec608d842c1761",
+        },
+        .httpz = .{
+            .url = "https://github.com/karlseguin/http.zig/archive/c2489311fba07dd58b4859aaa6b3dc64599d52fd.tar.gz",
+            .hash = "12204cd30c67448e513fc24feddf97be2c06fbbfce9e34b695e39f75e8f65e8766de",
+        },
+        .@"known-folders" = .{
+            .url = "https://github.com/ziglibs/known-folders/archive/a564f582122326328dad6b59209d070d57c4e6ae.tar.gz",
+            .hash = "1220bb12c9bfe291eed1afe6a2070c7c39918ab1979f24a281bba39dfb23f5bcd544",
+        },
+    },
 }
