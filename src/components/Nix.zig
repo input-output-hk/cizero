@@ -205,12 +205,14 @@ test lockFlakeUrl {
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
+    self.loop_run.store(true, .Monotonic);
+    self.loop_wait.reset();
+
     const thread = try std.Thread.spawn(.{}, loop, .{self});
     thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
     return thread;
 }
 
-/// Cannot be started again once stopped.
 pub fn stop(self: *@This()) void {
     self.loop_run.store(false, .Monotonic);
     self.loop_wait.set();
