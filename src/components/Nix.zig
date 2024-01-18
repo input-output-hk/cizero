@@ -219,7 +219,7 @@ pub fn stop(self: *@This()) void {
 }
 
 fn loop(self: *@This()) !void {
-    while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
+    while (self.loop_run.load(.Monotonic) or self.builds.len != 0) : (self.loop_wait.reset()) {
         if (self.builds.first) |node| {
             node.data.thread.join();
 
@@ -301,7 +301,12 @@ fn startBuildLoop(
 fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
     log.debug("entered build loop for {s}", .{node.data.flake_url});
 
-    defer node.data.deinit(self.allocator);
+    defer {
+        node.data.deinit(self.allocator);
+
+        self.loop_wait.set();
+        std.Thread.yield() catch {};
+    }
 
     instantiate: while (true) {
         log.debug("instantiating {s}", .{node.data.flake_url});
