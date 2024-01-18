@@ -193,10 +193,16 @@ test "exec" {
                 if (@errorReturnTrace()) |trace| trace.format("", .{}, std.io.getStdErr().writer()) catch unreachable;
             };
 
+            const stdout_dupe = try args.allocator.dupe(u8, stdout);
+            errdefer args.allocator.free(stdout_dupe);
+
+            const stderr_dupe = try args.allocator.dupe(u8, stderr);
+            errdefer args.allocator.free(stderr_dupe);
+
             return .{
                 .term = .{ .Exited = 0 },
-                .stdout = try args.allocator.dupe(u8, stdout),
-                .stderr = try args.allocator.dupe(u8, stderr),
+                .stdout = stdout_dupe,
+                .stderr = stderr_dupe,
             };
         }
 

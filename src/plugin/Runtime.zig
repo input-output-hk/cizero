@@ -116,10 +116,16 @@ pub const WasiConfig = struct {
         }
 
         pub fn collect(self: @This(), max_bytes: usize) !Output {
+            const stdout = try self.stdout.read(self.allocator, max_bytes);
+            errdefer self.allocator.free(stdout);
+
+            const stderr = try self.stderr.read(self.allocator, max_bytes);
+            errdefer self.allocator.free(stderr);
+
             return .{
                 .allocator = self.allocator,
-                .stdout = try self.stdout.read(self.allocator, max_bytes),
-                .stderr = try self.stderr.read(self.allocator, max_bytes),
+                .stdout = stdout,
+                .stderr = stderr,
             };
         }
     };
@@ -128,14 +134,20 @@ pub const WasiConfig = struct {
         const keep_stdout = self.stdout != null and self.stdout.? == .file;
         const keep_stderr = self.stderr != null and self.stderr.? == .file;
 
+        const stdout: CollectOutput.StdioFile = if (keep_stdout) .{ .brw = self.stdout.?.file } else .{ .own = try fs.tmpFile(allocator, .{ .read = true }) };
+        errdefer stdout.deinit(allocator);
+
+        const stderr: CollectOutput.StdioFile = if (keep_stderr) .{ .brw = self.stderr.?.file } else .{ .own = try fs.tmpFile(allocator, .{ .read = true }) };
+        errdefer stderr.deinit(allocator);
+
         const collect = .{
             .allocator = allocator,
-            .stdout = if (keep_stdout) CollectOutput.StdioFile{ .brw = self.stdout.?.file } else CollectOutput.StdioFile{ .own = try fs.tmpFile(allocator, .{ .read = true }) },
-            .stderr = if (keep_stderr) CollectOutput.StdioFile{ .brw = self.stderr.?.file } else CollectOutput.StdioFile{ .own = try fs.tmpFile(allocator, .{ .read = true }) },
+            .stdout = stdout,
+            .stderr = stderr,
         };
 
-        self.stdout = .{ .file = collect.stdout.path() };
-        self.stderr = .{ .file = collect.stderr.path() };
+        self.stdout = .{ .file = stdout.path() };
+        self.stderr = .{ .file = stderr.path() };
 
         return collect;
     }
@@ -253,7 +265,9 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
 
         break :blk c.wasm_engine_new_with_config(wasm_config).?;
     };
+    errdefer c.wasm_engine_delete(wasm_engine);
     const wasm_store = c.wasmtime_store_new(wasm_engine, null, null).?;
+    errdefer c.wasmtime_store_delete(wasm_store);
     const wasm_context = c.wasmtime_store_context(wasm_store).?;
     c.wasmtime_context_set_epoch_deadline(wasm_context, 1);
 
@@ -278,6 +292,9 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
 
             const host_module_name = "cizero";
 
+            const signature = try wasmtime.functype(allocator, def_entry.value_ptr.signature);
+            errdefer c.wasm_functype_delete(signature);
+
             try handleError(
                 "failed to define function",
                 c.wasmtime_linker_define_func(
@@ -286,7 +303,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
                     host_module_name.len,
                     gop_result.key_ptr.ptr,
                     gop_result.key_ptr.len,
-                    try wasmtime.functype(allocator, def_entry.value_ptr.signature),
+                    signature,
                     dispatchHostFunction,
                     gop_result.value_ptr,
                     null,
@@ -296,13 +313,16 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         }
     }
 
+    const plugin_wasm = try plugin.wasm(allocator);
+    errdefer allocator.free(plugin_wasm);
+
     var self = @This(){
         .wasm_engine = wasm_engine,
         .wasm_store = wasm_store,
         .wasm_context = wasm_context,
         .allocator = allocator,
         .plugin = plugin,
-        .plugin_wasm = try plugin.wasm(allocator),
+        .plugin_wasm = plugin_wasm,
         .host_functions = host_functions,
         .wasm_instance = undefined,
     };
@@ -334,6 +354,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         // so that it returns a pointer to heap memory, and set that pointer
         // as context data instead of making a copy.
         const self_on_heap = try allocator.create(@This());
+        errdefer allocator.destroy(self_on_heap);
         self_on_heap.* = self;
         c.wasmtime_context_set_data(self.wasm_context, self_on_heap);
     }

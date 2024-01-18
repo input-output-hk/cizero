@@ -57,6 +57,10 @@ pub fn valtypeVec(allocator: std.mem.Allocator, valtypes: []const wasm.Value.Typ
 
 pub fn functype(allocator: std.mem.Allocator, signature: wasm.Type) !*c.wasm_functype_t {
     var params = try valtypeVec(allocator, signature.params);
+    errdefer c.wasm_valtype_vec_delete(&params);
+
     var returns = try valtypeVec(allocator, signature.returns);
+    errdefer c.wasm_valtype_vec_delete(&returns);
+
     return c.wasm_functype_new(&params, &returns).?;
 }

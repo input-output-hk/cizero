@@ -181,9 +181,15 @@ pub fn CallbackUnmanaged(comptime T: type) type {
         }
 
         pub fn init(allocator: std.mem.Allocator, func_name: []const u8, user_data: ?[]const u8, condition: T) !@This() {
+            const func_name_z = try allocator.dupeZ(u8, func_name);
+            errdefer allocator.free(func_name_z);
+
+            const user_data_dupe = if (user_data) |ud| try allocator.dupe(u8, ud) else null;
+            errdefer if (user_data_dupe) |ud_dupe| allocator.free(ud_dupe);
+
             return .{
-                .func_name = try allocator.dupeZ(u8, func_name),
-                .user_data = if (user_data) |ud| try allocator.dupe(u8, ud) else null,
+                .func_name = func_name_z,
+                .user_data = user_data_dupe,
                 .condition = condition,
             };
         }

@@ -117,15 +117,18 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
     if (!std.mem.eql(u8, params.flake_url, flake_url_locked))
         log.debug("locked flake URL {s} to {s}", .{ params.flake_url, flake_url_locked });
 
+    var callback = try Callback.init(
+        self.allocator,
+        params.func_name,
+        if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null,
+        .{},
+    );
+    errdefer callback.deinit(self.allocator);
+
     try self.startBuildLoop(
         flake_url_locked,
         plugin.name(),
-        try Callback.init(
-            self.allocator,
-            params.func_name,
-            if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null,
-            .{},
-        ),
+        callback,
     );
 }
 
@@ -203,7 +206,7 @@ test lockFlakeUrl {
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
     const thread = try std.Thread.spawn(.{}, loop, .{self});
-    try thread.setName(name);
+    thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
     return thread;
 }
 
@@ -247,6 +250,7 @@ fn startBuildLoop(
         });
 
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
+    errdefer self.allocator.destroy(node);
     node.data = .{
         .flake_url = flake_url,
         .output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..],
@@ -265,7 +269,7 @@ fn startBuildLoop(
         log.debug("number of builds grew to {d}", .{self.builds.len});
     }
 
-    try node.data.thread.setName(thread_name: {
+    node.data.thread.setName(thread_name: {
         var thread_name_buf: [std.Thread.max_name_len]u8 = undefined;
 
         const prefix = name ++ ": ";
@@ -289,7 +293,7 @@ fn startBuildLoop(
         log.debug("spawned thread: {s}", .{thread_name});
 
         break :thread_name thread_name;
-    });
+    }) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 }
 
 fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
@@ -485,6 +489,10 @@ fn build(allocator: std.mem.Allocator, store_drv: []const u8, output_spec: []con
     }
 
     var outputs = std.ArrayListUnmanaged([]const u8){};
+    errdefer {
+        for (outputs.items) |output| allocator.free(output);
+        outputs.deinit(allocator);
+    }
     {
         var iter = std.mem.tokenizeScalar(u8, result.stdout, '\n');
         while (iter.next()) |output|

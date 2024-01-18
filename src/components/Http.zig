@@ -34,6 +34,8 @@ pub const InitError = std.mem.Allocator.Error;
 
 pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*@This() {
     var self = try allocator.create(@This());
+    errdefer allocator.destroy(self);
+
     self.* = .{
         .allocator = allocator,
         .server = try httpz.ServerCtx(*@This(), *@This()).init(allocator, .{}, self),
@@ -48,7 +50,7 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
     const thread = try self.server.listenInNewThread();
-    try thread.setName(name);
+    thread.setName(name) catch |err| std.log.debug("could not set thread name: {s}", .{@errorName(err)});
     return thread;
 }
 

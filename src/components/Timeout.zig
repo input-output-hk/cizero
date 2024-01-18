@@ -59,7 +59,7 @@ pub fn deinit(self: *@This()) void {
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
     const thread = try std.Thread.spawn(.{}, loop, .{self});
-    try thread.setName(name);
+    thread.setName(name) catch |err| std.log.debug("could not set thread name: {s}", .{@errorName(err)});
     return thread;
 }
 

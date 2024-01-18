@@ -78,18 +78,23 @@ pub fn readBool(reader: anytype) !bool {
 
 pub fn readPacket(allocator: std.mem.Allocator, reader: anytype) ![]u8 {
     var buf = try allocator.alloc(u8, try readU64(reader));
+    errdefer allocator.free(buf);
     try readPadded(reader, buf);
     return buf;
 }
 
 pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ![][]u8 {
     var bufs = try allocator.alloc([]u8, try readU64(reader));
+    errdefer {
+        for (bufs) |buf| allocator.free(buf);
+        allocator.free(bufs);
+    }
     for (bufs) |*buf| buf.* = try readPacket(allocator, reader);
     return bufs;
 }
 
-pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) !struct {
-    map: std.StringHashMapUnmanaged([]u8),
+const StringStringMapOwned = struct {
+    map: std.StringHashMapUnmanaged([]u8) = .{},
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         var iter = self.map.iterator();
@@ -99,12 +104,17 @@ pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) !struc
         }
         self.map.deinit(alloc);
     }
-} {
-    var map = std.StringHashMapUnmanaged([]u8){};
+};
+
+pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) !StringStringMapOwned {
+    var map = StringStringMapOwned{};
+    errdefer map.deinit(allocator);
     while (try readU64(reader) != 0) {
         const key = try readPacket(allocator, reader);
+        errdefer allocator.free(key);
         const value = try readPacket(allocator, reader);
-        try map.put(allocator, key, value);
+        errdefer allocator.free(value);
+        try map.map.put(allocator, key, value);
     }
-    return .{ .map = map };
+    return map;
 }

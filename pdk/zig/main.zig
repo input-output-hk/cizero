@@ -150,6 +150,12 @@ pub fn exec(args: struct {
         unreachable;
     }
 
+    const stdout = try args.allocator.dupe(u8, output[0..stdout_len]);
+    errdefer args.allocator.free(stdout);
+
+    const stderr = try args.allocator.dupe(u8, output[stdout_len .. stdout_len + stderr_len]);
+    errdefer args.allocator.free(stderr);
+
     return .{
         .term = switch (term_tag) {
             .Exited => .{ .Exited = @intCast(term_code) },
@@ -157,8 +163,8 @@ pub fn exec(args: struct {
             .Stopped => .{ .Stopped = term_code },
             .Unknown => .{ .Unknown = term_code },
         },
-        .stdout = try args.allocator.dupe(u8, output[0..stdout_len]),
-        .stderr = try args.allocator.dupe(u8, output[stdout_len .. stdout_len + stderr_len]),
+        .stdout = stdout,
+        .stderr = stderr,
     };
 }
 
@@ -189,6 +195,10 @@ const CStringArray = struct {
 
     pub fn initDupe(allocator: std.mem.Allocator, array: []const []const u8) !@This() {
         const z = try allocator.alloc([:0]const u8, array.len);
+        errdefer {
+            for (z) |zz| allocator.free(zz);
+            allocator.free(z);
+        }
         for (z, array) |*ze, e| ze.* = try allocator.dupeZ(u8, e);
 
         var self = try initRef(allocator, z);
@@ -201,6 +211,7 @@ const CStringArray = struct {
         // for some reason a pointer to a zero-length slice from the allocator becomes negative
         const c = if (z.len == 0) &.{} else blk: {
             const cc = try allocator.alloc([*:0]const u8, z.len);
+            errdefer allocator.free(cc);
             for (cc, z) |*ce, ze| ce.* = ze.ptr;
             break :blk cc;
         };
@@ -210,6 +221,10 @@ const CStringArray = struct {
 
     pub fn initStringStringMap(allocator: std.mem.Allocator, map: anytype) !@This() {
         const z = try allocator.alloc([:0]const u8, map.count() * 2);
+        errdefer {
+            for (z) |k_or_v| allocator.free(k_or_v);
+            allocator.free(z);
+        }
 
         var iter = map.iterator();
         var i: usize = 0;

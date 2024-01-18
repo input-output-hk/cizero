@@ -201,9 +201,22 @@ const Accepted = struct {
 /// The nix daemon will start another instance of the build hook for the remaining derivations.
 fn accept(allocator: std.mem.Allocator, store_uri: []const u8) !Accepted {
     try stderr.print("# accept\n{s}\n", .{store_uri});
+
+    const inputs = try protocol.readPackets(allocator, stdin);
+    errdefer {
+        for (inputs) |input| allocator.free(input);
+        allocator.free(inputs);
+    }
+
+    const wanted_outputs = try protocol.readPackets(allocator, stdin);
+    errdefer {
+        for (wanted_outputs) |wanted_output| allocator.free(wanted_output);
+        allocator.free(wanted_outputs);
+    }
+
     return .{
-        .inputs = try protocol.readPackets(allocator, stdin),
-        .wanted_outputs = try protocol.readPackets(allocator, stdin),
+        .inputs = inputs,
+        .wanted_outputs = wanted_outputs,
     };
 }
 
