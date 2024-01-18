@@ -142,6 +142,8 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
+    try components.rejectIfStopped(&self.loop_run);
+
     const params = .{
         .func_name = wasm.span(memory, inputs[0]),
         .user_data_ptr = @as([*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
@@ -165,6 +167,8 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
 fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 1);
+
+    try components.rejectIfStopped(&self.loop_run);
 
     const params = .{
         .func_name = wasm.span(memory, inputs[0]),

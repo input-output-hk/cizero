@@ -237,3 +237,7 @@ pub const CallbackDoneCondition = union(enum) {
         };
     }
 };
+
+pub fn rejectIfStopped(running: *const std.atomic.Atomic(bool)) error{ComponentStopped}!void {
+    if (!running.load(.Monotonic)) return error.ComponentStopped;
+}
