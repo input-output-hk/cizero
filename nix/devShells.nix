@@ -17,6 +17,8 @@
           config.mission-control.devShell
           config.packages.cizero
         ];
+
+        WASMTIME_BACKTRACE_DETAILS = 1;
       };
 
       crystal = pkgs.mkShell {
