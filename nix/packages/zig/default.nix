@@ -6,9 +6,7 @@
 
   perSystem = {
     config,
-    lib,
     pkgs,
-    final,
     ...
   }: {
     packages = {
@@ -16,113 +14,96 @@
         (pkgs.zig.overrideAttrs (oldAttrs: rec {
           version = src.rev;
 
-          src = pkgs.fetchFromGitHub {
-            inherit (oldAttrs.src) owner repo;
-            rev = "402468b2109929779fc0fb59eeb5481cfb5ed44d";
-            hash = "sha256-ZzHKXONvM1/gESWZEAdkLQZjgX0QZMwI6BranTVuY3k=";
+          src = oldAttrs.src.override {
+            rev = "993a83081a975464d1201597cf6f4cb7f6735284";
+            hash = "sha256-dNje2++gW+Uyz8twx9pAq7DQT/DGn4WupBTdc9cTBNw=";
           };
 
-          patches = [];
+          postPatch = ''
+            substituteInPlace lib/std/zig/system.zig \
+              --replace '"/usr/bin/env"' '"${pkgs.coreutils}/bin/env"'
+          '';
 
-          # do not build docs to avoid `error: too many arguments`
+          # do not build docs as the doc tests fail for windows
           outputs = ["out"];
           postBuild = "";
           postInstall = "";
         }))
         .override {
-          llvmPackages = pkgs.llvmPackages_16;
+          llvmPackages = pkgs.llvmPackages_17;
         };
 
       zls = final.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
           owner = "zigtools";
           repo = "zls";
-          rev = "7aeb758e9e652c3bad8fd11d1fb146328a3edbd3";
-          hash = "sha256-4NZ95T5wWi3kPofW6yHXd6aR0yZyVXPZUlv9Zzj/Fgs=";
+          rev = "a8a83b6ad21e382c49474e8a9ffe35a3e510de3c";
+          hash = "sha256-QR0hKolbEcEeTOsbf4CBOmj9nG7YG0fnv72kM8wkU28=";
           fetchSubmodules = true;
         };
 
         zigDepHashes = {
-          binned_allocator = "0p2sx66fl2in3y80i14wvx6rfyfhrh5n7y88j35nl6x497i2pycv";
-          diffz = "1r8ddmsy669mj3fxlmzvmhaf263a06q9j2hwjld3vgcylnimh9yw";
-          known_folders = "1w8qiixcym2w0gqq58nqwqz53w6ylmr3awmi562w1axbarnpiy2k";
+          diffz = "0p40avmwv0zpw6abx13cxcz5hf3mxbacay352clgf693grb4ylf9";
+          known_folders = "1idmgvjnais9k4lgwwg0sm72lwajngzc6xw82v06bbsksj69ihp2";
         };
 
-        zigBuildArgs = [
-          "-Dcpu=baseline"
-          "-Doptimize=ReleaseSafe"
+        zigBuildFlags = [
           "-Dversion_data_path=${passthru.langref}"
         ];
+        zigCheckFlags = zigBuildFlags;
 
-        # tests fail on master
-        doCheck = false;
+        dontConfigure = true;
+        dontBuild = true;
+        dontInstall = false;
 
         passthru.langref = builtins.fetchurl {
           url = "https://raw.githubusercontent.com/ziglang/zig/${config.packages.zig.src.rev}/doc/langref.html.in";
-          sha256 = "1x7h71kkg22gjddfk9kfbf69iys6r95klhv41xicnhvbssmhfbhc";
+          sha256 = "1m1qhfn2jkl0yp9hidxw3jgb8yjns631nnc8kxx2np4kvdcqmxgy";
         };
 
         inherit (pkgs.zls) meta;
       };
     };
 
-    overlayAttrs = {
-      buildZigPackage = args @ {
-        zig ? config.packages.zig,
-        zigBuildArgs ? [],
+    overlayAttrs.buildZigPackage = pkgs.callPackage (
+      {
+        lib,
+        stdenv,
+        symlinkJoin,
+        runCommand,
+        zig,
+      }: args @ {
         buildZigZon ? "build.zig.zon",
         zigDepHashes ? {},
         ...
       }:
-        pkgs.stdenv.mkDerivation (
+        stdenv.mkDerivation (
           finalAttrs: let
-            global-cache-dir = "$TMPDIR/zig";
-
-            zigArgs = toString (lib.cli.toGNUCommandLine {} {
-                inherit global-cache-dir;
-                prefix = "$out";
-              }
-              ++ zigBuildArgs);
-
             info = lib.importJSON finalAttrs.passthru.packageInfo;
           in
             {
               pname = info.name;
               inherit (info) version;
 
-              postUnpack = lib.optionalString (finalAttrs.passthru ? deps) ''
-                mkdir ${global-cache-dir}
-                ln -s ${finalAttrs.passthru.deps} ${global-cache-dir}/p
-              '';
-
-              buildPhase = ''
-                runHook preBuild
-                zig build ${zigArgs}
-                runHook postBuild
+              postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
+                ln -s ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
               '';
 
               doCheck = true;
-              checkPhase = ''
-                runHook preCheck
-                zig build test ${zigArgs}
-                runHook postCheck
-              '';
-
               dontInstall = true;
-              installPhase = ''
-                runHook preInstall
-                zig build install ${zigArgs}
-                runHook postInstall
-              '';
             }
             // builtins.removeAttrs args [
-              "zig"
-              "zigBuildArgs"
               "buildZigZon"
               "zigDepHashes"
             ]
             // {
-              nativeBuildInputs = args.nativeBuildInputs or [] ++ [zig];
+              nativeBuildInputs =
+                args.nativeBuildInputs
+                or []
+                ++ [
+                  zig
+                  zig.hook
+                ];
 
               passthru =
                 {
@@ -131,8 +112,8 @@
                     + buildZigZon
                   );
 
-                  # builds the global-cache-dir/p directory
-                  deps = pkgs.symlinkJoin {
+                  # builds the $GLOBAL_CACHE_DIR/p directory
+                  deps = symlinkJoin {
                     name = with finalAttrs; "${pname}-${version}-deps";
                     paths =
                       if builtins.isAttrs (info.dependencies or null)
@@ -142,7 +123,7 @@
                           url,
                           hash,
                         }:
-                          pkgs.runCommand name {} ''
+                          runCommand name {} ''
                             mkdir $out
                             cp -r ${builtins.fetchTarball {
                               inherit name url;
@@ -155,7 +136,7 @@
                 }
                 // args.passthru or {};
             }
-        );
-    };
+        )
+    ) {inherit (config.packages) zig;};
   };
 }
