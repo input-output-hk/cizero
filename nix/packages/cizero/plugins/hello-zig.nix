@@ -2,10 +2,9 @@
   perSystem = {
     config,
     pkgs,
-    final,
     ...
   }: {
-    packages.cizero-plugin-hello-zig = final.buildZigPackage rec {
+    packages.cizero-plugin-hello-zig = config.overlayAttrs.buildZigPackage rec {
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hello-zig
         ../../../../pdk/zig

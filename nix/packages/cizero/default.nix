@@ -8,10 +8,9 @@
     config,
     lib,
     pkgs,
-    final,
     ...
   }: {
-    packages.cizero = final.buildZigPackage {
+    packages.cizero = config.overlayAttrs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../.. [
         ../../../build.zig
         ../../../build.zig.zon

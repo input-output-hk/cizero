@@ -33,7 +33,7 @@
           llvmPackages = pkgs.llvmPackages_17;
         };
 
-      zls = final.buildZigPackage rec {
+      zls = config.overlayAttrs.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
           owner = "zigtools";
           repo = "zls";
