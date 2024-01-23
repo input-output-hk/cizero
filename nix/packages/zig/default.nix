@@ -65,78 +65,97 @@
       };
     };
 
-    overlayAttrs.buildZigPackage = pkgs.callPackage (
-      {
-        lib,
-        stdenv,
-        symlinkJoin,
-        runCommand,
-        zig,
-      }: args @ {
-        buildZigZon ? "build.zig.zon",
-        zigDepHashes ? {},
-        ...
-      }:
-        stdenv.mkDerivation (
-          finalAttrs: let
-            info = lib.importJSON finalAttrs.passthru.packageInfo;
-          in
-            {
-              pname = info.name;
-              inherit (info) version;
+    overlayAttrs = {
+      inherit (config.packages) zig;
 
-              postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
-                ln -s ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
-              '';
+      buildZigPackage = pkgs.callPackage (
+        {
+          lib,
+          stdenv,
+          symlinkJoin,
+          runCommand,
+          zig,
+        }: args @ {
+          buildZigZon ? "build.zig.zon",
+          zigDepHashes ? {},
+          ...
+        }:
+          stdenv.mkDerivation (
+            finalAttrs: let
+              info = lib.importJSON finalAttrs.passthru.packageInfo;
+            in
+              {
+                pname = info.name;
+                inherit (info) version;
 
-              doCheck = true;
-              dontInstall = true;
-            }
-            // builtins.removeAttrs args [
-              "buildZigZon"
-              "zigDepHashes"
-            ]
-            // {
-              nativeBuildInputs =
-                args.nativeBuildInputs
-                or []
-                ++ [
-                  zig
-                  zig.hook
-                ];
+                postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
+                  ln -s ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
+                '';
 
-              passthru =
-                {
-                  packageInfo = config.overlayAttrs.zigPackageInfo (
-                    lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
-                    + buildZigZon
-                  );
+                doCheck = true;
+                dontInstall = true;
+              }
+              // builtins.removeAttrs args [
+                "buildZigZon"
+                "zigDepHashes"
+              ]
+              // {
+                nativeBuildInputs =
+                  args.nativeBuildInputs
+                  or []
+                  ++ [
+                    zig
+                    zig.hook
+                  ];
 
-                  # builds the $GLOBAL_CACHE_DIR/p directory
-                  deps = symlinkJoin {
-                    name = with finalAttrs; "${pname}-${version}-deps";
-                    paths =
-                      if builtins.isAttrs (info.dependencies or null)
-                      then
-                        lib.mapAttrsToList
-                        (name: {
-                          url,
-                          hash,
-                        }:
-                          runCommand name {} ''
-                            mkdir $out
-                            cp -r ${builtins.fetchTarball {
-                              inherit name url;
-                              sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
-                            }} $out/${hash}
-                          '')
-                        info.dependencies
-                      else [];
-                  };
-                }
-                // args.passthru or {};
-            }
-        )
-    ) {inherit (config.packages) zig;};
+                passthru =
+                  {
+                    packageInfo = config.overlayAttrs.zigPackageInfo (
+                      lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
+                      + buildZigZon
+                    );
+
+                    # builds the $ZIG_GLOBAL_CACHE_DIR/p directory
+                    deps = symlinkJoin {
+                      name = with finalAttrs; "${pname}-${version}-deps";
+                      paths =
+                        if builtins.isAttrs (info.dependencies or null)
+                        then
+                          lib.mapAttrsToList
+                          (
+                            name: {
+                              url ? null,
+                              hash ? null,
+                              path ? null,
+                            }:
+                              assert url != null -> hash != null;
+                              assert url != null -> path == null;
+                              assert path != null -> url == null;
+                                runCommand name {
+                                  nativeBuildInputs = lib.optional (path != null) zig;
+                                } (
+                                  if url != null
+                                  then ''
+                                    mkdir $out
+                                    cp --archive -recursive ${builtins.fetchTarball {
+                                      inherit name url;
+                                      sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
+                                    }} $out/${hash}
+                                  ''
+                                  else ''
+                                    zig fetch --global-cache-dir $out \
+                                      ${lib.escapeShellArg "${builtins.dirOf finalAttrs.passthru.packageInfo.passthru.buildZigZon}/${path}"}
+                                  ''
+                                )
+                          )
+                          info.dependencies
+                        else [];
+                    };
+                  }
+                  // args.passthru or {};
+              }
+          )
+      ) {inherit (config.packages) zig;};
+    };
   };
 }

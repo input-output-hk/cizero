@@ -1,13 +1,15 @@
 {
   perSystem = {
+    config,
     lib,
     pkgs,
     ...
   }: {
     overlayAttrs.zigPackageInfo = buildZigZon:
       pkgs.runCommand "zig-package-info" {
-        nativeBuildInputs = with pkgs; [zig];
+        nativeBuildInputs = [config.overlayAttrs.zig];
         buildZigZon = lib.fileContents buildZigZon;
+        passthru = {inherit buildZigZon;};
       } ''
         cp ${./main.zig} main.zig
 
