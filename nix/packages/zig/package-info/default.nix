@@ -17,7 +17,7 @@
 
         zig run > $out \
           --global-cache-dir "$TMPDIR" \
-          -O ReleaseFast \
+          -fstrip \
           main.zig
       '';
   };
