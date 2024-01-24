@@ -70,7 +70,8 @@ fn paddingOf(comptime T: type) comptime_int {
 
 fn anyAsBytesUnpad(any: anytype) (if (trait.ptrQualifiedWith(.@"const")(@TypeOf(any))) []const u8 else []u8) {
     const Any = @TypeOf(any);
-    if (Any == @TypeOf(null)) return &.{};
+    if (comptime Any == @TypeOf(null))
+        return @as([1]u8, undefined)[0..0];
     const bytes = if (comptime trait.ptrOfSize(.Slice)(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
     return bytes[0 .. bytes.len - paddingOf(std.meta.Child(Any))];
 }
@@ -209,8 +210,8 @@ const CStringArray = struct {
     }
 
     pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
-        // for some reason a pointer to a zero-length slice from the allocator becomes negative
-        const c: []const [*:0]const u8 = if (z.len == 0) &.{} else blk: {
+        // for some reason the pointer of a slice of a zero-length array becomes negative
+        const c: []const [*:0]const u8 = if (z.len == 0) @as([1][*:0]const u8, undefined)[0..0] else blk: {
             const cc = try allocator.alloc([*:0]const u8, z.len);
             errdefer allocator.free(cc);
             for (cc, z) |*ce, ze| ce.* = ze.ptr;
