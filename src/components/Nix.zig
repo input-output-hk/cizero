@@ -23,7 +23,7 @@ build_hook: []const u8,
 builds_mutex: std.Thread.Mutex = .{},
 builds: std.DoublyLinkedList(Build) = .{},
 
-loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
+loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
 mock_lock_flake_url: if (builtin.is_test) ?meta.Closure(fn (
@@ -137,7 +137,7 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
 pub const LockFlakeUrlError =
     error{CouldNotLockFlake} ||
     std.mem.Allocator.Error ||
-    std.process.Child.ExecError ||
+    std.process.Child.RunError ||
     std.json.ParseError(std.json.Scanner);
 
 fn lockFlakeUrl(self: @This(), flake_url: []const u8) LockFlakeUrlError![]const u8 {
@@ -147,7 +147,7 @@ fn lockFlakeUrl(self: @This(), flake_url: []const u8) LockFlakeUrlError![]const 
 
     const flake_base_url = std.mem.sliceTo(flake_url, '#');
 
-    const result = try std.process.Child.exec(.{
+    const result = try std.process.Child.run(.{
         .allocator = self.allocator,
         .argv = &.{
             "nix",
@@ -426,7 +426,7 @@ fn instantiate(allocator: std.mem.Allocator, build_hook: []const u8, flake_url: 
             flake_url,
         };
 
-        const result = try std.process.Child.exec(.{
+        const result = try std.process.Child.run(.{
             .allocator = allocator,
             .argv = &args,
         });
@@ -474,7 +474,7 @@ fn build(allocator: std.mem.Allocator, store_drv: []const u8, output_spec: []con
 
     log.debug("building {s}", .{installable});
 
-    const result = try std.process.Child.exec(.{
+    const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &.{
             "nix",

@@ -44,7 +44,7 @@ pub fn valkind(kind: wasm.Value.Type) c.wasmtime_valkind_t {
 }
 
 pub fn valtypeVec(allocator: std.mem.Allocator, valtypes: []const wasm.Value.Type) !c.wasm_valtype_vec_t {
-    var wasm_valtypes = try allocator.alloc(*c.wasm_valtype_t, valtypes.len);
+    const wasm_valtypes = try allocator.alloc(*c.wasm_valtype_t, valtypes.len);
     defer allocator.free(wasm_valtypes);
 
     for (wasm_valtypes, valtypes) |*wasm_valtype, valtype| wasm_valtype.* = c.wasm_valtype_new(valkind(valtype)).?;

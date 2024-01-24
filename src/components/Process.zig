@@ -12,15 +12,15 @@ const log = std.log.scoped(.process);
 
 allocator: std.mem.Allocator,
 
-mock_child_exec: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.exec), true) else void = if (builtin.is_test) null,
+mock_child_run: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.run), true) else void = if (builtin.is_test) null,
 
-fn childExec(
+fn childRun(
     self: @This(),
-    args: @typeInfo(@TypeOf(std.process.Child.exec)).Fn.params[0].type.?,
-) @typeInfo(@TypeOf(std.process.Child.exec)).Fn.return_type.? {
-    if (@TypeOf(self.mock_child_exec) != void)
-        if (self.mock_child_exec) |mock| return mock.call(.{args});
-    return std.process.Child.exec(args);
+    args: @typeInfo(@TypeOf(std.process.Child.run)).Fn.params[0].type.?,
+) @typeInfo(@TypeOf(std.process.Child.run)).Fn.return_type.? {
+    if (@TypeOf(self.mock_child_run) != void)
+        if (self.mock_child_run) |mock| return mock.call(.{args});
+    return std.process.Child.run(args);
 }
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
@@ -60,7 +60,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
     var exec_args = .{
         .allocator = self.allocator,
         .argv = blk: {
-            var argv = try self.allocator.alloc([]const u8, params.argc);
+            const argv = try self.allocator.alloc([]const u8, params.argc);
             for (argv, params.argv_ptr) |*arg, argv_ptr| arg.* = wasm.span(memory, argv_ptr);
             break :blk argv;
         },
@@ -81,10 +81,10 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
     defer self.allocator.free(exec_args.argv);
     defer if (exec_args.env_map) |m| m.deinit();
 
-    const result = @call(.auto, childExec, .{ self.*, exec_args }) catch |err| {
-        const E = std.process.Child.ExecError;
+    const result = @call(.auto, childRun, .{ self.*, exec_args }) catch |err| {
+        const E = std.process.Child.RunError;
 
-        var err_tags = try self.allocator.dupe(E, std.meta.tags(E));
+        const err_tags = try self.allocator.dupe(E, std.meta.tags(E));
         defer self.allocator.free(err_tags);
 
         std.mem.sortUnstable(E, err_tags, {}, struct {

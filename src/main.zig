@@ -1,7 +1,6 @@
 const std = @import("std");
 
-const Cizero = @import("Cizero.zig");
-const Plugin = @import("Plugin.zig");
+const Cizero = @import("cizero");
 
 var cizero: *Cizero = undefined;
 
@@ -40,9 +39,4 @@ pub fn main() !void {
     }
 
     try cizero.run();
-}
-
-test {
-    std.testing.refAllDeclsRecursive(@This());
-    _ = @import("mem.zig");
 }

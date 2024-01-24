@@ -42,19 +42,14 @@
           fetchSubmodules = true;
         };
 
-        zigDepHashes = {
-          diffz = "0p40avmwv0zpw6abx13cxcz5hf3mxbacay352clgf693grb4ylf9";
-          known_folders = "1idmgvjnais9k4lgwwg0sm72lwajngzc6xw82v06bbsksj69ihp2";
-        };
+        zigDepsHash = "sha256-1KBYMJ82o3IQKPcQx0sBfsoKxGOdTe5bCiGQkO6HHMA=";
 
         zigBuildFlags = [
           "-Dversion_data_path=${passthru.langref}"
         ];
         zigCheckFlags = zigBuildFlags;
 
-        dontConfigure = true;
-        dontBuild = true;
-        dontInstall = false;
+        zigRelease = "ReleaseSafe";
 
         passthru.langref = builtins.fetchurl {
           url = "https://raw.githubusercontent.com/ziglang/zig/${config.packages.zig.src.rev}/doc/langref.html.in";
@@ -72,12 +67,16 @@
         {
           lib,
           stdenv,
-          symlinkJoin,
           runCommand,
           zig,
         }: args @ {
+          src,
           buildZigZon ? "build.zig.zon",
-          zigDepHashes ? {},
+          zigDepsHash,
+          # Can be a boolean for for `-Drelease` or a string for `-Doptimize`.
+          # `-Doptimize` was replaced with `-Drelease` in newer zig versions
+          # when `build.zig` declares a preferred optimize mode.
+          zigRelease ? true,
           ...
         }:
           stdenv.mkDerivation (
@@ -89,15 +88,15 @@
                 inherit (info) version;
 
                 postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
-                  ln -s ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
+                  ln --symbolic ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
+                  cd ${lib.escapeShellArg (builtins.dirOf buildZigZon)}
                 '';
 
                 doCheck = true;
-                dontInstall = true;
               }
               // builtins.removeAttrs args [
                 "buildZigZon"
-                "zigDepHashes"
+                "zigDepsHash"
               ]
               // {
                 nativeBuildInputs =
@@ -105,7 +104,17 @@
                   or []
                   ++ [
                     zig
-                    zig.hook
+                    (zig.hook.overrideAttrs {
+                      zig_default_flags = [
+                        # Not passing -Dcpu=baseline as that overrides our target options from build.zig.
+
+                        (
+                          if builtins.typeOf zigRelease == "bool"
+                          then "-Drelease=${builtins.toJSON zigRelease}"
+                          else "-Doptimize=${zigRelease}"
+                        )
+                      ];
+                    })
                   ];
 
                 passthru =
@@ -116,41 +125,24 @@
                     );
 
                     # builds the $ZIG_GLOBAL_CACHE_DIR/p directory
-                    deps = symlinkJoin {
-                      name = with finalAttrs; "${pname}-${version}-deps";
-                      paths =
-                        if builtins.isAttrs (info.dependencies or null)
-                        then
-                          lib.mapAttrsToList
-                          (
-                            name: {
-                              url ? null,
-                              hash ? null,
-                              path ? null,
-                            }:
-                              assert url != null -> hash != null;
-                              assert url != null -> path == null;
-                              assert path != null -> url == null;
-                                runCommand name {
-                                  nativeBuildInputs = lib.optional (path != null) zig;
-                                } (
-                                  if url != null
-                                  then ''
-                                    mkdir $out
-                                    cp --archive -recursive ${builtins.fetchTarball {
-                                      inherit name url;
-                                      sha256 = zigDepHashes.${name} or (lib.warn "Missing hash for dependency: ${name}" "");
-                                    }} $out/${hash}
-                                  ''
-                                  else ''
-                                    zig fetch --global-cache-dir $out \
-                                      ${lib.escapeShellArg "${builtins.dirOf finalAttrs.passthru.packageInfo.passthru.buildZigZon}/${path}"}
-                                  ''
-                                )
-                          )
-                          info.dependencies
-                        else [];
-                    };
+                    deps =
+                      runCommand (with finalAttrs; "${pname}-${version}-deps") {
+                        nativeBuildInputs = [zig];
+
+                        outputHashMode = "recursive";
+                        outputHashAlgo = "sha256";
+                        outputHash = zigDepsHash;
+                      } ''
+                        mkdir "$TMPDIR"/cache
+
+                        cd ${src}
+                        cd ${lib.escapeShellArg (builtins.dirOf buildZigZon)}
+                        zig build --fetch \
+                          --cache-dir "$TMPDIR" \
+                          --global-cache-dir "$TMPDIR"/cache
+
+                        mv "$TMPDIR"/cache/p $out
+                      '';
                   }
                   // args.passthru or {};
               }

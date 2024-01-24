@@ -190,7 +190,7 @@ test Action {
 
     var testing_stderr = std.ArrayList(u8).init(allocator);
     defer testing_stderr.deinit();
-    var testing_stderr_writer = testing_stderr.writer();
+    const testing_stderr_writer = testing_stderr.writer();
 
     try logMsgTo(allocator, .info, "log {d}", .{1}, testing_stderr_writer);
     try std.testing.expectEqualStrings(

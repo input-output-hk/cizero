@@ -42,7 +42,7 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
     }
 }) = .{},
 
-loop_run: std.atomic.Atomic(bool) = std.atomic.Atomic(bool).init(true),
+loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
 mock_milli_timestamp: if (builtin.is_test) ?meta.Closure(@TypeOf(std.time.milliTimestamp), true) else void = if (builtin.is_test) null,
@@ -106,7 +106,7 @@ fn loop(self: *@This()) !void {
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
             var outputs_memory: [1]wasm.Value = undefined;
-            var outputs = outputs_memory[0..switch (callback.condition) {
+            const outputs = outputs_memory[0..switch (callback.condition) {
                 .timestamp => 0,
                 .cron => 1,
             }];

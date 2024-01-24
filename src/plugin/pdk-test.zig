@@ -2,16 +2,10 @@ const std = @import("std");
 const testing = std.testing;
 const build_options = @import("build_options");
 
-const components = @import("../components.zig");
-const mem = @import("../mem.zig");
-const meta = @import("../meta.zig");
-const wasm = @import("../wasm.zig");
-
-const Cizero = @import("../Cizero.zig");
-const Plugin = @import("../Plugin.zig");
+const Cizero = @import("cizero");
 
 cizero: *Cizero,
-plugin: Plugin,
+plugin: Cizero.Plugin,
 
 fn deinit(self: *@This()) void {
     self.cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
@@ -23,19 +17,19 @@ fn init() !@This() {
     errdefer cizero.deinit();
 
     cizero.registry.wasi_config = .{
-        .env = .{ .env = try meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged([]const u8), testing.allocator, .{
+        .env = .{ .env = try Cizero.meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged([]const u8), testing.allocator, .{
             .CIZERO_PDK_TEST = "",
         }) },
     };
 
-    cizero.components.timeout.mock_milli_timestamp = meta.disclosure(struct {
+    cizero.components.timeout.mock_milli_timestamp = Cizero.meta.disclosure(struct {
         fn call() i64 {
             return std.time.ms_per_s;
         }
     }.call, true);
 
-    cizero.components.process.mock_child_exec = meta.disclosure(struct {
-        const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
+    cizero.components.process.mock_child_run = Cizero.meta.disclosure(struct {
+        const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
 
         fn call(_: info.params[0].type.?) info.return_type.? {
             return error.Unexpected;
@@ -51,7 +45,7 @@ fn init() !@This() {
     };
 }
 
-fn runtime(self: @This()) !Plugin.Runtime {
+fn runtime(self: @This()) !Cizero.Plugin.Runtime {
     return self.cizero.registry.runtime(self.plugin.name());
 }
 
@@ -60,7 +54,7 @@ fn expectEqualStdio(
     stdout: []const u8,
     stderr: []const u8,
     run_fn_ctx: anytype,
-    run_fn: fn (@TypeOf(run_fn_ctx), Plugin.Runtime) anyerror!void,
+    run_fn: fn (@TypeOf(run_fn_ctx), Cizero.Plugin.Runtime) anyerror!void,
 ) !void {
     var rt = try self.runtime();
     defer rt.deinit();
@@ -87,7 +81,7 @@ test "on_timestamp" {
         \\cizero.on_timestamp("pdk_test_on_timestamp_callback", 1000, 3000)
         \\
     , {}, struct {
-        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_timestamp", &.{}, &.{}));
         }
     }.call);
@@ -116,7 +110,7 @@ test "on_timestamp" {
         \\pdk_test_on_timestamp_callback(1000)
         \\
     , callback, struct {
-        fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
+        fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try cb.run(testing.allocator, rt, &.{}, &.{}));
         }
     }.call);
@@ -130,7 +124,7 @@ test "on_cron" {
         \\cizero.on_cron("pdk_test_on_cron_callback", "* * * * *", "* * * * *") 60000
         \\
     , {}, struct {
-        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_cron", &.{}, &.{}));
         }
     }.call);
@@ -149,7 +143,7 @@ test "on_cron" {
     try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
-    try testing.expectEqual(Callback.Condition.cron, callback.condition);
+    try testing.expectEqual(Callback.Condition.cron, std.meta.activeTag(callback.condition));
 
     {
         const Cron = @import("cron").Cron;
@@ -167,10 +161,10 @@ test "on_cron" {
         \\pdk_test_on_cron_callback("* * * * *")
         \\
     , callback, struct {
-        fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
-            var outputs: [1]wasm.Value = undefined;
+        fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
+            var outputs: [1]Cizero.wasm.Value = undefined;
             try testing.expect(try cb.run(testing.allocator, rt, &.{}, &outputs));
-            try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
+            try testing.expectEqual(Cizero.wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
         }
     }.call);
 }
@@ -179,15 +173,15 @@ test "exec" {
     var self = try init();
     defer self.deinit();
 
-    const MockChildExec = struct {
+    const MockChildRun = struct {
         exec_test_err: ?anyerror = null,
 
         pub const stdout = "stdout";
         pub const stderr = "stderr $foo=bar";
 
-        const info = @typeInfo(@TypeOf(std.process.Child.exec)).Fn;
+        const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
 
-        pub fn exec(mock: *@This(), args: info.params[0].type.?) info.return_type.? {
+        pub fn run(mock: *@This(), args: info.params[0].type.?) info.return_type.? {
             execTest(args) catch |err| {
                 mock.exec_test_err = err;
                 if (@errorReturnTrace()) |trace| trace.format("", .{}, std.io.getStdErr().writer()) catch unreachable;
@@ -230,27 +224,27 @@ test "exec" {
             try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
         }
     };
-    var mock_child_exec = MockChildExec{};
+    var mock_child_run = MockChildRun{};
 
-    self.cizero.components.process.mock_child_exec = meta.closure(MockChildExec.exec, &mock_child_exec);
+    self.cizero.components.process.mock_child_run = Cizero.meta.closure(MockChildRun.run, &mock_child_run);
 
     try self.expectEqualStdio("",
         \\term tag: Exited
         \\term code: 0
         \\stdout:
-    ++ " " ++ MockChildExec.stdout ++
+    ++ " " ++ MockChildRun.stdout ++
         \\
         \\stderr:
-    ++ " " ++ MockChildExec.stderr ++
+    ++ " " ++ MockChildRun.stderr ++
         \\
         \\
     , {}, struct {
-        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_exec", &.{}, &.{}));
         }
     }.call);
 
-    if (mock_child_exec.exec_test_err) |err| return err;
+    if (mock_child_run.exec_test_err) |err| return err;
 }
 
 test "on_webhook" {
@@ -261,7 +255,7 @@ test "on_webhook" {
         \\cizero.on_webhook("pdk_test_on_webhook_callback", .{ 25, 372 })
         \\
     , {}, struct {
-        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_webhook", &.{}, &.{}));
         }
     }.call);
@@ -291,16 +285,16 @@ test "on_webhook" {
             \\")
             \\
         , callback, struct {
-            fn call(cb: *const Callback, rt: Plugin.Runtime) anyerror!void {
+            fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
                 const linear = try rt.linearMemoryAllocator();
                 const allocator = linear.allocator();
 
                 const body_wasm = try allocator.dupeZ(u8, body);
                 defer allocator.free(body_wasm);
 
-                var outputs: [1]wasm.Value = undefined;
-                try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{.{ .i32 = @intCast(linear.memory.offset(body_wasm.ptr)) }}, &outputs));
-                try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
+                var outputs: [1]Cizero.wasm.Value = undefined;
+                try testing.expect(try cb.run(testing.allocator, rt, &[_]Cizero.wasm.Value{.{ .i32 = @intCast(linear.memory.offset(body_wasm.ptr)) }}, &outputs));
+                try testing.expectEqual(Cizero.wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
             }
         }.call);
     }
@@ -314,16 +308,16 @@ test "nix_build" {
         allocator: std.mem.Allocator,
         flake_url: []const u8,
         plugin_name: []const u8,
-        callback: components.Nix.Callback,
+        callback: Cizero.components.Nix.Callback,
 
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(components.Nix, .mock_start_build_loop).type).Optional.child.Fn).Fn;
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_build_loop).type).Optional.child.Fn).Fn;
 
         fn call(
             ctx: *@This(),
             allocator: std.mem.Allocator,
             flake_url: []const u8,
             plugin_name: []const u8,
-            callback: components.Nix.Callback,
+            callback: Cizero.components.Nix.Callback,
         ) info.return_type.? {
             ctx.* = .{
                 .allocator = allocator,
@@ -340,10 +334,10 @@ test "nix_build" {
         ctx.callback.deinit(ctx.allocator);
     }
 
-    self.cizero.components.nix.mock_start_build_loop = meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
+    self.cizero.components.nix.mock_start_build_loop = Cizero.meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
 
     const MockLockFlakeUrl = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
 
         const input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
         const output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
@@ -354,7 +348,7 @@ test "nix_build" {
         }
     };
 
-    self.cizero.components.nix.mock_lock_flake_url = meta.disclosure(MockLockFlakeUrl.call, true);
+    self.cizero.components.nix.mock_lock_flake_url = Cizero.meta.disclosure(MockLockFlakeUrl.call, true);
 
     try self.expectEqualStdio("",
         \\cizero.nix_build("pdk_test_nix_build_callback", null, "
@@ -362,7 +356,7 @@ test "nix_build" {
         \\")
         \\
     , {}, struct {
-        fn call(_: void, rt: Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_nix_build", &.{}, &.{}));
         }
     }.call);
@@ -384,7 +378,7 @@ test "nix_build" {
         \\ }, null)
         \\
     , &mock_start_build_loop.callback, struct {
-        fn call(cb: *const components.Nix.Callback, rt: Plugin.Runtime) anyerror!void {
+        fn call(cb: *const Cizero.components.Nix.Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
             const linear = try rt.linearMemoryAllocator();
             const allocator = linear.allocator();
 
@@ -397,11 +391,11 @@ test "nix_build" {
             const store_drv_output_wasm = try allocator.dupeZ(u8, store_drv_output);
             defer allocator.free(store_drv_output_wasm);
 
-            var store_drv_outputs_wasm = try allocator.alloc(wasm.usize, 1);
+            var store_drv_outputs_wasm = try allocator.alloc(Cizero.wasm.usize, 1);
             defer allocator.free(store_drv_outputs_wasm);
             store_drv_outputs_wasm[0] = linear.memory.offset(store_drv_output_wasm.ptr);
 
-            try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
+            try testing.expect(try cb.run(testing.allocator, rt, &[_]Cizero.wasm.Value{
                 .{ .i32 = @intCast(linear.memory.offset(flake_url_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },

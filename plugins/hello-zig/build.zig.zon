@@ -1,4 +1,12 @@
 .{
     .name = "cizero-plugin-hello-zig",
     .version = "0.0.0",
+    .dependencies = .{
+        .cizero = .{ .path = "../../pdk/zig" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
 }

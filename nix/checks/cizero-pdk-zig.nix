@@ -9,19 +9,17 @@
         ../../pdk/zig
       ];
 
-      inherit (config.packages) zig;
+      buildZigZon = "pdk/zig/build.zig.zon";
 
-      buildZigZon = "${src}/pdk/zig/build.zig.zon";
+      zigDepsHash = "sha256-UabUML+ClU8CUFYf731C2zG0SLHIPHNrDbMobP+Dm8Y=";
 
-      buildInputs = with pkgs; [
-        wasmtime # for tests
+      nativeCheckInputs = with pkgs; [
+        wasmtime
       ];
 
       dontBuild = true;
 
       preCheck = ''
-        cd pdk/zig
-
         # for wasmtime cache
         export HOME="$TMPDIR"
       '';

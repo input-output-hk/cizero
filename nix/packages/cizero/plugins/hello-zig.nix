@@ -10,17 +10,13 @@
         ../../../../pdk/zig
       ];
 
-      inherit (config.packages) zig;
+      buildZigZon = "plugins/hello-zig/build.zig.zon";
 
-      buildZigZon = "${src}/plugins/hello-zig/build.zig.zon";
+      zigDepsHash = "sha256-UabUML+ClU8CUFYf731C2zG0SLHIPHNrDbMobP+Dm8Y=";
 
-      buildInputs = with pkgs; [
-        wasmtime # for tests
+      nativeCheckInputs = with pkgs; [
+        wasmtime
       ];
-
-      preBuild = ''
-        cd plugins/hello-zig
-      '';
 
       preCheck = ''
         # for wasmtime cache

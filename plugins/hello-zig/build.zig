@@ -4,11 +4,13 @@ const Build = std.Build;
 pub fn build(b: *Build) !void {
     b.enable_wasmtime = true;
 
-    const target = b.standardTargetOptions(.{ .default_target = .{
-        .cpu_arch = .wasm32,
-        .os_tag = .wasi,
-    } });
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall });
+    const opts = .{
+        .target = b.standardTargetOptions(.{ .default_target = .{
+            .cpu_arch = .wasm32,
+            .os_tag = .wasi,
+        } }),
+        .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
+    };
 
     const source = Build.LazyPath.relative("main.zig");
 
@@ -16,11 +18,11 @@ pub fn build(b: *Build) !void {
         const exe = b.addExecutable(.{
             .name = "hello-zig",
             .root_source_file = source,
-            .target = target,
-            .optimize = optimize,
+            .target = opts.target,
+            .optimize = opts.optimize,
             .linkage = .dynamic,
         });
-        configureCompileStep(exe);
+        configureCompileStep(b, exe, opts);
 
         const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
         b.getInstallStep().dependOn(&install_exe.step);
@@ -30,19 +32,22 @@ pub fn build(b: *Build) !void {
     {
         const tests = b.addTest(.{
             .root_source_file = source,
-            .target = target,
-            .optimize = optimize,
+            .target = opts.target,
+            .optimize = opts.optimize,
         });
-        configureCompileStep(tests);
+        configureCompileStep(b, tests, opts);
 
         const run_tests = b.addRunArtifact(tests);
         test_step.dependOn(&run_tests.step);
     }
 }
 
-fn configureCompileStep(step: *Build.Step.Compile) void {
+fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
 
-    step.addAnonymousModule("cizero", .{ .source_file = Build.LazyPath.relative("../../pdk/zig/main.zig") });
+    step.root_module.addImport("cizero", b.dependency("cizero", .{
+        .target = opts.target,
+        .release = opts.optimize != .Debug,
+    }).module("cizero-pdk"));
 }

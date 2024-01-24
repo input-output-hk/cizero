@@ -1,4 +1,5 @@
 const std = @import("std");
+const trait = @import("trait");
 
 export fn cizero_mem_alloc(len: usize, ptr_align: u8) ?[*]u8 {
     return std.heap.wasm_allocator.rawAlloc(len, ptr_align, 0);
@@ -67,17 +68,17 @@ fn paddingOf(comptime T: type) comptime_int {
     return @sizeOf(T) - sizeOfUnpad(T);
 }
 
-fn anyAsBytesUnpad(any: anytype) (if (std.meta.trait.isConstPtr(@TypeOf(any))) []const u8 else []u8) {
+fn anyAsBytesUnpad(any: anytype) (if (trait.ptrQualifiedWith(.@"const")(@TypeOf(any))) []const u8 else []u8) {
     const Any = @TypeOf(any);
     if (Any == @TypeOf(null)) return &.{};
-    const bytes = if (comptime std.meta.trait.isSlice(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
+    const bytes = if (comptime trait.ptrOfSize(.Slice)(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
     return bytes[0 .. bytes.len - paddingOf(std.meta.Child(Any))];
 }
 
 test anyAsBytesUnpad {
     try std.testing.expectEqualSlices(u8, switch (@import("builtin").cpu.arch.endian()) {
-        .Little => "\x11\x00\x00\x00\x12\x00\x00",
-        .Big => "\x00\x00\x11\x00\x00\x00\x12",
+        .little => "\x11\x00\x00\x00\x12\x00\x00",
+        .big => "\x00\x00\x11\x00\x00\x00\x12",
     }, anyAsBytesUnpad(@as([]const u17, &.{ 17, 18 })));
 
     try std.testing.expectEqualSlices(u8, &.{}, anyAsBytesUnpad(null));
@@ -99,7 +100,7 @@ pub fn exec(args: struct {
     env_map: ?*const std.process.EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: std.process.Child.Arg0Expand = .no_expand,
-}) std.process.Child.ExecError!std.process.Child.ExecResult {
+}) std.process.Child.RunError!std.process.Child.RunResult {
     const argv = try CStringArray.initDupe(args.allocator, args.argv);
     defer argv.deinit();
 
@@ -134,9 +135,9 @@ pub fn exec(args: struct {
         &term_code,
     );
     if (err_code != 0) {
-        const E = std.process.Child.ExecError;
+        const E = std.process.Child.RunError;
 
-        var err_tags = try args.allocator.dupe(E, std.meta.tags(E));
+        const err_tags = try args.allocator.dupe(E, std.meta.tags(E));
         defer args.allocator.free(err_tags);
 
         std.mem.sortUnstable(E, err_tags, {}, struct {
@@ -209,7 +210,7 @@ const CStringArray = struct {
 
     pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
         // for some reason a pointer to a zero-length slice from the allocator becomes negative
-        const c = if (z.len == 0) &.{} else blk: {
+        const c: []const [*:0]const u8 = if (z.len == 0) &.{} else blk: {
             const cc = try allocator.alloc([*:0]const u8, z.len);
             errdefer allocator.free(cc);
             for (cc, z) |*ce, ze| ce.* = ze.ptr;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const trait = @import("trait");
 
 const PluginRuntime = @import("Plugin.zig").Runtime;
 
@@ -18,10 +19,10 @@ pub fn init(impl: anytype) @This() {
     const Impl = std.meta.Child(@TypeOf(impl));
     return .{
         .impl = impl,
-        .impl_deinit = if (comptime std.meta.trait.hasFn("deinit")(Impl)) @ptrCast(&Impl.deinit) else null,
+        .impl_deinit = if (comptime trait.hasFn("deinit")(Impl)) @ptrCast(&Impl.deinit) else null,
         .impl_host_functions = @ptrCast(&Impl.hostFunctions),
-        .impl_start = if (comptime std.meta.trait.hasFn("start")(Impl)) @ptrCast(&Impl.start) else null,
-        .impl_stop = if (comptime std.meta.trait.hasFn("stop")(Impl)) @ptrCast(&Impl.stop) else null,
+        .impl_start = if (comptime trait.hasFn("start")(Impl)) @ptrCast(&Impl.start) else null,
+        .impl_stop = if (comptime trait.hasFn("stop")(Impl)) @ptrCast(&Impl.stop) else null,
         .name = Impl.name,
     };
 }

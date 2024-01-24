@@ -12,13 +12,21 @@
   }: {
     devShells = {
       default = pkgs.mkShell {
-        packages = with pkgs; [config.packages.zls wasm-tools];
+        packages = with pkgs; [
+          config.packages.zls
+          wasm-tools
+        ];
         inputsFrom = [
           config.mission-control.devShell
           config.packages.cizero
         ];
 
-        WASMTIME_BACKTRACE_DETAILS = 1;
+        env.WASMTIME_BACKTRACE_DETAILS = 1;
+
+        shellHook = ''
+          # Set to `/build/tmp.XXXXXXXXXX` by the zig hook.
+          unset ZIG_GLOBAL_CACHE_DIR
+        '';
       };
 
       crystal = pkgs.mkShell {

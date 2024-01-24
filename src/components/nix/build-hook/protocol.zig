@@ -20,7 +20,7 @@ pub fn readPadding(reader: anytype, len: usize) !void {
     if (padding_len == 0) return;
 
     var padding_buf: [block_len]u8 = undefined;
-    var padding_slice = padding_buf[0..padding_len];
+    const padding_slice = padding_buf[0..padding_len];
     if (try reader.readAll(padding_slice) < padding_slice.len) return error.EndOfStream;
 
     if (!std.mem.allEqual(u8, padding_slice, 0)) return error.BadPadding;
@@ -65,7 +65,7 @@ test readPadded {
 }
 
 pub fn readU64(reader: anytype) !u64 {
-    return reader.readIntLittle(u64);
+    return reader.readInt(u64, .little);
 }
 
 pub fn readBool(reader: anytype) !bool {
@@ -77,14 +77,14 @@ pub fn readBool(reader: anytype) !bool {
 }
 
 pub fn readPacket(allocator: std.mem.Allocator, reader: anytype) ![]u8 {
-    var buf = try allocator.alloc(u8, try readU64(reader));
+    const buf = try allocator.alloc(u8, try readU64(reader));
     errdefer allocator.free(buf);
     try readPadded(reader, buf);
     return buf;
 }
 
 pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ![][]u8 {
-    var bufs = try allocator.alloc([]u8, try readU64(reader));
+    const bufs = try allocator.alloc([]u8, try readU64(reader));
     errdefer {
         for (bufs) |buf| allocator.free(buf);
         allocator.free(bufs);

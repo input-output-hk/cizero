@@ -1,21 +1,25 @@
 const std = @import("std");
+const trait = @import("trait");
 
-const comps = @import("components.zig");
-const meta = @import("meta.zig");
+pub const components = @import("components.zig");
+pub const mem = @import("mem.zig");
+pub const meta = @import("meta.zig");
+pub const wasm = @import("wasm.zig");
 
-const Registry = @import("Registry.zig");
+pub const Plugin = @import("Plugin.zig");
+pub const Registry = @import("Registry.zig");
 
 const Components = struct {
-    http: *comps.Http,
-    nix: comps.Nix,
-    process: comps.Process,
-    timeout: comps.Timeout,
+    http: *components.Http,
+    nix: components.Nix,
+    process: components.Process,
+    timeout: components.Timeout,
 
     const fields = @typeInfo(@This()).Struct.fields;
 
     const InitError = blk: {
         var set = error{};
-        inline for (fields) |field| {
+        for (fields) |field| {
             const T = meta.OptionalChild(field.type) orelse field.type;
             if (@hasDecl(T, "InitError")) set = set || T.InitError;
         }
@@ -25,7 +29,7 @@ const Components = struct {
     fn register(self: *@This(), registry: *Registry) !void {
         inline for (fields) |field| {
             const value_ptr = &@field(self, field.name);
-            try registry.registerComponent(if (comptime std.meta.trait.isSingleItemPtr(field.type)) value_ptr.* else value_ptr);
+            try registry.registerComponent(if (comptime trait.ptrOfSize(.One)(field.type)) value_ptr.* else value_ptr);
         }
     }
 };
@@ -41,10 +45,10 @@ pub fn deinit(self: *@This()) void {
 pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
     var self = try allocator.create(@This());
 
-    var http = try comps.Http.init(allocator, &self.registry);
+    var http = try components.Http.init(allocator, &self.registry);
     errdefer http.deinit();
 
-    var nix = try comps.Nix.init(allocator, &self.registry);
+    var nix = try components.Nix.init(allocator, &self.registry);
     errdefer nix.deinit();
 
     self.* = .{
@@ -76,4 +80,9 @@ pub fn run(self: *@This()) !void {
 
 pub fn stop(self: *@This()) void {
     for (self.registry.components.items) |component| component.stop();
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+    _ = @import("mem.zig");
 }

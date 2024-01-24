@@ -3,20 +3,29 @@
     .version = "0.0.0",
     .dependencies = .{
         .cron = .{
-            .url = "https://github.com/dying-will-bullet/cron/archive/refs/tags/v0.2.0.tar.gz",
-            .hash = "1220f3f1e6659f434657452f4727889a2424c1b78ac88775bd1f036858a1e974ad41",
+            .url = "https://github.com/dying-will-bullet/cron/archive/4080f1f35616c9467117734c0cb30dd7591d6e09.tar.gz",
+            .hash = "12208ab8c210795b499f6214bb15ecf09a113142360c05b5b20adde8990ba369a647",
         },
         .datetime = .{
-            .url = "https://github.com/frmdstryr/zig-datetime/archive/ddecb4e508e99ad6ab1314378225413959d54756.tar.gz",
-            .hash = "12202cbb909feb6b09164ac997307c6b1ab35cb05a846198cf41f7ec608d842c1761",
+            .url = "https://github.com/frmdstryr/zig-datetime/archive/a9c75242dfc119a305c1381c2352d2fc16b2e0aa.tar.gz",
+            .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
         },
         .httpz = .{
-            .url = "https://github.com/karlseguin/http.zig/archive/c2489311fba07dd58b4859aaa6b3dc64599d52fd.tar.gz",
-            .hash = "12204cd30c67448e513fc24feddf97be2c06fbbfce9e34b695e39f75e8f65e8766de",
+            .url = "https://github.com/karlseguin/http.zig/archive/34b7d8791dcc3bdf35f6ce03997084e9d54cf2d2.tar.gz",
+            .hash = "1220e844fbd8a73f892159f13e9b6bbb5683be63b54905bfd1e98eed1d92a2c1bb2b",
         },
         .@"known-folders" = .{
-            .url = "https://github.com/ziglibs/known-folders/archive/a564f582122326328dad6b59209d070d57c4e6ae.tar.gz",
-            .hash = "1220bb12c9bfe291eed1afe6a2070c7c39918ab1979f24a281bba39dfb23f5bcd544",
+            .url = "https://github.com/ziglibs/known-folders/archive/806ba01b872820004c7dec3117cb0db66b206af6.tar.gz",
+            .hash = "122094b48dea08e241b48d0ec32e3df6965e814091e3cabaff942e62d053f3ff9b5f",
         },
+        .trait = .{
+            .url = "https://github.com/wrongnull/zigtrait/archive/327d916b522676e6440df7f831d049001fa24dfd.tar.gz",
+            .hash = "12209e2e8b61415ca4e12d08cf6e7e0fe514ac83a2659f497c033be19c331cef408d",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
     },
 }

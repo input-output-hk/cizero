@@ -1,4 +1,5 @@
 const std = @import("std");
+const trait = @import("trait");
 
 const wasm = @import("wasm.zig");
 
@@ -175,7 +176,7 @@ pub fn CallbackUnmanaged(comptime T: type) type {
         pub const Condition = T;
 
         pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            if (comptime std.meta.trait.hasFn("deinit")(T)) self.condition.deinit(allocator);
+            if (comptime trait.hasFn("deinit")(T)) self.condition.deinit(allocator);
             if (self.user_data) |user_data| allocator.free(user_data);
             allocator.free(self.func_name);
         }
@@ -238,6 +239,6 @@ pub const CallbackDoneCondition = union(enum) {
     }
 };
 
-pub fn rejectIfStopped(running: *const std.atomic.Atomic(bool)) error{ComponentStopped}!void {
+pub fn rejectIfStopped(running: *const std.atomic.Value(bool)) error{ComponentStopped}!void {
     if (!running.load(.Monotonic)) return error.ComponentStopped;
 }

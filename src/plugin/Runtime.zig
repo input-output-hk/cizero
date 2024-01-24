@@ -153,10 +153,10 @@ pub const WasiConfig = struct {
     }
 
     fn new(self: @This(), allocator: std.mem.Allocator) !*c.wasi_config_t {
-        var wasi_config = c.wasi_config_new().?;
+        const wasi_config = c.wasi_config_new().?;
 
         if (self.argv) |argv| {
-            var argv_z = try allocator.alloc([:0]const u8, argv.len);
+            const argv_z = try allocator.alloc([:0]const u8, argv.len);
             defer {
                 for (argv_z) |arg_z| allocator.free(arg_z);
                 allocator.free(argv_z);
@@ -430,11 +430,11 @@ fn dispatchHostFunction(
     const memory = Memory.initFromCaller(caller.?) catch |err| return errorTrap(err);
     const allocator = Allocator.initFromCaller(memory, caller.?) catch |err| return errorTrap(err);
 
-    var input_vals = self.allocator.alloc(wasm.Value, inputs_len) catch |err| return errorTrap(err);
+    const input_vals = self.allocator.alloc(wasm.Value, inputs_len) catch |err| return errorTrap(err);
     for (input_vals, inputs) |*val, *input| val.* = wasmtime.fromVal(@ptrCast(input)) catch |err| return errorTrap(err);
     defer self.allocator.free(input_vals);
 
-    var output_vals = self.allocator.alloc(wasm.Value, outputs_len) catch |err| return errorTrap(err);
+    const output_vals = self.allocator.alloc(wasm.Value, outputs_len) catch |err| return errorTrap(err);
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
@@ -689,7 +689,7 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
 
     if (self.wasi_config) |wc| try self.configureWasi(wc.*);
 
-    const wasi_collect = if (self.wasi_config) |wc| blk: {
+    const wasi_collect: ?WasiConfig.CollectOutput = if (self.wasi_config) |wc| blk: {
         if (!comptime std.log.defaultLogEnabled(.debug)) break :blk null;
 
         if (wc.stdout != null and wc.stdout.? == .inherit or
@@ -700,20 +700,20 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
         }
 
         var wasi_config = wc.*;
-        var collect = try wasi_config.collectOutput(self.allocator);
+        const collect = try wasi_config.collectOutput(self.allocator);
         try self.configureWasi(wasi_config);
         break :blk collect;
     } else null;
     defer if (wasi_collect) |wc| wc.deinit();
 
-    var c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
+    const c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
     for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
     defer {
         for (c_inputs) |*c_input| c.wasmtime_val_delete(c_input);
         self.allocator.free(c_inputs);
     }
 
-    var c_outputs = try self.allocator.alloc(c.wasmtime_val, outputs.len);
+    const c_outputs = try self.allocator.alloc(c.wasmtime_val, outputs.len);
     defer {
         for (c_outputs) |*c_output| c.wasmtime_val_delete(c_output);
         self.allocator.free(c_outputs);
