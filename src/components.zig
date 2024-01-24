@@ -1,7 +1,8 @@
 const std = @import("std");
 const trait = @import("trait");
 
-const wasm = @import("wasm.zig");
+const lib = @import("lib");
+const wasm = lib.wasm;
 
 const PluginRuntime = @import("Plugin.zig").Runtime;
 

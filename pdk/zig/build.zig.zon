@@ -2,10 +2,7 @@
     .name = "cizero-pdk-zig",
     .version = "0.0.0",
     .dependencies = .{
-        .trait = .{
-            .url = "https://github.com/wrongnull/zigtrait/archive/327d916b522676e6440df7f831d049001fa24dfd.tar.gz",
-            .hash = "12209e2e8b61415ca4e12d08cf6e7e0fe514ac83a2659f497c033be19c331cef408d",
-        },
+        .cizero = .{ .path = "../.." },
     },
     .paths = .{
         "build.zig",

@@ -3,6 +3,9 @@ const testing = std.testing;
 const build_options = @import("build_options");
 
 const Cizero = @import("cizero");
+const lib = @import("lib");
+const meta = lib.meta;
+const wasm = lib.wasm;
 
 cizero: *Cizero,
 plugin: Cizero.Plugin,
@@ -17,18 +20,18 @@ fn init() !@This() {
     errdefer cizero.deinit();
 
     cizero.registry.wasi_config = .{
-        .env = .{ .env = try Cizero.meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged([]const u8), testing.allocator, .{
+        .env = .{ .env = try meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged([]const u8), testing.allocator, .{
             .CIZERO_PDK_TEST = "",
         }) },
     };
 
-    cizero.components.timeout.mock_milli_timestamp = Cizero.meta.disclosure(struct {
+    cizero.components.timeout.mock_milli_timestamp = meta.disclosure(struct {
         fn call() i64 {
             return std.time.ms_per_s;
         }
     }.call, true);
 
-    cizero.components.process.mock_child_run = Cizero.meta.disclosure(struct {
+    cizero.components.process.mock_child_run = meta.disclosure(struct {
         const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
 
         fn call(_: info.params[0].type.?) info.return_type.? {
@@ -162,9 +165,9 @@ test "on_cron" {
         \\
     , callback, struct {
         fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
-            var outputs: [1]Cizero.wasm.Value = undefined;
+            var outputs: [1]wasm.Value = undefined;
             try testing.expect(try cb.run(testing.allocator, rt, &.{}, &outputs));
-            try testing.expectEqual(Cizero.wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
+            try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
         }
     }.call);
 }
@@ -226,7 +229,7 @@ test "exec" {
     };
     var mock_child_run = MockChildRun{};
 
-    self.cizero.components.process.mock_child_run = Cizero.meta.closure(MockChildRun.run, &mock_child_run);
+    self.cizero.components.process.mock_child_run = meta.closure(MockChildRun.run, &mock_child_run);
 
     try self.expectEqualStdio("",
         \\term tag: Exited
@@ -292,9 +295,9 @@ test "on_webhook" {
                 const body_wasm = try allocator.dupeZ(u8, body);
                 defer allocator.free(body_wasm);
 
-                var outputs: [1]Cizero.wasm.Value = undefined;
-                try testing.expect(try cb.run(testing.allocator, rt, &[_]Cizero.wasm.Value{.{ .i32 = @intCast(linear.memory.offset(body_wasm.ptr)) }}, &outputs));
-                try testing.expectEqual(Cizero.wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
+                var outputs: [1]wasm.Value = undefined;
+                try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{.{ .i32 = @intCast(linear.memory.offset(body_wasm.ptr)) }}, &outputs));
+                try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
             }
         }.call);
     }
@@ -334,7 +337,7 @@ test "nix_build" {
         ctx.callback.deinit(ctx.allocator);
     }
 
-    self.cizero.components.nix.mock_start_build_loop = Cizero.meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
+    self.cizero.components.nix.mock_start_build_loop = meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
 
     const MockLockFlakeUrl = struct {
         const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
@@ -348,7 +351,7 @@ test "nix_build" {
         }
     };
 
-    self.cizero.components.nix.mock_lock_flake_url = Cizero.meta.disclosure(MockLockFlakeUrl.call, true);
+    self.cizero.components.nix.mock_lock_flake_url = meta.disclosure(MockLockFlakeUrl.call, true);
 
     try self.expectEqualStdio("",
         \\cizero.nix_build("pdk_test_nix_build_callback", null, "
@@ -391,11 +394,11 @@ test "nix_build" {
             const store_drv_output_wasm = try allocator.dupeZ(u8, store_drv_output);
             defer allocator.free(store_drv_output_wasm);
 
-            var store_drv_outputs_wasm = try allocator.alloc(Cizero.wasm.usize, 1);
+            var store_drv_outputs_wasm = try allocator.alloc(wasm.usize, 1);
             defer allocator.free(store_drv_outputs_wasm);
             store_drv_outputs_wasm[0] = linear.memory.offset(store_drv_output_wasm.ptr);
 
-            try testing.expect(try cb.run(testing.allocator, rt, &[_]Cizero.wasm.Value{
+            try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
                 .{ .i32 = @intCast(linear.memory.offset(flake_url_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },

@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
+
 const cizero = @import("cizero");
+const lib = @import("lib");
 
 const root = @This();
 
@@ -12,7 +14,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     export fn pdk_test_on_timestamp_callback(user_data: *const i64, user_data_len: usize) void {
-        std.debug.assert(user_data_len == cizero.sizeOfUnpad(i64));
+        std.debug.assert(user_data_len == lib.mem.sizeOfUnpad(i64));
         std.debug.print("{s}({d})\n", .{ @src().fn_name, user_data.* });
     }
 
@@ -37,7 +39,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     export fn pdk_test_on_webhook_callback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
-        std.debug.assert(user_data_len == cizero.sizeOfUnpad(root.pdk_tests.OnWebhookUserData));
+        std.debug.assert(user_data_len == lib.mem.sizeOfUnpad(root.pdk_tests.OnWebhookUserData));
 
         const body = std.mem.span(body_ptr);
 

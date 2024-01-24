@@ -4,9 +4,11 @@ const std = @import("std");
 const Cron = @import("cron").Cron;
 const Datetime = @import("datetime").datetime.Datetime;
 
+const lib = @import("lib");
+const meta = lib.meta;
+const wasm = lib.wasm;
+
 const components = @import("../components.zig");
-const meta = @import("../meta.zig");
-const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");

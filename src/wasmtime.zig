@@ -1,7 +1,9 @@
 const std = @import("std");
 
+const lib = @import("lib");
+const wasm = lib.wasm;
+
 const c = @import("c.zig");
-const wasm = @import("wasm.zig");
 
 pub fn fromVal(v: *const c.wasmtime_val) !wasm.Value {
     return switch (v.kind) {

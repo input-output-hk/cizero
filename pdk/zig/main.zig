@@ -1,5 +1,6 @@
 const std = @import("std");
-const trait = @import("trait");
+
+const lib = @import("lib");
 
 export fn cizero_mem_alloc(len: usize, ptr_align: u8) ?[*]u8 {
     return std.heap.wasm_allocator.rawAlloc(len, ptr_align, 0);
@@ -59,39 +60,13 @@ const externs = struct {
     ) void;
 };
 
-/// Like `@sizeOf()` without padding.
-pub fn sizeOfUnpad(comptime T: type) comptime_int {
-    return std.math.divCeil(comptime_int, @bitSizeOf(T), 8) catch unreachable;
-}
-
-fn paddingOf(comptime T: type) comptime_int {
-    return @sizeOf(T) - sizeOfUnpad(T);
-}
-
-fn anyAsBytesUnpad(any: anytype) (if (trait.ptrQualifiedWith(.@"const")(@TypeOf(any))) []const u8 else []u8) {
-    const Any = @TypeOf(any);
-    if (comptime Any == @TypeOf(null))
-        return @as([1]u8, undefined)[0..0];
-    const bytes = if (comptime trait.ptrOfSize(.Slice)(Any)) std.mem.sliceAsBytes(any) else std.mem.asBytes(any);
-    return bytes[0 .. bytes.len - paddingOf(std.meta.Child(Any))];
-}
-
-test anyAsBytesUnpad {
-    try std.testing.expectEqualSlices(u8, switch (@import("builtin").cpu.arch.endian()) {
-        .little => "\x11\x00\x00\x00\x12\x00\x00",
-        .big => "\x00\x00\x11\x00\x00\x00\x12",
-    }, anyAsBytesUnpad(@as([]const u17, &.{ 17, 18 })));
-
-    try std.testing.expectEqualSlices(u8, &.{}, anyAsBytesUnpad(null));
-}
-
 pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    const user_data_bytes = anyAsBytesUnpad(user_data);
+    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
     externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
 }
 
 pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8) !void {
-    const user_data_bytes = anyAsBytesUnpad(user_data);
+    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
     externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url);
 }
 
@@ -123,11 +98,11 @@ pub fn exec(args: struct {
     var term_code: usize = undefined;
 
     const err_code = externs.exec(
-        argv.c.ptr,
-        argv.c.len,
+        fixZeroLenSlice([*:0]const u8, argv.c).ptr,
+        fixZeroLenSlice([*:0]const u8, argv.c).len,
         args.expand_arg0 == .expand,
-        if (env_map) |env| @ptrCast(env.c.ptr) else null,
-        if (env_map) |env| env.c.len else 0,
+        if (env_map) |env| @ptrCast(fixZeroLenSlice([*:0]const u8, env.c).ptr) else null,
+        if (env_map) |env| fixZeroLenSlice([*:0]const u8, env.c).len else 0,
         args.max_output_bytes,
         output.ptr,
         &stdout_len,
@@ -171,12 +146,12 @@ pub fn exec(args: struct {
 }
 
 pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    const user_data_bytes = anyAsBytesUnpad(user_data);
+    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
     return externs.on_cron(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, cron_expr.ptr);
 }
 
 pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    const user_data_bytes = anyAsBytesUnpad(user_data);
+    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
     externs.on_timestamp(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, timestamp_ms);
 }
 
@@ -210,13 +185,9 @@ const CStringArray = struct {
     }
 
     pub fn initRef(allocator: std.mem.Allocator, z: []const [:0]const u8) !@This() {
-        // for some reason the pointer of a slice of a zero-length array becomes negative
-        const c: []const [*:0]const u8 = if (z.len == 0) @as([1][*:0]const u8, undefined)[0..0] else blk: {
-            const cc = try allocator.alloc([*:0]const u8, z.len);
-            errdefer allocator.free(cc);
-            for (cc, z) |*ce, ze| ce.* = ze.ptr;
-            break :blk cc;
-        };
+        const c = try allocator.alloc([*:0]const u8, z.len);
+        errdefer allocator.free(c);
+        for (c, z) |*ce, ze| ce.* = ze.ptr;
 
         return .{ .allocator = allocator, .z = null, .c = c };
     }
@@ -242,3 +213,12 @@ const CStringArray = struct {
         return self;
     }
 };
+
+// For some reason the pointer of a slice of a zero-length array
+// becomes negative when received by cizero.
+fn fixZeroLenSlice(comptime T: type, slice: []const T) []const T {
+    return if (slice.len == 0)
+        @as([1]T, undefined)[0..0]
+    else
+        slice;
+}

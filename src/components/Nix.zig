@@ -1,10 +1,12 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const lib = @import("lib");
+const meta = lib.meta;
+const wasm = lib.wasm;
+
 const components = @import("../components.zig");
 const fs = @import("../fs.zig");
-const meta = @import("../meta.zig");
-const wasm = @import("../wasm.zig");
 
 const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");

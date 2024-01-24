@@ -36,8 +36,8 @@ fn configureCompileStep(b: *std.Build, step: *std.Build.Step.Compile, opts: anyt
 }
 
 fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void {
-    module.addImport("trait", b.dependency("trait", .{
+    module.addImport("lib", b.dependency("cizero", .{
         .target = opts.target,
-        .optimize = opts.optimize,
-    }).module("zigtrait"));
+        .release = opts.optimize != .Debug,
+    }).module("lib"));
 }

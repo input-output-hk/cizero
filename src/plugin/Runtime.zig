@@ -1,8 +1,10 @@
 const std = @import("std");
 
+const lib = @import("lib");
+const wasm = lib.wasm;
+
 const c = @import("../c.zig");
 const fs = @import("../fs.zig");
-const wasm = @import("../wasm.zig");
 const wasmtime = @import("../wasmtime.zig");
 
 const Plugin = @import("../Plugin.zig");

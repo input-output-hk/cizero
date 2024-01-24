@@ -1,10 +1,9 @@
 const std = @import("std");
 const trait = @import("trait");
 
+const lib = @import("lib");
+
 pub const components = @import("components.zig");
-pub const mem = @import("mem.zig");
-pub const meta = @import("meta.zig");
-pub const wasm = @import("wasm.zig");
 
 pub const Plugin = @import("Plugin.zig");
 pub const Registry = @import("Registry.zig");
@@ -20,7 +19,7 @@ const Components = struct {
     const InitError = blk: {
         var set = error{};
         for (fields) |field| {
-            const T = meta.OptionalChild(field.type) orelse field.type;
+            const T = lib.meta.OptionalChild(field.type) orelse field.type;
             if (@hasDecl(T, "InitError")) set = set || T.InitError;
         }
         break :blk set;
@@ -84,5 +83,4 @@ pub fn stop(self: *@This()) void {
 
 test {
     std.testing.refAllDeclsRecursive(@This());
-    _ = @import("mem.zig");
 }
