@@ -9,7 +9,8 @@
         ../../pdk/zig
         ../../build.zig
         ../../build.zig.zon
-        ../../src
+        ../../src/lib.zig
+        ../../src/lib
       ];
 
       buildZigZon = "pdk/zig/build.zig.zon";
