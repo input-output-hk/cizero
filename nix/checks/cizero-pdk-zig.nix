@@ -20,6 +20,10 @@
         wasmtime
       ];
 
+      propagatedCheckInputs = [
+        config.packages.cizero.passthru.pdkTests.zig
+      ];
+
       dontBuild = true;
       dontInstall = true;
 
