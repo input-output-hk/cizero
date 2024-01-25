@@ -5,7 +5,7 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
-const Plugin = @import("../Plugin.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "process";
 
@@ -24,19 +24,19 @@ fn childRun(
     return std.process.Child.run(args);
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .exec = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .exec = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 11,
                 .returns = &.{.i32},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(exec, self),
+            .host_function = Runtime.HostFunction.init(exec, self),
         },
     });
 }
 
-fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn exec(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 11);
     std.debug.assert(outputs.len == 1);
 

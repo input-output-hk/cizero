@@ -8,8 +8,8 @@ const wasm = lib.wasm;
 const components = @import("../components.zig");
 const fs = @import("../fs.zig");
 
-const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "nix";
 
@@ -90,19 +90,19 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!@
     };
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .nix_build = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .nix_build = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32, .i32 },
                 .returns = &.{},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(nixBuild, self),
+            .host_function = Runtime.HostFunction.init(nixBuild, self),
         },
     });
 }
 
-fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
@@ -131,7 +131,7 @@ fn nixBuild(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, 
 
     try self.startBuildLoop(
         flake_url_locked,
-        plugin.name(),
+        plugin_name,
         callback,
     );
 }
@@ -363,7 +363,7 @@ fn runCallback(self: *@This(), build_state: Build, result: union(enum) {
     outputs: []const []const u8,
     failed_drv: []const u8,
 }) !void {
-    var runtime = try self.registry.runtime(build_state.plugin_name);
+    var runtime = try self.registry.runtime(.{ .data = build_state.plugin_name, .owned = false });
     defer runtime.deinit();
 
     const linear = try runtime.linearMemoryAllocator();

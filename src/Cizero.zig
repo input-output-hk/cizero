@@ -1,12 +1,15 @@
 const std = @import("std");
 const trait = @import("trait");
+const zqlite = @import("zqlite");
 
 const lib = @import("lib");
 
+const sql = @import("sql.zig");
+
 pub const components = @import("components.zig");
 
-pub const Plugin = @import("Plugin.zig");
 pub const Registry = @import("Registry.zig");
+pub const Runtime = @import("Runtime.zig");
 
 const Components = struct {
     http: *components.Http,
@@ -33,15 +36,17 @@ const Components = struct {
     }
 };
 
+db_pool: zqlite.Pool,
 registry: Registry,
 components: Components,
 
 pub fn deinit(self: *@This()) void {
     self.registry.deinit();
+    self.db_pool.deinit();
     self.registry.allocator.destroy(self);
 }
 
-pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
+pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
 
     var http = try components.Http.init(allocator, &self.registry);
@@ -51,7 +56,16 @@ pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
     errdefer nix.deinit();
 
     self.* = .{
-        .registry = .{ .allocator = allocator },
+        .db_pool = zqlite.Pool.init(allocator, .{
+            .path = ":memory:",
+
+            // For some reason other connections do not see the new tables
+            // if we run the migration in here.
+            .on_first_connection = if (false) initDb else null,
+
+            .on_connection = initDbConn,
+        }) catch |err| @panic(@errorName(err)),
+        .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
         .components = .{
             .http = http,
             .nix = nix,
@@ -59,9 +73,27 @@ pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
             .timeout = .{ .allocator = allocator, .registry = &self.registry },
         },
     };
+    errdefer self.deinit();
+
+    {
+        const conn = self.db_pool.acquire();
+        defer self.db_pool.release(conn);
+
+        initDb(conn) catch return error.DbError;
+    }
+
     try self.components.register(&self.registry);
 
     return self;
+}
+
+fn initDb(conn: zqlite.Conn) !void {
+    try sql.migrate(conn);
+}
+
+fn initDbConn(conn: zqlite.Conn) !void {
+    try conn.busyTimeout(std.time.ms_per_s);
+    sql.enableLogging(conn);
 }
 
 pub fn run(self: *@This()) !void {

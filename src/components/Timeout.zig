@@ -10,8 +10,8 @@ const wasm = lib.wasm;
 
 const components = @import("../components.zig");
 
-const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "timeout";
 
@@ -113,7 +113,7 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(next.pluginName());
+            var runtime = try self.registry.runtime(.{ .data = next.pluginName(), .owned = false });
             defer runtime.deinit();
 
             _ = try next.run(self.allocator, runtime, &.{}, outputs);
@@ -121,26 +121,26 @@ fn loop(self: *@This()) !void {
     }
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .on_timestamp = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .on_timestamp = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32, .i64 },
                 .returns = &.{},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
+            .host_function = Runtime.HostFunction.init(onTimestamp, self),
         },
-        .on_cron = Plugin.Runtime.HostFunctionDef{
+        .on_cron = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{.i64},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
+            .host_function = Runtime.HostFunction.init(onCron, self),
         },
     });
 }
 
-fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onTimestamp(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
@@ -157,7 +157,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
 
     try self.plugin_callbacks.insert(
         self.allocator,
-        plugin.name(),
+        plugin_name,
         params.func_name,
         user_data,
         .{ .timestamp = params.timestamp },
@@ -166,7 +166,7 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
     self.loop_wait.set();
 }
 
-fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onCron(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 1);
 
@@ -189,7 +189,7 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, in
 
     try self.plugin_callbacks.insert(
         self.allocator,
-        plugin.name(),
+        plugin_name,
         params.func_name,
         user_data,
         .{ .cron = cron },

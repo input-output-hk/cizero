@@ -4,7 +4,7 @@ const trait = @import("trait");
 const lib = @import("lib");
 const wasm = lib.wasm;
 
-const PluginRuntime = @import("Plugin.zig").Runtime;
+const Runtime = @import("Runtime.zig");
 
 pub const Http = @import("components/Http.zig");
 pub const Nix = @import("components/Nix.zig");
@@ -36,7 +36,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 return self.callback_idx < self.map_entry.value_ptr.items.len;
             }
 
-            pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !struct {
+            pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: Runtime, inputs: []const wasm.Value, outputs: []wasm.Value) !struct {
                 success: bool,
                 done: bool,
             } {
@@ -196,7 +196,7 @@ pub fn CallbackUnmanaged(comptime T: type) type {
             };
         }
 
-        pub fn run(self: *const @This(), allocator: std.mem.Allocator, runtime: PluginRuntime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
+        pub fn run(self: *const @This(), allocator: std.mem.Allocator, runtime: Runtime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
             const linear = try runtime.linearMemoryAllocator();
             const linear_allocator = linear.allocator();
 
@@ -212,7 +212,7 @@ pub fn CallbackUnmanaged(comptime T: type) type {
 
             // TODO run on new thread
             const success = try runtime.call(self.func_name, final_inputs, outputs);
-            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin.name() });
+            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin_name.data });
 
             return success;
         }

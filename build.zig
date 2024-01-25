@@ -120,6 +120,7 @@ fn configureModule(b: *Build, module: *Build.Module, link: bool, opts: anytype) 
     if (link) {
         module.link_libc = true;
         module.linkSystemLibrary("wasmtime", .{});
+        module.linkSystemLibrary("sqlite3", .{});
     }
 
     module.addImport("cron", b.dependency("cron", opts).module("cron"));
@@ -127,4 +128,5 @@ fn configureModule(b: *Build, module: *Build.Module, link: bool, opts: anytype) 
     module.addImport("httpz", b.dependency("httpz", opts).module("httpz"));
     module.addImport("known-folders", b.dependency("known-folders", .{}).module("known-folders"));
     module.addImport("trait", b.dependency("trait", opts).module("zigtrait"));
+    module.addImport("zqlite", b.dependency("zqlite", opts).module("zqlite"));
 }

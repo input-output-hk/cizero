@@ -34,8 +34,12 @@ pub fn main() !void {
         defer args.deinit();
 
         _ = args.next(); // discard executable (not a plugin)
-        while (args.next()) |arg|
-            _ = try cizero.registry.registerPlugin(.{ .path = arg });
+        while (args.next()) |arg| {
+            const wasm = try std.fs.cwd().readFileAlloc(allocator, arg, std.math.maxInt(usize));
+            defer allocator.free(wasm);
+
+            _ = try cizero.registry.registerPlugin(std.fs.path.stem(arg), wasm);
+        }
     }
 
     try cizero.run();

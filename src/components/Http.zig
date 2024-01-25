@@ -7,8 +7,8 @@ const wasm = lib.wasm;
 
 const components = @import("../components.zig");
 
-const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "http";
 
@@ -73,7 +73,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     for (callbacks.items) |entry| {
-        var runtime = try self.registry.runtime(entry.pluginName());
+        var runtime = try self.registry.runtime(.{ .data = entry.pluginName(), .owned = false });
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
@@ -93,19 +93,19 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     res.status = 204;
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .on_webhook = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .on_webhook = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32 },
                 .returns = &.{},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onWebhook, self),
+            .host_function = Runtime.HostFunction.init(onWebhook, self),
         },
     });
 }
 
-fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onWebhook(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 3);
     std.debug.assert(outputs.len == 0);
 
@@ -119,7 +119,7 @@ fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator,
 
     try self.plugin_callbacks.insert(
         self.allocator,
-        plugin.name(),
+        plugin_name,
         params.func_name,
         user_data,
         .webhook,
