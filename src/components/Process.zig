@@ -66,13 +66,11 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
             break :blk argv;
         },
         .env_map = if (params.env_map) |env_array| blk: {
-            // XXX build a HashMap instead and directly init an EnvMap with that
-            // so that it can directly point to the memory spans, no copying
             var env_map = std.process.EnvMap.init(self.allocator);
-            var i: usize = 0;
-            while (i < params.env_map_len) : (i += 2) try env_map.put(
-                wasm.span(memory, env_array[i]),
-                wasm.span(memory, env_array[i + 1]),
+            // Put directly into the underlying hash map to avoid copying.
+            for (0.., 1..params.env_map_len) |ki, vi| try env_map.hash_map.put(
+                wasm.span(memory, env_array[ki]),
+                wasm.span(memory, env_array[vi]),
             );
             break :blk &env_map;
         } else null,
@@ -80,7 +78,7 @@ fn exec(self: *@This(), _: Plugin, memory: []u8, _: std.mem.Allocator, inputs: [
         .expand_arg0 = params.expand_arg0,
     };
     defer self.allocator.free(exec_args.argv);
-    defer if (exec_args.env_map) |m| m.deinit();
+    defer if (exec_args.env_map) |m| m.hash_map.deinit();
 
     const result = @call(.auto, childRun, .{ self.*, exec_args }) catch |err| {
         const E = std.process.Child.RunError;
