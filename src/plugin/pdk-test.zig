@@ -24,6 +24,7 @@ fn init() !@This() {
             .CIZERO_PDK_TEST = "",
         }) },
     };
+    errdefer cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
 
     cizero.components.timeout.mock_milli_timestamp = meta.disclosure(struct {
         fn call() i64 {
