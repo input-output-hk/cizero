@@ -12,6 +12,7 @@
   }: {
     devShells = {
       default = pkgs.mkShell {
+        name = "devShell";
         packages = with pkgs; [
           config.packages.zls
           wasm-tools
@@ -30,6 +31,7 @@
       };
 
       crystal = pkgs.mkShell {
+        name = "${config.devShells.default.name}-crystal";
         packages = with pkgs; [crystal crystalline];
         inputsFrom = [config.devShells.default];
       };

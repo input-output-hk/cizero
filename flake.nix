@@ -23,6 +23,7 @@
         nix/packages
         nix/devShells.nix
         nix/formatter.nix
+        nix/hydraJobs.nix
       ];
     };
 }
