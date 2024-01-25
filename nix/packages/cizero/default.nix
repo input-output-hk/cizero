@@ -21,10 +21,6 @@
         wasmtime.dev
       ];
 
-      nativeCheckInputs = with pkgs; [
-        wasmtime
-      ];
-
       zigDepsHash = "sha256-myvS5kwxDJ+xCanvudG7h3JwEq7GyqPHudoIjF5yQaI=";
 
       preCheck = ''
