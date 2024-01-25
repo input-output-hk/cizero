@@ -51,10 +51,7 @@
 
         zigRelease = "ReleaseSafe";
 
-        passthru.langref = builtins.fetchurl {
-          url = "https://raw.githubusercontent.com/ziglang/zig/${config.packages.zig.src.rev}/doc/langref.html.in";
-          sha256 = "1m1qhfn2jkl0yp9hidxw3jgb8yjns631nnc8kxx2np4kvdcqmxgy";
-        };
+        passthru.langref = config.packages.zig.src + /doc/langref.html.in;
 
         inherit (pkgs.zls) meta;
       };
