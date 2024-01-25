@@ -4,7 +4,7 @@
     pkgs,
     ...
   }: {
-    checks.cizero-pdk-zig = config.overlayAttrs.buildZigPackage rec {
+    checks.cizero-pdk-zig = config.overlayAttrs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../.. [
         ../../pdk/zig
         ../../build.zig

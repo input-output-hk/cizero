@@ -4,7 +4,7 @@
     pkgs,
     ...
   }: {
-    packages.cizero-plugin-hello-zig = config.overlayAttrs.buildZigPackage rec {
+    packages.cizero-plugin-hello-zig = config.overlayAttrs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hello-zig
         ../../../../pdk/zig
