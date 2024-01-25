@@ -21,6 +21,7 @@
       ];
 
       dontBuild = true;
+      dontInstall = true;
 
       preCheck = ''
         # for wasmtime cache
