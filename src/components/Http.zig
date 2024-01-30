@@ -73,7 +73,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     }
 
     for (callbacks.items) |entry| {
-        var runtime = try self.registry.runtime(.{ .data = entry.pluginName(), .owned = false });
+        var runtime = try self.registry.runtime(entry.pluginName());
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();

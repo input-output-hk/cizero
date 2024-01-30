@@ -113,7 +113,7 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(.{ .data = next.pluginName(), .owned = false });
+            var runtime = try self.registry.runtime(next.pluginName());
             defer runtime.deinit();
 
             _ = try next.run(self.allocator, runtime, &.{}, outputs);

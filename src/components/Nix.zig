@@ -50,10 +50,10 @@ const Build = struct {
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.flake_url);
         self.instantiation.deinit();
+        allocator.free(self.plugin_name);
         self.callback.deinit(allocator);
 
         // `output_spec` is a slice of `flake_url`
-        // `plugin_name` is borrowed
     }
 };
 
@@ -257,11 +257,15 @@ fn startBuildLoop(
 
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
     errdefer self.allocator.destroy(node);
+
+    const plugin_name_copy = try self.allocator.dupe(u8, plugin_name);
+    errdefer self.allocator.free(plugin_name_copy);
+
     node.data = .{
         .flake_url = flake_url,
         .output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..],
         .instantiation = .{ .ifds = std.BufSet.init(self.allocator) },
-        .plugin_name = plugin_name,
+        .plugin_name = plugin_name_copy,
         .callback = callback,
         .thread = try std.Thread.spawn(.{}, buildLoop, .{ self, node }),
     };
@@ -363,7 +367,7 @@ fn runCallback(self: *@This(), build_state: Build, result: union(enum) {
     outputs: []const []const u8,
     failed_drv: []const u8,
 }) !void {
-    var runtime = try self.registry.runtime(.{ .data = build_state.plugin_name, .owned = false });
+    var runtime = try self.registry.runtime(build_state.plugin_name);
     defer runtime.deinit();
 
     const linear = try runtime.linearMemoryAllocator();

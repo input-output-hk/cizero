@@ -1,9 +1,6 @@
 const std = @import("std");
 const zqlite = @import("zqlite");
 
-const lib = @import("lib");
-const mem = lib.mem;
-
 const queries = @import("sql.zig").queries;
 
 const Component = @import("Component.zig");
@@ -32,12 +29,12 @@ pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !bool 
         const conn = self.db_pool.acquire();
         defer self.db_pool.release(conn);
 
-        try queries.plugins.insert(conn, name, wasm);
+        try queries.plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
     }
 
     std.log.info("registering plugin \"{s}\"…", .{name});
 
-    var rt = try self.runtime(.{ .data = name, .owned = false });
+    var rt = try self.runtime(name);
     defer rt.deinit();
 
     if (!try rt.main()) return error.PluginMainFailed;
@@ -46,33 +43,21 @@ pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !bool 
 }
 
 /// Remember to deinit after use.
-pub fn runtime(self: *const @This(), plugin_name: mem.Borrowned([]const u8)) !Runtime {
-    const plugin_wasm = blk: {
-        const conn = self.db_pool.acquire();
-        defer self.db_pool.release(conn);
+pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
+    const conn = self.db_pool.acquire();
+    defer self.db_pool.release(conn);
 
-        break :blk try queries.plugins.getWasm(self.allocator, conn, plugin_name.data);
-    };
+    const SelectWasm = queries.plugin.SelectByName(&.{.wasm});
+    const row = try SelectWasm.row(conn, .{plugin_name}) orelse return error.NoSuchPlugin;
+    defer row.deinit();
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
 
     var rt = try Runtime.init(
         self.allocator,
-
-        // XXX In all known cases,
-        // `plugin_name` is borrowed and
-        // `plugin_wasm` is owned;
-        // Can we get rid of `mem.Borrowned`?
-        // How do we make the ownership semantics
-        // obvious? It's confusing if
-        // the name is borrowed even though
-        // we take an allocator.
-        // Should we just copy the name and wasm?
-        // But that's a waste!
         plugin_name,
-        .{ .data = plugin_wasm, .owned = true },
-
+        SelectWasm.column(row, .wasm),
         host_functions,
     );
     rt.wasi_config = &self.wasi_config;

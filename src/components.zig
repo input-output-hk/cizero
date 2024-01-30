@@ -60,6 +60,7 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
                 if (plugin_callbacks.items.len == 0) {
                     deallocateCallbacks(allocator, plugin_callbacks);
                     self.callbacks.map.removeByPtr(self.map_entry.key_ptr);
+                    allocator.free(self.map_entry.key_ptr.*);
                 }
             }
         };
@@ -99,8 +100,11 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
 
         pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
             {
-                var callbacks_iter = self.map.valueIterator();
-                while (callbacks_iter.next()) |callbacks| deallocateCallbacks(allocator, callbacks);
+                var iter = self.map.iterator();
+                while (iter.next()) |entry| {
+                    allocator.free(entry.key_ptr.*);
+                    deallocateCallbacks(allocator, entry.value_ptr);
+                }
             }
 
             self.map.deinit(allocator);
@@ -150,9 +154,13 @@ pub fn CallbacksUnmanaged(comptime Condition: type) type {
             condition: Condition,
         ) !void {
             const callbacks = blk: {
-                const result = try self.map.getOrPut(allocator, plugin_name);
-                if (!result.found_existing) result.value_ptr.* = .{};
-                break :blk result.value_ptr;
+                if (self.map.getPtr(plugin_name)) |callbacks| break :blk callbacks;
+
+                const plugin_name_copy = try allocator.dupe(u8, plugin_name);
+                errdefer allocator.free(plugin_name_copy);
+
+                const entry = try self.map.getOrPutValue(allocator, plugin_name_copy, .{});
+                break :blk entry.value_ptr;
             };
 
             try callbacks.append(allocator, try Callback.init(allocator, func_name, user_data, condition));
@@ -212,7 +220,7 @@ pub fn CallbackUnmanaged(comptime T: type) type {
 
             // TODO run on new thread
             const success = try runtime.call(self.func_name, final_inputs, outputs);
-            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin_name.data });
+            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin_name });
 
             return success;
         }
