@@ -23,8 +23,8 @@
             .hash = "12209e2e8b61415ca4e12d08cf6e7e0fe514ac83a2659f497c033be19c331cef408d",
         },
         .zqlite = .{
-            .url = "https://github.com/karlseguin/zqlite.zig/archive/572487bcd538a7e602a39f13dba3a24fbf58b2ed.tar.gz",
-            .hash = "1220e0d9effc439e91186a1eb6de07926e237a68ec9272a72c9306e0fd61387f200b",
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/44bc67ebca462d279d1ea3dd699e48083062f2e2.tar.gz",
+            .hash = "122007513fa4c303ff2de35b1680559a73cd64f6af96b341eb30e5556e4c5465c94c",
         },
     },
     .paths = .{

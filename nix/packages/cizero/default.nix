@@ -22,7 +22,7 @@
         sqlite.dev
       ];
 
-      zigDepsHash = "sha256-TcaOcUzNfsT4txPXKMfmZFhCwkdST1g3QXQQFCeyprk=";
+      zigDepsHash = "sha256-pml8GuVxHFFYNoryiuWU24N7ftEs33G74L/hGu3JQEU=";
 
       preCheck = ''
         # for wasmtime cache

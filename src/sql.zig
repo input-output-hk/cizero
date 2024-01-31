@@ -13,9 +13,13 @@ const log = std.log.scoped(log_scope);
 pub fn migrate(conn: zqlite.Conn) !void {
     if (blk: {
         const row = (try conn.row("PRAGMA user_version", .{})).?;
-        defer row.deinit();
+        errdefer row.deinit();
 
-        break :blk row.int(0) == 0;
+        const user_version = row.int(0);
+
+        try row.deinitErr();
+
+        break :blk user_version == 0;
     }) {
         try conn.transaction();
         errdefer conn.rollback();

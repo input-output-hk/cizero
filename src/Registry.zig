@@ -49,7 +49,7 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
 
     const SelectWasm = queries.plugin.SelectByName(&.{.wasm});
     const row = try SelectWasm.row(conn, .{plugin_name}) orelse return error.NoSuchPlugin;
-    defer row.deinit();
+    errdefer row.deinit();
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
@@ -61,6 +61,9 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
         host_functions,
     );
     rt.wasi_config = &self.wasi_config;
+
+    try row.deinitErr();
+
     return rt;
 }
 

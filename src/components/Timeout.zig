@@ -70,7 +70,7 @@ fn loop(self: *@This()) !void {
         };
 
         if (next_callback_row) |next_row| {
-            defer next_row.deinit();
+            errdefer next_row.deinit();
 
             {
                 const now_ms = self.milliTimestamp();
@@ -94,7 +94,7 @@ fn loop(self: *@This()) !void {
 
                 break :blk (try SelectById.row(conn, .{callback_id})).?;
             };
-            defer callback_row.deinit();
+            errdefer callback_row.deinit();
 
             var callback = blk: {
                 const func_name = try self.allocator.dupeZ(u8, SelectById.column(callback_row, .function));
@@ -122,6 +122,8 @@ fn loop(self: *@This()) !void {
             var runtime = try self.registry.runtime(SelectById.column(callback_row, .plugin));
             defer runtime.deinit();
 
+            try callback_row.deinitErr();
+
             const success = try callback.run(self.allocator, runtime, &.{}, outputs);
             const done = callback.done(success, outputs);
 
@@ -144,6 +146,8 @@ fn loop(self: *@This()) !void {
                     },
                 }
             }
+
+            try next_row.deinitErr();
         } else self.loop_wait.wait();
     }
 }
