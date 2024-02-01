@@ -20,8 +20,14 @@ pub fn migrate(conn: zqlite.Conn) !void {
         try conn.transaction();
         errdefer conn.rollback();
 
-        try logErr(conn, conn.execNoArgs(@embedFile("sql/schema.sql")));
-        try logErr(conn, conn.execNoArgs("PRAGMA user_version = 1"));
+        {
+            const sql = @embedFile("sql/schema.sql");
+            try logErr(conn, conn.execNoArgs(sql), sql);
+        }
+        {
+            const sql = "PRAGMA user_version = 1";
+            try logErr(conn, conn.execNoArgs(sql), sql);
+        }
 
         try conn.commit();
     }
@@ -30,6 +36,11 @@ pub fn migrate(conn: zqlite.Conn) !void {
 pub fn enableLogging(conn: zqlite.Conn) void {
     if (comptime !std.log.logEnabled(.debug, log_scope)) return;
     _ = c.sqlite3_trace_v2(@ptrCast(conn.conn), c.SQLITE_TRACE_STMT, traceStmt, null);
+}
+
+pub fn enableForeignKeys(conn: zqlite.Conn) !void {
+    const sql = "PRAGMA foreign_keys = ON";
+    try logErr(conn, conn.execNoArgs(sql), sql);
 }
 
 fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) callconv(.C) c_int {
@@ -42,9 +53,9 @@ fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) ca
     return 0;
 }
 
-fn logErr(conn: zqlite.Conn, error_union: anytype) @TypeOf(error_union) {
+fn logErr(conn: zqlite.Conn, error_union: anytype, sql: []const u8) @TypeOf(error_union) {
     return if (error_union) |result| result else |err| blk: {
-        log.err("{s}: {s}", .{ @errorName(err), conn.lastError() });
+        log.err("{s}: {s}. Statement: {s}", .{ @errorName(err), conn.lastError(), sql });
         break :blk err;
     };
 }
@@ -94,12 +105,12 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
         }
 
         pub fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
-            return logErr(conn, conn.row(sql, values));
+            return logErr(conn, conn.row(sql, values), sql);
         }
 
         pub usingnamespace if (multi) struct {
             pub fn rows(conn: zqlite.Conn, values: Values) !?zqlite.Row {
-                return logErr(conn, conn.rows(sql, values));
+                return logErr(conn, conn.rows(sql, values), sql);
             }
         } else struct {};
     };
@@ -147,12 +158,12 @@ pub fn Exec(comptime sql: []const u8, comptime Values_: type) type {
         pub const Values = Q.Values;
 
         pub fn exec(conn: zqlite.Conn, values: Values) !void {
-            return logErr(conn, conn.exec(sql, values));
+            return logErr(conn, conn.exec(sql, values), sql);
         }
 
         pub usingnamespace if (@typeInfo(Values).Struct.fields.len == 0) struct {
             pub fn execNoArgs(conn: zqlite.Conn) !void {
-                return logErr(conn, conn.execNoArgs(sql));
+                return logErr(conn, conn.execNoArgs(sql), sql);
             }
         } else struct {};
     };
@@ -163,8 +174,34 @@ test Exec {
     try std.testing.expect(std.meta.hasFn(Exec("", struct {}), "execNoArgs"));
 }
 
-fn SimpleSelect(comptime Column: anytype, comptime columns: []const std.meta.FieldEnum(Column), comptime sql: []const u8, comptime multi: bool, comptime Values: type) type {
+fn SimpleSelect(comptime Column: type, comptime columns: []const std.meta.FieldEnum(Column), comptime sql: []const u8, comptime multi: bool, comptime Values: type) type {
     return Query("SELECT " ++ columnList(columns) ++ "\n" ++ sql, multi, meta.SubUnion(Column, columns), Values);
+}
+
+fn SimpleInsert(comptime table: []const u8, comptime Column: type) type {
+    return Exec(
+        \\INSERT INTO "
+    ++ table ++
+        \\" (
+    ++ columnList(std.meta.fieldNames(Column)) ++
+        \\) VALUES (
+    ++ "?, " ** (std.meta.fields(Column).len - 1) ++ "?" ++
+        \\)
+    , meta.FieldsTuple(Column));
+}
+
+fn SimpleSelectByRowid(comptime table: []const u8, comptime Column: type, comptime columns: []const std.meta.Tag(Column)) type {
+    return SimpleSelect(
+        Column,
+        columns,
+        \\FROM "
+        ++ table ++
+            \\"
+            \\WHERE "rowid" = ?
+    ,
+        false,
+        struct { i64 },
+    );
 }
 
 fn columnList(comptime columns: anytype) []const u8 {
@@ -188,30 +225,104 @@ test columnList {
 
 pub const queries = struct {
     pub const plugin = struct {
+        const table = "plugin";
+
         pub const Column = union(enum) {
             name: []const u8,
             wasm: zqlite.Blob,
         };
+        pub const ColumnName = std.meta.Tag(Column);
 
-        pub const insert = Exec(
-            \\INSERT INTO "plugin" (
-        ++ columnList(std.meta.fieldNames(Column)) ++
-            \\) VALUES (
-        ++ "?, " ** (std.meta.fields(Column).len - 1) ++ "?" ++
-            \\)
-        , meta.FieldsTuple(Column));
+        pub const insert = SimpleInsert(table, Column);
 
-        pub fn SelectByName(comptime columns: []const std.meta.Tag(Column)) type {
+        pub fn SelectByName(comptime columns: []const ColumnName) type {
             return SimpleSelect(
                 Column,
                 columns,
-                \\FROM "plugin"
-                \\WHERE "name" = ?
+                \\FROM "
+                ++ table ++
+                    \\"
+                    \\WHERE "
+                ++ @tagName(ColumnName.name) ++
+                    \\" = ?
             ,
                 false,
                 struct { []const u8 },
             );
         }
+    };
+
+    pub const callback = struct {
+        const table = "callback";
+
+        pub const Column = union(enum) {
+            id: i64,
+            plugin: []const u8,
+            function: []const u8,
+            user_data: ?zqlite.Blob,
+        };
+        pub const ColumnName = std.meta.Tag(Column);
+
+        pub const insert = SimpleInsert(table, meta.SubUnion(Column, &.{ .plugin, .function, .user_data }));
+
+        pub fn SelectById(comptime columns: []const ColumnName) type {
+            return SimpleSelectByRowid(table, Column, columns);
+        }
+
+        pub const deleteById = Exec(
+            \\DELETE FROM "
+        ++ table ++
+            \\"
+            \\WHERE "
+        ++ @tagName(ColumnName.id) ++
+            \\" = ?
+        , struct { i64 });
+    };
+
+    pub const timeout_callback = struct {
+        const table = "timeout_callback";
+
+        pub const Column = union(enum) {
+            callback: i64,
+            timestamp: i64,
+            cron: ?[]const u8,
+        };
+        pub const ColumnName = std.meta.Tag(Column);
+
+        pub const insert = SimpleInsert(table, Column);
+
+        pub fn SelectByCallback(comptime columns: []const ColumnName) type {
+            return SimpleSelectByRowid(table, Column, columns);
+        }
+
+        pub fn SelectNext(comptime columns: []const ColumnName) type {
+            return SimpleSelect(
+                Column,
+                columns,
+                \\FROM "
+                ++ table ++
+                    \\"
+                    \\ORDER BY "
+                ++ @tagName(ColumnName.timestamp) ++
+                    \\" ASC
+                    \\LIMIT 1
+            ,
+                false,
+                @TypeOf(.{}),
+            );
+        }
+
+        pub const updateTimestamp = Exec(
+            \\UPDATE "
+        ++ table ++
+            \\" SET
+            \\  "
+        ++ @tagName(ColumnName.timestamp) ++
+            \\" = ?2
+            \\WHERE "
+        ++ @tagName(ColumnName.callback) ++
+            \\" = ?1
+        , struct { i64, i64 });
     };
 };
 

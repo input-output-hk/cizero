@@ -93,6 +93,7 @@ fn initDb(conn: zqlite.Conn) !void {
 
 fn initDbConn(conn: zqlite.Conn) !void {
     try conn.busyTimeout(std.time.ms_per_s);
+    try sql.enableForeignKeys(conn);
     sql.enableLogging(conn);
 }
 

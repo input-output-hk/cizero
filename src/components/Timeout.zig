@@ -9,32 +9,16 @@ const meta = lib.meta;
 const wasm = lib.wasm;
 
 const components = @import("../components.zig");
+const queries = @import("../sql.zig").queries;
 
 const Registry = @import("../Registry.zig");
 const Runtime = @import("../Runtime.zig");
 
 pub const name = "timeout";
 
-registry: *const Registry,
-
-allocator: std.mem.Allocator,
-
-plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
-    /// Milliseconds since the unix epoch.
-    timestamp: i64,
-    cron: Cron,
-
-    pub fn next(self: @This(), now_ms: i64) !i64 {
-        return switch (self) {
-            .timestamp => |ms| ms,
-            .cron => |cron| blk: {
-                // XXX We need a mutable copy of `cron` because `Cron.next()` takes itself by pointer.
-                // It seems that is unnecessary though. Fix upstream?
-                var c = cron;
-                break :blk @intCast((try c.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
-            },
-        };
-    }
+const Callback = components.CallbackUnmanaged(enum {
+    timestamp,
+    cron,
 
     pub fn done(self: @This()) components.CallbackDoneCondition {
         return switch (self) {
@@ -42,7 +26,11 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
             .cron => .{ .on = .{} },
         };
     }
-}) = .{},
+});
+
+registry: *const Registry,
+
+allocator: std.mem.Allocator,
 
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
@@ -53,10 +41,6 @@ fn milliTimestamp(self: @This()) i64 {
     if (@TypeOf(self.mock_milli_timestamp) != void)
         if (self.mock_milli_timestamp) |mock| return mock.call(.{});
     return std.time.milliTimestamp();
-}
-
-pub fn deinit(self: *@This()) void {
-    self.plugin_callbacks.deinit(self.allocator);
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
@@ -75,26 +59,22 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const now_ms = self.milliTimestamp();
+        // XXX fetch both "callback" and "timeout_callback" in one query
 
-        const next_callback = blk: {
-            var next: ?@TypeOf(self.plugin_callbacks).Entry = null;
+        const SelectNext = queries.timeout_callback.SelectNext(&.{ .callback, .timestamp, .cron });
+        const next_callback_row = blk: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
 
-            var plugin_callbacks_iter = self.plugin_callbacks.iterator();
-            while (plugin_callbacks_iter.next()) |entry| {
-                // XXX do not compute `entry.callbackPtr().condition.next()` multiple times
-                // XXX do not compute `next.?.callbackPtr().timeout.next()` multiple times
-                if (next == null or try entry.callbackPtr().condition.next(now_ms) < try next.?.callbackPtr().condition.next(now_ms)) next = entry;
-            }
-
-            break :blk next;
+            break :blk try SelectNext.row(conn, .{});
         };
 
-        if (next_callback) |next| {
-            const callback = next.callbackPtr();
+        if (next_callback_row) |next_row| {
+            defer next_row.deinit();
 
             {
-                const next_timestamp = try callback.condition.next(now_ms);
+                const now_ms = self.milliTimestamp();
+                const next_timestamp = SelectNext.column(next_row, .timestamp);
                 if (now_ms < next_timestamp) {
                     const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
                     if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
@@ -105,6 +85,32 @@ fn loop(self: *@This()) !void {
                 }
             }
 
+            const callback_id = SelectNext.column(next_row, .callback);
+
+            const SelectById = queries.callback.SelectById(&.{ .plugin, .function, .user_data });
+            const callback_row = blk: {
+                const conn = self.registry.db_pool.acquire();
+                defer self.registry.db_pool.release(conn);
+
+                break :blk (try SelectById.row(conn, .{callback_id})).?;
+            };
+            defer callback_row.deinit();
+
+            var callback = blk: {
+                const func_name = try self.allocator.dupeZ(u8, SelectById.column(callback_row, .function));
+                errdefer self.allocator.free(func_name);
+
+                const user_data = if (SelectById.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
+                errdefer if (user_data) |ud| self.allocator.free(ud);
+
+                break :blk Callback{
+                    .func_name = func_name,
+                    .user_data = user_data,
+                    .condition = if (SelectNext.column(next_row, .cron) != null) .cron else .timestamp,
+                };
+            };
+            defer callback.deinit(self.allocator);
+
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
             var outputs_memory: [1]wasm.Value = undefined;
@@ -113,10 +119,31 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(next.pluginName());
+            var runtime = try self.registry.runtime(SelectById.column(callback_row, .plugin));
             defer runtime.deinit();
 
-            _ = try next.run(self.allocator, runtime, &.{}, outputs);
+            const success = try callback.run(self.allocator, runtime, &.{}, outputs);
+            const done = callback.done(success, outputs);
+
+            {
+                const conn = self.registry.db_pool.acquire();
+                defer self.registry.db_pool.release(conn);
+
+                if (done)
+                    try queries.callback.deleteById.exec(conn, .{callback_id})
+                else switch (callback.condition) {
+                    .timestamp => {},
+                    .cron => {
+                        var cron = Cron.init();
+                        try cron.parse(SelectNext.column(next_row, .cron).?);
+
+                        const now_ms = self.milliTimestamp();
+                        const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
+
+                        try queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
+                    },
+                }
+            }
         } else self.loop_wait.wait();
     }
 }
@@ -155,13 +182,24 @@ fn onTimestamp(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem
 
     const user_data = if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null;
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try queries.callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
-        user_data,
-        .{ .timestamp = params.timestamp },
-    );
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try queries.timeout_callback.insert.exec(conn, .{
+        conn.lastInsertedRowId(),
+        params.timestamp,
+        null,
+    });
+
+    try conn.commit();
 
     self.loop_wait.set();
 }
@@ -187,16 +225,27 @@ fn onCron(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allo
     var cron = Cron.init();
     try cron.parse(params.cron);
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
-        plugin_name,
-        params.func_name,
-        user_data,
-        .{ .cron = cron },
-    );
-
     const next = try cron.next(Datetime.fromTimestamp(self.milliTimestamp()));
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
+
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try queries.callback.insert.exec(conn, .{
+        plugin_name,
+        params.func_name,
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try queries.timeout_callback.insert.exec(conn, .{
+        conn.lastInsertedRowId(),
+        outputs[0].i64,
+        params.cron,
+    });
+
+    try conn.commit();
 
     self.loop_wait.set();
 }
