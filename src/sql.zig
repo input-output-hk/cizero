@@ -37,14 +37,26 @@ pub fn migrate(conn: zqlite.Conn) !void {
     }
 }
 
-pub fn enableLogging(conn: zqlite.Conn) void {
-    if (comptime !std.log.logEnabled(.debug, log_scope)) return;
-    _ = c.sqlite3_trace_v2(@ptrCast(conn.conn), c.SQLITE_TRACE_STMT, traceStmt, null);
+pub fn setJournalMode(conn: zqlite.Conn, comptime mode: enum {
+    DELETE,
+    TRUNCATE,
+    PERSIST,
+    MEMORY,
+    WAL,
+    OFF,
+}) !void {
+    const sql = "PRAGMA journal_mode = " ++ @tagName(mode);
+    try logErr(conn, .execNoArgs, .{sql});
 }
 
 pub fn enableForeignKeys(conn: zqlite.Conn) !void {
     const sql = "PRAGMA foreign_keys = ON";
     try logErr(conn, .execNoArgs, .{sql});
+}
+
+pub fn enableLogging(conn: zqlite.Conn) void {
+    if (comptime !std.log.logEnabled(.debug, log_scope)) return;
+    _ = c.sqlite3_trace_v2(@ptrCast(conn.conn), c.SQLITE_TRACE_STMT, traceStmt, null);
 }
 
 fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) callconv(.C) c_int {

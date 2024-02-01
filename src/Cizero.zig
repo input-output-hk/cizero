@@ -57,12 +57,8 @@ pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitErro
 
     self.* = .{
         .db_pool = zqlite.Pool.init(allocator, .{
-            .path = ":memory:",
-
-            // For some reason other connections do not see the new tables
-            // if we run the migration in here.
-            .on_first_connection = if (false) initDb else null,
-
+            .path = "cizero.sqlite",
+            .on_first_connection = initDb,
             .on_connection = initDbConn,
         }) catch |err| @panic(@errorName(err)),
         .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
@@ -75,13 +71,6 @@ pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitErro
     };
     errdefer self.deinit();
 
-    {
-        const conn = self.db_pool.acquire();
-        defer self.db_pool.release(conn);
-
-        initDb(conn) catch return error.DbError;
-    }
-
     try self.components.register(&self.registry);
 
     return self;
@@ -93,6 +82,7 @@ fn initDb(conn: zqlite.Conn) !void {
 
 fn initDbConn(conn: zqlite.Conn) !void {
     try conn.busyTimeout(std.time.ms_per_s);
+    try sql.setJournalMode(conn, .WAL);
     try sql.enableForeignKeys(conn);
     sql.enableLogging(conn);
 }
