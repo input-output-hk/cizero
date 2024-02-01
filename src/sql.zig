@@ -4,6 +4,7 @@ const zqlite = @import("zqlite");
 
 const lib = @import("lib");
 const meta = lib.meta;
+const enums = lib.enums;
 
 const c = @import("c.zig");
 
@@ -378,6 +379,48 @@ pub const queries = struct {
             ,
                 true,
                 @TypeOf(.{}),
+            );
+        }
+    };
+
+    pub const nix_callback = struct {
+        const table = "nix_callback";
+
+        pub const Column = union(enum) {
+            callback: i64,
+            flake_url: []const u8,
+        };
+        pub const ColumnName = std.meta.Tag(Column);
+
+        pub const insert = SimpleInsert(table, Column);
+
+        pub const ColumnJoined = meta.MergedUnions(callback.Column, Column, true);
+        pub const ColumnNameJoined = std.meta.Tag(ColumnJoined);
+
+        pub fn SelectCallbackByFlakeUrl(comptime columns: []const ColumnNameJoined) type {
+            return SimpleSelect(
+                ColumnJoined,
+                columns,
+                \\FROM "
+                ++ callback.table ++
+                    \\"
+                    \\INNER JOIN "
+                ++ table ++
+                    \\" ON "
+                ++ table ++
+                    \\"."
+                ++ @tagName(ColumnName.callback) ++
+                    \\" = "
+                ++ callback.table ++
+                    \\"."
+                ++ @tagName(callback.ColumnName.id) ++
+                    \\"
+                    \\WHERE "
+                ++ @tagName(ColumnName.flake_url) ++
+                    \\" = ?
+            ,
+                true,
+                struct { []const u8 },
             );
         }
     };

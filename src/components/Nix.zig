@@ -5,6 +5,8 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
+const queries = @import("../sql.zig").queries;
+
 const components = @import("../components.zig");
 const fs = @import("../fs.zig");
 
@@ -35,23 +37,17 @@ mock_lock_flake_url: if (builtin.is_test) ?meta.Closure(fn (
 mock_start_build_loop: if (builtin.is_test) ?meta.Closure(fn (
     allocator: std.mem.Allocator,
     flake_url: []const u8,
-    plugin_name: []const u8,
-    callback: Callback,
 ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void, true) else void = if (builtin.is_test) null,
 
 const Build = struct {
     flake_url: []const u8,
     output_spec: []const u8,
     instantiation: Instantiation,
-    plugin_name: []const u8,
-    callback: Callback,
     thread: std.Thread,
 
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.flake_url);
         self.instantiation.deinit();
-        allocator.free(self.plugin_name);
-        self.callback.deinit(allocator);
 
         // `output_spec` is a slice of `flake_url`
     }
@@ -121,19 +117,27 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
     if (!std.mem.eql(u8, params.flake_url, flake_url_locked))
         log.debug("locked flake URL {s} to {s}", .{ params.flake_url, flake_url_locked });
 
-    var callback = try Callback.init(
-        self.allocator,
-        params.func_name,
-        if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null,
-        .{},
-    );
-    errdefer callback.deinit(self.allocator);
+    {
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
 
-    try self.startBuildLoop(
-        flake_url_locked,
-        plugin_name,
-        callback,
-    );
+        try conn.transaction();
+        errdefer conn.rollback();
+
+        try queries.callback.insert.exec(conn, .{
+            plugin_name,
+            params.func_name,
+            if (params.user_data_len != 0) .{ .value = params.user_data_ptr[0..params.user_data_len] } else null,
+        });
+        try queries.nix_callback.insert.exec(conn, .{
+            conn.lastInsertedRowId(),
+            flake_url_locked,
+        });
+
+        try conn.commit();
+    }
+
+    try self.startBuildLoop(flake_url_locked);
 }
 
 pub const LockFlakeUrlError =
@@ -241,32 +245,20 @@ fn loop(self: *@This()) !void {
     }
 }
 
-fn startBuildLoop(
-    self: *@This(),
-    flake_url: []const u8,
-    plugin_name: []const u8,
-    callback: Callback,
-) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void {
+fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void {
     if (comptime @TypeOf(self.mock_start_build_loop) != void)
         if (self.mock_start_build_loop) |mock| return mock.call(.{
             self.allocator,
             flake_url,
-            plugin_name,
-            callback,
         });
 
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
     errdefer self.allocator.destroy(node);
 
-    const plugin_name_copy = try self.allocator.dupe(u8, plugin_name);
-    errdefer self.allocator.free(plugin_name_copy);
-
     node.data = .{
         .flake_url = flake_url,
         .output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..],
         .instantiation = .{ .ifds = std.BufSet.init(self.allocator) },
-        .plugin_name = plugin_name_copy,
-        .callback = callback,
         .thread = try std.Thread.spawn(.{}, buildLoop, .{ self, node }),
     };
 
@@ -337,7 +329,7 @@ fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
 
                 log.debug("built {s} as {s} producing {s}", .{ node.data.flake_url, drv.items, outputs });
 
-                try self.runCallback(node.data, if (outputs.len != 0) .{ .outputs = outputs } else .{ .failed_drv = drv.items });
+                try self.runCallbacks(node.data, if (outputs.len != 0) .{ .outputs = outputs } else .{ .failed_drv = drv.items });
                 break;
             },
             .ifds => |ifds| {
@@ -354,7 +346,7 @@ fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
                     if (outputs.len == 0) {
                         log.debug("could not build {s} due to failure building IFD {s}", .{ node.data.flake_url, ifd.* });
 
-                        try self.runCallback(node.data, .{ .failed_drv = ifd.* });
+                        try self.runCallbacks(node.data, .{ .failed_drv = ifd.* });
                         break :instantiate;
                     }
                 }
@@ -363,38 +355,68 @@ fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
     }
 }
 
-fn runCallback(self: *@This(), build_state: Build, result: union(enum) {
+fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
     outputs: []const []const u8,
     failed_drv: []const u8,
 }) !void {
-    var runtime = try self.registry.runtime(build_state.plugin_name);
-    defer runtime.deinit();
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
 
-    const linear = try runtime.linearMemoryAllocator();
-    const linear_allocator = linear.allocator();
+    const SelectCallback = queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .id, .plugin, .function, .user_data });
+    var callback_rows = try SelectCallback.rows(conn, .{build_state.flake_url});
+    errdefer callback_rows.deinit();
 
-    const outputs = switch (result) {
-        .failed_drv => null,
-        .outputs => |result_outputs| blk: {
-            const addrs = try linear_allocator.alloc(wasm.usize, result_outputs.len);
-            for (result_outputs, addrs) |result_output, *addr| {
-                const out = try linear_allocator.dupeZ(u8, result_output);
-                addr.* = linear.memory.offset(out.ptr);
-            }
-            break :blk addrs;
-        },
-    };
+    while (callback_rows.next()) |callback_row| {
+        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
+        defer runtime.deinit();
 
-    _ = try build_state.callback.run(self.allocator, runtime, &[_]wasm.Value{
-        .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.flake_url)).ptr)) },
-        .{ .i32 = if (result == .outputs) @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.instantiation.drv.items)).ptr)) else 0 },
-        .{ .i32 = if (outputs) |outs| @intCast(linear.memory.offset(outs.ptr)) else 0 },
-        .{ .i32 = if (outputs) |outs| @intCast(outs.len) else 0 },
-        .{ .i32 = switch (result) {
-            .outputs => 0,
-            .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
-        } },
-    }, &.{});
+        const linear = try runtime.linearMemoryAllocator();
+        const linear_allocator = linear.allocator();
+
+        const outputs = switch (result) {
+            .failed_drv => null,
+            .outputs => |result_outputs| blk: {
+                const addrs = try linear_allocator.alloc(wasm.usize, result_outputs.len);
+                for (result_outputs, addrs) |result_output, *addr| {
+                    const out = try linear_allocator.dupeZ(u8, result_output);
+                    addr.* = linear.memory.offset(out.ptr);
+                }
+                break :blk addrs;
+            },
+        };
+
+        var callback = blk: {
+            const func_name = try self.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
+            errdefer self.allocator.free(func_name);
+
+            const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
+            errdefer if (user_data) |ud| self.allocator.free(ud);
+
+            break :blk Callback{
+                .func_name = func_name,
+                .user_data = user_data,
+                .condition = .{},
+            };
+        };
+        defer callback.deinit(self.allocator);
+
+        const success = try callback.run(self.allocator, runtime, &[_]wasm.Value{
+            .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.flake_url)).ptr)) },
+            .{ .i32 = if (result == .outputs) @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.instantiation.drv.items)).ptr)) else 0 },
+            .{ .i32 = if (outputs) |outs| @intCast(linear.memory.offset(outs.ptr)) else 0 },
+            .{ .i32 = if (outputs) |outs| @intCast(outs.len) else 0 },
+            .{ .i32 = switch (result) {
+                .outputs => 0,
+                .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
+            } },
+        }, &.{});
+        const done = callback.done(success, &.{});
+        std.debug.assert(done);
+
+        if (done) try queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+    }
+
+    try callback_rows.deinitErr();
 }
 
 const Instantiation = union(enum) {
