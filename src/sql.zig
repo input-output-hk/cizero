@@ -26,11 +26,11 @@ pub fn migrate(conn: zqlite.Conn) !void {
 
         {
             const sql = @embedFile("sql/schema.sql");
-            try logErr(conn, conn.execNoArgs(sql), sql);
+            try logErr(conn, .execNoArgs, .{sql});
         }
         {
             const sql = "PRAGMA user_version = 1";
-            try logErr(conn, conn.execNoArgs(sql), sql);
+            try logErr(conn, .execNoArgs, .{sql});
         }
 
         try conn.commit();
@@ -44,7 +44,7 @@ pub fn enableLogging(conn: zqlite.Conn) void {
 
 pub fn enableForeignKeys(conn: zqlite.Conn) !void {
     const sql = "PRAGMA foreign_keys = ON";
-    try logErr(conn, conn.execNoArgs(sql), sql);
+    try logErr(conn, .execNoArgs, .{sql});
 }
 
 fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) callconv(.C) c_int {
@@ -57,8 +57,14 @@ fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) ca
     return 0;
 }
 
-fn logErr(conn: zqlite.Conn, error_union: anytype, sql: []const u8) @TypeOf(error_union) {
-    return if (error_union) |result| result else |err| blk: {
+fn logErr(conn: zqlite.Conn, comptime func_name: std.meta.DeclEnum(zqlite.Conn), args: anytype) zqlite.Error!(blk: {
+    const func = @field(zqlite.Conn, @tagName(func_name));
+    const func_info = @typeInfo(@TypeOf(func)).Fn;
+    break :blk @typeInfo(func_info.return_type.?).ErrorUnion.payload;
+}) {
+    const func = @field(zqlite.Conn, @tagName(func_name));
+    return if (@call(.auto, func, .{conn} ++ args)) |result| result else |err| blk: {
+        const sql: []const u8 = args.@"0";
         log.err("{s}: {s}. Statement: {s}", .{ @errorName(err), conn.lastError(), sql });
         break :blk err;
     };
@@ -109,12 +115,12 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
         }
 
         pub fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
-            return logErr(conn, conn.row(sql, values), sql);
+            return logErr(conn, .row, .{ sql, values });
         }
 
         pub usingnamespace if (multi) struct {
             pub fn rows(conn: zqlite.Conn, values: Values) !?zqlite.Row {
-                return logErr(conn, conn.rows(sql, values), sql);
+                return logErr(conn, .rows, .{ sql, values });
             }
         } else struct {};
     };
@@ -162,12 +168,12 @@ pub fn Exec(comptime sql: []const u8, comptime Values_: type) type {
         pub const Values = Q.Values;
 
         pub fn exec(conn: zqlite.Conn, values: Values) !void {
-            return logErr(conn, conn.exec(sql, values), sql);
+            return logErr(conn, .exec, .{ sql, values });
         }
 
         pub usingnamespace if (@typeInfo(Values).Struct.fields.len == 0) struct {
             pub fn execNoArgs(conn: zqlite.Conn) !void {
-                return logErr(conn, conn.execNoArgs(sql), sql);
+                return logErr(conn, .execNoArgs, .{sql});
             }
         } else struct {};
     };
