@@ -11,61 +11,49 @@ pub const Nix = @import("components/Nix.zig");
 pub const Process = @import("components/Process.zig");
 pub const Timeout = @import("components/Timeout.zig");
 
-pub fn CallbackUnmanaged(comptime T: type) type {
-    return struct {
-        func_name: [:0]const u8,
-        user_data: ?[]const u8,
-        condition: T,
+pub const CallbackUnmanaged = struct {
+    func_name: [:0]const u8,
+    user_data: ?[]const u8,
 
-        pub const Condition = T;
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        if (self.user_data) |user_data| allocator.free(user_data);
+        allocator.free(self.func_name);
+    }
 
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            if (comptime trait.hasFn("deinit")(T)) self.condition.deinit(allocator);
-            if (self.user_data) |user_data| allocator.free(user_data);
-            allocator.free(self.func_name);
-        }
+    pub fn init(allocator: std.mem.Allocator, func_name: []const u8, user_data: ?[]const u8) !@This() {
+        const func_name_z = try allocator.dupeZ(u8, func_name);
+        errdefer allocator.free(func_name_z);
 
-        pub fn init(allocator: std.mem.Allocator, func_name: []const u8, user_data: ?[]const u8, condition: T) !@This() {
-            const func_name_z = try allocator.dupeZ(u8, func_name);
-            errdefer allocator.free(func_name_z);
+        const user_data_dupe = if (user_data) |ud| try allocator.dupe(u8, ud) else null;
+        errdefer if (user_data_dupe) |ud_dupe| allocator.free(ud_dupe);
 
-            const user_data_dupe = if (user_data) |ud| try allocator.dupe(u8, ud) else null;
-            errdefer if (user_data_dupe) |ud_dupe| allocator.free(ud_dupe);
+        return .{
+            .func_name = func_name_z,
+            .user_data = user_data_dupe,
+        };
+    }
 
-            return .{
-                .func_name = func_name_z,
-                .user_data = user_data_dupe,
-                .condition = condition,
-            };
-        }
+    pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: Runtime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
+        const linear = try runtime.linearMemoryAllocator();
+        const linear_allocator = linear.allocator();
 
-        pub fn run(self: *const @This(), allocator: std.mem.Allocator, runtime: Runtime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
-            const linear = try runtime.linearMemoryAllocator();
-            const linear_allocator = linear.allocator();
+        const user_data = if (self.user_data) |user_data| try linear_allocator.dupe(u8, user_data) else null;
+        defer if (user_data) |ud| linear_allocator.free(ud);
 
-            const user_data = if (self.user_data) |user_data| try linear_allocator.dupe(u8, user_data) else null;
-            defer if (user_data) |ud| linear_allocator.free(ud);
+        var final_inputs = try allocator.alloc(wasm.Value, inputs.len + 2);
+        defer allocator.free(final_inputs);
 
-            var final_inputs = try allocator.alloc(wasm.Value, inputs.len + 2);
-            defer allocator.free(final_inputs);
+        final_inputs[0] = .{ .i32 = if (user_data) |ud| @intCast(linear.memory.offset(ud.ptr)) else 0 };
+        final_inputs[1] = .{ .i32 = if (user_data) |ud| @intCast(ud.len) else 0 };
+        for (final_inputs[2..], inputs) |*final_input, input| final_input.* = input;
 
-            final_inputs[0] = .{ .i32 = if (user_data) |ud| @intCast(linear.memory.offset(ud.ptr)) else 0 };
-            final_inputs[1] = .{ .i32 = if (user_data) |ud| @intCast(ud.len) else 0 };
-            for (final_inputs[2..], inputs) |*final_input, input| final_input.* = input;
+        // TODO run on new thread
+        const success = try runtime.call(self.func_name, final_inputs, outputs);
+        if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin_name });
 
-            // TODO run on new thread
-            const success = try runtime.call(self.func_name, final_inputs, outputs);
-            if (!success) std.log.info("callback function \"{s}\" from plugin \"{s}\" finished unsuccessfully", .{ self.func_name, runtime.plugin_name });
-
-            return success;
-        }
-
-        pub fn done(self: *const @This(), success: bool, outputs: []const wasm.Value) bool {
-            const condition: CallbackDoneCondition = self.condition.done();
-            return condition.check(success, outputs);
-        }
-    };
-}
+        return success;
+    }
+};
 
 pub const CallbackDoneCondition = union(enum) {
     always,

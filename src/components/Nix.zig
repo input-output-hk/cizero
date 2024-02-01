@@ -53,12 +53,6 @@ const Build = struct {
     }
 };
 
-pub const Callback = components.CallbackUnmanaged(struct {
-    pub fn done(_: @This()) components.CallbackDoneCondition {
-        return .always;
-    }
-});
-
 pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
 }
@@ -392,15 +386,14 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
             const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
             errdefer if (user_data) |ud| self.allocator.free(ud);
 
-            break :blk Callback{
+            break :blk components.CallbackUnmanaged{
                 .func_name = func_name,
                 .user_data = user_data,
-                .condition = .{},
             };
         };
         defer callback.deinit(self.allocator);
 
-        const success = try callback.run(self.allocator, runtime, &[_]wasm.Value{
+        _ = try callback.run(self.allocator, runtime, &[_]wasm.Value{
             .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.flake_url)).ptr)) },
             .{ .i32 = if (result == .outputs) @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.instantiation.drv.items)).ptr)) else 0 },
             .{ .i32 = if (outputs) |outs| @intCast(linear.memory.offset(outs.ptr)) else 0 },
@@ -410,10 +403,8 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
                 .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
             } },
         }, &.{});
-        const done = callback.done(success, &.{});
-        std.debug.assert(done);
 
-        if (done) try queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+        try queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
     }
 
     try callback_rows.deinitErr();

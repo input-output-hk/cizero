@@ -14,13 +14,13 @@ const Runtime = @import("../Runtime.zig");
 
 pub const name = "http";
 
-const Callback = components.CallbackUnmanaged(union(enum) {
+const Callback = enum {
     webhook,
 
     pub fn done(_: @This()) components.CallbackDoneCondition {
         return .{ .on = .{} };
     }
-});
+};
 
 registry: *const Registry,
 
@@ -79,10 +79,9 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
             const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
             errdefer if (user_data) |ud| self.allocator.free(ud);
 
-            break :blk Callback{
+            break :blk components.CallbackUnmanaged{
                 .func_name = func_name,
                 .user_data = user_data,
-                .condition = .webhook,
             };
         };
         defer callback.deinit(self.allocator);
@@ -104,7 +103,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
 
         const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
 
-        if (callback.done(success, &outputs)) {
+        if (Callback.webhook.done().check(success, &outputs)) {
             const callback_id = SelectCallback.column(callback_row, .id);
 
             const conn = self.registry.db_pool.acquire();

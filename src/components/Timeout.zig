@@ -16,7 +16,7 @@ const Runtime = @import("../Runtime.zig");
 
 pub const name = "timeout";
 
-const Callback = components.CallbackUnmanaged(enum {
+const Callback = enum {
     timestamp,
     cron,
 
@@ -26,7 +26,7 @@ const Callback = components.CallbackUnmanaged(enum {
             .cron => .{ .on = .{} },
         };
     }
-});
+};
 
 registry: *const Registry,
 
@@ -86,6 +86,7 @@ fn loop(self: *@This()) !void {
             }
 
             const callback_id = SelectNext.column(next_row, .callback);
+            const callback_kind: Callback = if (SelectNext.column(next_row, .cron) != null) .cron else .timestamp;
 
             const SelectById = queries.callback.SelectById(&.{ .plugin, .function, .user_data });
             const callback_row = blk: {
@@ -103,10 +104,9 @@ fn loop(self: *@This()) !void {
                 const user_data = if (SelectById.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
                 errdefer if (user_data) |ud| self.allocator.free(ud);
 
-                break :blk Callback{
+                break :blk components.CallbackUnmanaged{
                     .func_name = func_name,
                     .user_data = user_data,
-                    .condition = if (SelectNext.column(next_row, .cron) != null) .cron else .timestamp,
                 };
             };
             defer callback.deinit(self.allocator);
@@ -114,7 +114,7 @@ fn loop(self: *@This()) !void {
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
             var outputs_memory: [1]wasm.Value = undefined;
-            const outputs = outputs_memory[0..switch (callback.condition) {
+            const outputs = outputs_memory[0..switch (callback_kind) {
                 .timestamp => 0,
                 .cron => 1,
             }];
@@ -125,7 +125,7 @@ fn loop(self: *@This()) !void {
             try callback_row.deinitErr();
 
             const success = try callback.run(self.allocator, runtime, &.{}, outputs);
-            const done = callback.done(success, outputs);
+            const done = callback_kind.done().check(success, outputs);
 
             {
                 const conn = self.registry.db_pool.acquire();
@@ -133,7 +133,7 @@ fn loop(self: *@This()) !void {
 
                 if (done)
                     try queries.callback.deleteById.exec(conn, .{callback_id})
-                else switch (callback.condition) {
+                else switch (callback_kind) {
                     .timestamp => {},
                     .cron => {
                         var cron = Cron.init();
