@@ -119,7 +119,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
         }
 
         pub usingnamespace if (multi) struct {
-            pub fn rows(conn: zqlite.Conn, values: Values) !?zqlite.Row {
+            pub fn rows(conn: zqlite.Conn, values: Values) !zqlite.Rows {
                 return logErr(conn, .rows, .{ sql, values });
             }
         } else struct {};
@@ -333,6 +333,41 @@ pub const queries = struct {
         ++ @tagName(ColumnName.callback) ++
             \\" = ?1
         , struct { i64, i64 });
+    };
+
+    pub const http_callback = struct {
+        const table = "http_callback";
+
+        pub const Column = union(enum) {
+            callback: i64,
+        };
+        pub const ColumnName = std.meta.Tag(Column);
+
+        pub const insert = SimpleInsert(table, Column);
+
+        pub fn SelectCallback(comptime columns: []const callback.ColumnName) type {
+            return SimpleSelect(
+                callback.Column,
+                columns,
+                \\FROM "
+                ++ callback.table ++
+                    \\"
+                    \\INNER JOIN "
+                ++ table ++
+                    \\" ON "
+                ++ table ++
+                    \\"."
+                ++ @tagName(ColumnName.callback) ++
+                    \\" = "
+                ++ callback.table ++
+                    \\"."
+                ++ @tagName(callback.ColumnName.id) ++
+                    \\"
+            ,
+                true,
+                @TypeOf(.{}),
+            );
+        }
     };
 };
 

@@ -5,6 +5,8 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
+const queries = @import("../sql.zig").queries;
+
 const components = @import("../components.zig");
 
 const Registry = @import("../Registry.zig");
@@ -12,23 +14,22 @@ const Runtime = @import("../Runtime.zig");
 
 pub const name = "http";
 
-registry: *const Registry,
-
-allocator: std.mem.Allocator,
-
-plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
+const Callback = components.CallbackUnmanaged(union(enum) {
     webhook,
 
     pub fn done(_: @This()) components.CallbackDoneCondition {
         return .{ .on = .{} };
     }
-}) = .{},
+});
+
+registry: *const Registry,
+
+allocator: std.mem.Allocator,
 
 server: httpz.ServerCtx(*@This(), *@This()),
 
 pub fn deinit(self: *@This()) void {
     self.server.deinit();
-    self.plugin_callbacks.deinit(self.allocator);
     self.allocator.destroy(self);
 }
 
@@ -61,19 +62,32 @@ pub fn stop(self: *@This()) void {
 }
 
 fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
-    var callbacks = try std.ArrayListUnmanaged(@TypeOf(self.plugin_callbacks).Entry).initCapacity(self.allocator, self.plugin_callbacks.map.count());
-    defer callbacks.deinit(self.allocator);
+    const SelectCallback = queries.http_callback.SelectCallback(&.{ .id, .plugin, .function, .user_data });
+    var callback_rows = blk: {
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
 
-    {
-        var plugin_callbacks_iter = self.plugin_callbacks.iterator();
-        while (plugin_callbacks_iter.next()) |entry| {
-            if (entry.callbackPtr().condition != .webhook) continue;
-            try callbacks.append(self.allocator, entry);
-        }
-    }
+        break :blk try SelectCallback.rows(conn, .{});
+    };
+    errdefer callback_rows.deinit();
 
-    for (callbacks.items) |entry| {
-        var runtime = try self.registry.runtime(entry.pluginName());
+    while (callback_rows.next()) |callback_row| {
+        var callback = blk: {
+            const func_name = try self.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
+            errdefer self.allocator.free(func_name);
+
+            const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
+            errdefer if (user_data) |ud| self.allocator.free(ud);
+
+            break :blk Callback{
+                .func_name = func_name,
+                .user_data = user_data,
+                .condition = .webhook,
+            };
+        };
+        defer callback.deinit(self.allocator);
+
+        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
@@ -87,8 +101,20 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         };
 
         var outputs: [1]wasm.Value = undefined;
-        _ = try entry.run(self.allocator, runtime, &inputs, &outputs);
+
+        const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
+
+        if (callback.done(success, &outputs)) {
+            const callback_id = SelectCallback.column(callback_row, .id);
+
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
+
+            try queries.callback.deleteById.exec(conn, .{callback_id});
+        }
     }
+
+    try callback_rows.deinitErr();
 
     res.status = 204;
 }
@@ -117,11 +143,18 @@ fn onWebhook(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.A
 
     const user_data = if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null;
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try queries.callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
-        user_data,
-        .webhook,
-    );
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try queries.http_callback.insert.exec(conn, .{conn.lastInsertedRowId()});
+
+    try conn.commit();
 }

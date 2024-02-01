@@ -17,3 +17,7 @@ CREATE TABLE "timeout_callback" (
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX "timeout_callback.timestamp" ON "timeout_callback" ("timestamp");
+
+CREATE TABLE "http_callback" (
+	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
