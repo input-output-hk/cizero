@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const zqlite = @import("zqlite");
 
 const lib = @import("lib");
 const meta = lib.meta;
@@ -206,12 +207,27 @@ test lockFlakeUrl {
     }
 }
 
-pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!std.Thread {
     self.loop_run.store(true, .Monotonic);
     self.loop_wait.reset();
 
     const thread = try std.Thread.spawn(.{}, loop, .{self});
     thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+
+    {
+        const SelectPending = queries.nix_callback.Select(&.{.flake_url});
+        var rows = blk: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
+
+            break :blk try SelectPending.rows(conn, .{});
+        };
+        errdefer rows.deinit();
+        while (rows.next()) |row|
+            try self.startBuildLoop(SelectPending.column(row, .flake_url));
+        try rows.deinitErr();
+    }
+
     return thread;
 }
 
@@ -245,6 +261,21 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
             self.allocator,
             flake_url,
         });
+
+    {
+        self.builds_mutex.lock();
+        defer self.builds_mutex.unlock();
+
+        var node = self.builds.first;
+        while (node != null) : (node = node.?.next) {
+            if (!std.mem.eql(u8, node.?.data.flake_url, flake_url)) continue;
+
+            log.debug("build loop is already running for {s}", .{flake_url});
+            return;
+        }
+    }
+
+    log.debug("starting build loop for {s}", .{flake_url});
 
     const node = try self.allocator.create(@TypeOf(self.builds).Node);
     errdefer self.allocator.destroy(node);

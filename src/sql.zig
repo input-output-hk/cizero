@@ -397,6 +397,19 @@ pub const queries = struct {
         pub const ColumnJoined = meta.MergedUnions(callback.Column, Column, true);
         pub const ColumnNameJoined = std.meta.Tag(ColumnJoined);
 
+        pub fn Select(comptime columns: []const ColumnName) type {
+            return SimpleSelect(
+                Column,
+                columns,
+                \\FROM "
+                ++ table ++
+                    \\"
+            ,
+                true,
+                @TypeOf(.{}),
+            );
+        }
+
         pub fn SelectCallbackByFlakeUrl(comptime columns: []const ColumnNameJoined) type {
             return SimpleSelect(
                 ColumnJoined,
