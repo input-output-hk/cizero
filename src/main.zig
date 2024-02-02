@@ -1,4 +1,5 @@
 const std = @import("std");
+const zqlite = @import("zqlite");
 
 const Cizero = @import("cizero");
 
@@ -11,7 +12,10 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) std.log.err("leaked memory", .{});
     const allocator = gpa.allocator();
 
-    cizero = try Cizero.init(allocator);
+    cizero = try Cizero.init(allocator, .{
+        .path = "cizero.sqlite",
+        .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
+    });
     defer cizero.deinit();
 
     {

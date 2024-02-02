@@ -3,6 +3,7 @@ const trait = @import("trait");
 const zqlite = @import("zqlite");
 
 const lib = @import("lib");
+const meta = lib.meta;
 
 const sql = @import("sql.zig");
 
@@ -22,7 +23,7 @@ const Components = struct {
     const InitError = blk: {
         var set = error{};
         for (fields) |field| {
-            const T = lib.meta.OptionalChild(field.type) orelse field.type;
+            const T = meta.OptionalChild(field.type) orelse field.type;
             if (@hasDecl(T, "InitError")) set = set || T.InitError;
         }
         break :blk set;
@@ -46,7 +47,9 @@ pub fn deinit(self: *@This()) void {
     self.registry.allocator.destroy(self);
 }
 
-pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitError)!*@This() {
+pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
+
+pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
 
     var http = try components.Http.init(allocator, &self.registry);
@@ -57,7 +60,9 @@ pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitErro
 
     self.* = .{
         .db_pool = zqlite.Pool.init(allocator, .{
-            .path = "cizero.sqlite",
+            .path = db_config.path,
+            .flags = db_config.flags,
+            .size = db_config.size,
             .on_first_connection = initDb,
             .on_connection = initDbConn,
         }) catch return error.DbError,
