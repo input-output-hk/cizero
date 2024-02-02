@@ -22,6 +22,10 @@
             .url = "https://github.com/wrongnull/zigtrait/archive/327d916b522676e6440df7f831d049001fa24dfd.tar.gz",
             .hash = "12209e2e8b61415ca4e12d08cf6e7e0fe514ac83a2659f497c033be19c331cef408d",
         },
+        .zqlite = .{
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/44bc67ebca462d279d1ea3dd699e48083062f2e2.tar.gz",
+            .hash = "122007513fa4c303ff2de35b1680559a73cd64f6af96b341eb30e5556e4c5465c94c",
+        },
     },
     .paths = .{
         "build.zig",

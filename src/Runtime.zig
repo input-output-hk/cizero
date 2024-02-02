@@ -1,13 +1,12 @@
 const std = @import("std");
 
 const lib = @import("lib");
+const mem = lib.mem;
 const wasm = lib.wasm;
 
-const c = @import("../c.zig");
-const fs = @import("../fs.zig");
-const wasmtime = @import("../wasmtime.zig");
-
-const Plugin = @import("../Plugin.zig");
+const c = @import("c.zig");
+const fs = @import("fs.zig");
+const wasmtime = @import("wasmtime.zig");
 
 wasm_engine: *c.wasm_engine_t,
 wasm_store: *c.wasmtime_store,
@@ -41,7 +40,7 @@ wasi_config: ?*const WasiConfig = null,
 
 allocator: std.mem.Allocator,
 
-plugin: Plugin,
+plugin_name: []const u8,
 plugin_wasm: []const u8,
 
 host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
@@ -254,13 +253,20 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self_on_heap);
 
     self.host_functions.deinit(self.allocator);
+
+    self.allocator.free(self.plugin_name);
     self.allocator.free(self.plugin_wasm);
 
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
 }
 
-pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: std.StringArrayHashMapUnmanaged(HostFunctionDef)) !@This() {
+pub fn init(
+    allocator: std.mem.Allocator,
+    plugin_name: []const u8,
+    plugin_wasm: []const u8,
+    host_function_defs: std.StringArrayHashMapUnmanaged(HostFunctionDef),
+) !@This() {
     const wasm_engine = blk: {
         const wasm_config = c.wasm_config_new();
         c.wasmtime_config_epoch_interruption_set(wasm_config, true);
@@ -315,16 +321,19 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         }
     }
 
-    const plugin_wasm = try plugin.wasm(allocator);
-    errdefer allocator.free(plugin_wasm);
+    const plugin_name_copy = try allocator.dupe(u8, plugin_name);
+    errdefer allocator.free(plugin_name_copy);
+
+    const plugin_wasm_copy = try allocator.dupe(u8, plugin_wasm);
+    errdefer allocator.free(plugin_wasm_copy);
 
     var self = @This(){
         .wasm_engine = wasm_engine,
         .wasm_store = wasm_store,
         .wasm_context = wasm_context,
         .allocator = allocator,
-        .plugin = plugin,
-        .plugin_wasm = plugin_wasm,
+        .plugin_name = plugin_name_copy,
+        .plugin_wasm = plugin_wasm_copy,
         .host_functions = host_functions,
         .wasm_instance = undefined,
     };
@@ -334,6 +343,7 @@ pub fn init(allocator: std.mem.Allocator, plugin: Plugin, host_function_defs: st
         defer c.wasmtime_module_delete(wasm_module);
         try handleError(
             "failed to compile module",
+            // XXX do we really have to keep plugin_wasm alive?
             c.wasmtime_module_new(wasm_engine, self.plugin_wasm.ptr, self.plugin_wasm.len, &wasm_module),
             null,
         );
@@ -370,7 +380,7 @@ fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
     var args: ?[][]const u8 = null;
     defer if (args) |a| self.allocator.free(a);
     {
-        const default_args: []const []const u8 = &.{self.plugin.name()};
+        const default_args: []const []const u8 = &.{self.plugin_name};
         new_wasi_config.argv = if (new_wasi_config.argv) |argv| blk: {
             args = try self.allocator.alloc([]const u8, default_args.len + argv.len);
             @memcpy(args.?[0..default_args.len], default_args);
@@ -395,12 +405,12 @@ pub const HostFunction = struct {
     callback: *const Callback,
     user_data: ?*anyopaque,
 
-    pub const Callback = fn (?*anyopaque, Plugin, []u8, std.mem.Allocator, []const wasm.Value, []wasm.Value) anyerror!void;
+    pub const Callback = fn (?*anyopaque, plugin_name: []const u8, []u8, std.mem.Allocator, []const wasm.Value, []wasm.Value) anyerror!void;
 
     pub fn init(callback: anytype, user_data: ?*anyopaque) @This() {
         comptime {
             const T = @typeInfo(@TypeOf(callback)).Fn;
-            if (T.params[1].type.? != Plugin or
+            if (T.params[1].type.? != []const u8 or
                 T.params[2].type.? != []u8 or
                 T.params[3].type.? != std.mem.Allocator or
                 T.params[4].type.? != []const wasm.Value or
@@ -414,8 +424,8 @@ pub const HostFunction = struct {
         };
     }
 
-    fn call(self: @This(), plugin: Plugin, memory: []u8, allocator: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
-        return self.callback(self.user_data, plugin, memory, allocator, inputs, outputs);
+    fn call(self: @This(), plugin_name: []const u8, memory: []u8, allocator: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) anyerror!void {
+        return self.callback(self.user_data, plugin_name, memory, allocator, inputs, outputs);
     }
 };
 
@@ -440,7 +450,7 @@ fn dispatchHostFunction(
     defer self.allocator.free(output_vals);
 
     const host_function: *const HostFunction = @alignCast(@ptrCast(user_data));
-    host_function.call(self.plugin, memory.slice(), allocator.allocator(), input_vals, output_vals) catch |err| return errorTrap(err);
+    host_function.call(self.plugin_name, memory.slice(), allocator.allocator(), input_vals, output_vals) catch |err| return errorTrap(err);
 
     for (output_vals, outputs) |val, *output| output.* = wasmtime.val(val);
 
@@ -687,7 +697,7 @@ pub fn main(self: @This()) !bool {
 }
 
 pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
-    std.log.debug("calling plugin \"{s}\" function \"{s}\"", .{ self.plugin.name(), func_name });
+    std.log.debug("calling plugin \"{s}\" function \"{s}\"", .{ self.plugin_name, func_name });
 
     if (self.wasi_config) |wc| try self.configureWasi(wc.*);
 

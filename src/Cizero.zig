@@ -1,12 +1,15 @@
 const std = @import("std");
 const trait = @import("trait");
+const zqlite = @import("zqlite");
 
 const lib = @import("lib");
+const meta = lib.meta;
 
 pub const components = @import("components.zig");
+pub const sql = @import("sql.zig");
 
-pub const Plugin = @import("Plugin.zig");
 pub const Registry = @import("Registry.zig");
+pub const Runtime = @import("Runtime.zig");
 
 const Components = struct {
     http: *components.Http,
@@ -19,7 +22,7 @@ const Components = struct {
     const InitError = blk: {
         var set = error{};
         for (fields) |field| {
-            const T = lib.meta.OptionalChild(field.type) orelse field.type;
+            const T = meta.OptionalChild(field.type) orelse field.type;
             if (@hasDecl(T, "InitError")) set = set || T.InitError;
         }
         break :blk set;
@@ -33,15 +36,19 @@ const Components = struct {
     }
 };
 
+db_pool: zqlite.Pool,
 registry: Registry,
 components: Components,
 
 pub fn deinit(self: *@This()) void {
     self.registry.deinit();
+    self.db_pool.deinit();
     self.registry.allocator.destroy(self);
 }
 
-pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
+pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
+
+pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
 
     var http = try components.Http.init(allocator, &self.registry);
@@ -51,7 +58,14 @@ pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
     errdefer nix.deinit();
 
     self.* = .{
-        .registry = .{ .allocator = allocator },
+        .db_pool = zqlite.Pool.init(allocator, .{
+            .path = db_config.path,
+            .flags = db_config.flags,
+            .size = db_config.size,
+            .on_first_connection = initDb,
+            .on_connection = initDbConn,
+        }) catch return error.DbError,
+        .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
         .components = .{
             .http = http,
             .nix = nix,
@@ -59,9 +73,22 @@ pub fn init(allocator: std.mem.Allocator) Components.InitError!*@This() {
             .timeout = .{ .allocator = allocator, .registry = &self.registry },
         },
     };
+    errdefer self.deinit();
+
     try self.components.register(&self.registry);
 
     return self;
+}
+
+fn initDb(conn: zqlite.Conn) !void {
+    try sql.migrate(conn);
+}
+
+fn initDbConn(conn: zqlite.Conn) !void {
+    try conn.busyTimeout(std.time.ms_per_s);
+    try sql.setJournalMode(conn, .WAL);
+    try sql.enableForeignKeys(conn);
+    sql.enableLogging(conn);
 }
 
 pub fn run(self: *@This()) !void {

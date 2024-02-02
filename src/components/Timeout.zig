@@ -9,32 +9,16 @@ const meta = lib.meta;
 const wasm = lib.wasm;
 
 const components = @import("../components.zig");
+const sql = @import("../sql.zig");
 
-const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "timeout";
 
-registry: *const Registry,
-
-allocator: std.mem.Allocator,
-
-plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
-    /// Milliseconds since the unix epoch.
-    timestamp: i64,
-    cron: Cron,
-
-    pub fn next(self: @This(), now_ms: i64) !i64 {
-        return switch (self) {
-            .timestamp => |ms| ms,
-            .cron => |cron| blk: {
-                // XXX We need a mutable copy of `cron` because `Cron.next()` takes itself by pointer.
-                // It seems that is unnecessary though. Fix upstream?
-                var c = cron;
-                break :blk @intCast((try c.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
-            },
-        };
-    }
+const Callback = enum {
+    timestamp,
+    cron,
 
     pub fn done(self: @This()) components.CallbackDoneCondition {
         return switch (self) {
@@ -42,7 +26,11 @@ plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
             .cron => .{ .on = .{} },
         };
     }
-}) = .{},
+};
+
+registry: *const Registry,
+
+allocator: std.mem.Allocator,
 
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
@@ -53,10 +41,6 @@ fn milliTimestamp(self: @This()) i64 {
     if (@TypeOf(self.mock_milli_timestamp) != void)
         if (self.mock_milli_timestamp) |mock| return mock.call(.{});
     return std.time.milliTimestamp();
-}
-
-pub fn deinit(self: *@This()) void {
-    self.plugin_callbacks.deinit(self.allocator);
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
@@ -75,26 +59,20 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const now_ms = self.milliTimestamp();
+        const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .id, .plugin, .function, .user_data, .timestamp, .cron });
+        const next_callback_row = blk: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
 
-        const next_callback = blk: {
-            var next: ?@TypeOf(self.plugin_callbacks).Entry = null;
-
-            var plugin_callbacks_iter = self.plugin_callbacks.iterator();
-            while (plugin_callbacks_iter.next()) |entry| {
-                // XXX do not compute `entry.callbackPtr().condition.next()` multiple times
-                // XXX do not compute `next.?.callbackPtr().timeout.next()` multiple times
-                if (next == null or try entry.callbackPtr().condition.next(now_ms) < try next.?.callbackPtr().condition.next(now_ms)) next = entry;
-            }
-
-            break :blk next;
+            break :blk try SelectNext.row(conn, .{});
         };
 
-        if (next_callback) |next| {
-            const callback = next.callbackPtr();
+        if (next_callback_row) |callback_row| {
+            errdefer callback_row.deinit();
 
             {
-                const next_timestamp = try callback.condition.next(now_ms);
+                const now_ms = self.milliTimestamp();
+                const next_timestamp = SelectNext.column(callback_row, .timestamp);
                 if (now_ms < next_timestamp) {
                     const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
                     if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
@@ -105,42 +83,76 @@ fn loop(self: *@This()) !void {
                 }
             }
 
+            var callback: components.CallbackUnmanaged = undefined;
+            try sql.structFromRow(self.allocator, &callback, callback_row, SelectNext.column, .{
+                .func_name = .function,
+                .user_data = .user_data,
+            });
+            defer callback.deinit(self.allocator);
+
+            const callback_id = SelectNext.column(callback_row, .id);
+            const callback_kind: Callback = if (SelectNext.column(callback_row, .cron) != null) .cron else .timestamp;
+
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
             var outputs_memory: [1]wasm.Value = undefined;
-            const outputs = outputs_memory[0..switch (callback.condition) {
+            const outputs = outputs_memory[0..switch (callback_kind) {
                 .timestamp => 0,
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(next.pluginName());
+            var runtime = try self.registry.runtime(SelectNext.column(callback_row, .plugin));
             defer runtime.deinit();
 
-            _ = try next.run(self.allocator, runtime, &.{}, outputs);
+            const success = try callback.run(self.allocator, runtime, &.{}, outputs);
+            const done = callback_kind.done().check(success, outputs);
+
+            if (done) {
+                const conn = self.registry.db_pool.acquire();
+                defer self.registry.db_pool.release(conn);
+
+                try sql.queries.callback.deleteById.exec(conn, .{callback_id});
+            } else switch (callback_kind) {
+                .timestamp => {},
+                .cron => {
+                    var cron = Cron.init();
+                    try cron.parse(SelectNext.column(callback_row, .cron).?);
+
+                    const now_ms = self.milliTimestamp();
+                    const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
+
+                    const conn = self.registry.db_pool.acquire();
+                    defer self.registry.db_pool.release(conn);
+
+                    try sql.queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
+                },
+            }
+
+            try callback_row.deinitErr();
         } else self.loop_wait.wait();
     }
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .on_timestamp = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .on_timestamp = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32, .i64 },
                 .returns = &.{},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onTimestamp, self),
+            .host_function = Runtime.HostFunction.init(onTimestamp, self),
         },
-        .on_cron = Plugin.Runtime.HostFunctionDef{
+        .on_cron = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{.i64},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onCron, self),
+            .host_function = Runtime.HostFunction.init(onCron, self),
         },
     });
 }
 
-fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onTimestamp(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
@@ -155,18 +167,29 @@ fn onTimestamp(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocato
 
     const user_data = if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null;
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
-        plugin.name(),
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try sql.queries.callback.insert.exec(conn, .{
+        plugin_name,
         params.func_name,
-        user_data,
-        .{ .timestamp = params.timestamp },
-    );
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try sql.queries.timeout_callback.insert.exec(conn, .{
+        conn.lastInsertedRowId(),
+        params.timestamp,
+        null,
+    });
+
+    try conn.commit();
 
     self.loop_wait.set();
 }
 
-fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onCron(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 1);
 
@@ -187,16 +210,27 @@ fn onCron(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, in
     var cron = Cron.init();
     try cron.parse(params.cron);
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
-        plugin.name(),
-        params.func_name,
-        user_data,
-        .{ .cron = cron },
-    );
-
     const next = try cron.next(Datetime.fromTimestamp(self.milliTimestamp()));
     outputs[0] = .{ .i64 = @intCast(next.toTimestamp()) };
+
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try sql.queries.callback.insert.exec(conn, .{
+        plugin_name,
+        params.func_name,
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try sql.queries.timeout_callback.insert.exec(conn, .{
+        conn.lastInsertedRowId(),
+        outputs[0].i64,
+        params.cron,
+    });
+
+    try conn.commit();
 
     self.loop_wait.set();
 }

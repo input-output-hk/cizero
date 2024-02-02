@@ -6,29 +6,29 @@ const meta = lib.meta;
 const wasm = lib.wasm;
 
 const components = @import("../components.zig");
+const sql = @import("../sql.zig");
 
-const Plugin = @import("../Plugin.zig");
 const Registry = @import("../Registry.zig");
+const Runtime = @import("../Runtime.zig");
 
 pub const name = "http";
 
-registry: *const Registry,
-
-allocator: std.mem.Allocator,
-
-plugin_callbacks: components.CallbacksUnmanaged(union(enum) {
+const Callback = enum {
     webhook,
 
     pub fn done(_: @This()) components.CallbackDoneCondition {
         return .{ .on = .{} };
     }
-}) = .{},
+};
+
+registry: *const Registry,
+
+allocator: std.mem.Allocator,
 
 server: httpz.ServerCtx(*@This(), *@This()),
 
 pub fn deinit(self: *@This()) void {
     self.server.deinit();
-    self.plugin_callbacks.deinit(self.allocator);
     self.allocator.destroy(self);
 }
 
@@ -61,19 +61,24 @@ pub fn stop(self: *@This()) void {
 }
 
 fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
-    var callbacks = try std.ArrayListUnmanaged(@TypeOf(self.plugin_callbacks).Entry).initCapacity(self.allocator, self.plugin_callbacks.map.count());
-    defer callbacks.deinit(self.allocator);
+    const SelectCallback = sql.queries.http_callback.SelectCallback(&.{ .id, .plugin, .function, .user_data });
+    var callback_rows = blk: {
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
 
-    {
-        var plugin_callbacks_iter = self.plugin_callbacks.iterator();
-        while (plugin_callbacks_iter.next()) |entry| {
-            if (entry.callbackPtr().condition != .webhook) continue;
-            try callbacks.append(self.allocator, entry);
-        }
-    }
+        break :blk try SelectCallback.rows(conn, .{});
+    };
+    errdefer callback_rows.deinit();
 
-    for (callbacks.items) |entry| {
-        var runtime = try self.registry.runtime(entry.pluginName());
+    while (callback_rows.next()) |callback_row| {
+        var callback: components.CallbackUnmanaged = undefined;
+        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
+            .func_name = .function,
+            .user_data = .user_data,
+        });
+        defer callback.deinit(self.allocator);
+
+        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
@@ -87,25 +92,37 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         };
 
         var outputs: [1]wasm.Value = undefined;
-        _ = try entry.run(self.allocator, runtime, &inputs, &outputs);
+
+        const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
+
+        if (Callback.webhook.done().check(success, &outputs)) {
+            const callback_id = SelectCallback.column(callback_row, .id);
+
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
+
+            try sql.queries.callback.deleteById.exec(conn, .{callback_id});
+        }
     }
+
+    try callback_rows.deinitErr();
 
     res.status = 204;
 }
 
-pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef), allocator, .{
-        .on_webhook = Plugin.Runtime.HostFunctionDef{
+pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
+        .on_webhook = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32 },
                 .returns = &.{},
             },
-            .host_function = Plugin.Runtime.HostFunction.init(onWebhook, self),
+            .host_function = Runtime.HostFunction.init(onWebhook, self),
         },
     });
 }
 
-fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onWebhook(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 3);
     std.debug.assert(outputs.len == 0);
 
@@ -117,11 +134,18 @@ fn onWebhook(self: *@This(), plugin: Plugin, memory: []u8, _: std.mem.Allocator,
 
     const user_data = if (params.user_data_len != 0) params.user_data_ptr[0..params.user_data_len] else null;
 
-    try self.plugin_callbacks.insert(
-        self.allocator,
-        plugin.name(),
+    const conn = self.registry.db_pool.acquire();
+    defer self.registry.db_pool.release(conn);
+
+    try conn.transaction();
+    errdefer conn.rollback();
+
+    try sql.queries.callback.insert.exec(conn, .{
+        plugin_name,
         params.func_name,
-        user_data,
-        .webhook,
-    );
+        if (user_data) |ud| .{ .value = ud } else null,
+    });
+    try sql.queries.http_callback.insert.exec(conn, .{conn.lastInsertedRowId()});
+
+    try conn.commit();
 }

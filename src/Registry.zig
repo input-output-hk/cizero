@@ -1,19 +1,20 @@
 const std = @import("std");
+const zqlite = @import("zqlite");
+
+const queries = @import("sql.zig").queries;
 
 const Component = @import("Component.zig");
-const Plugin = @import("Plugin.zig");
+const Runtime = @import("Runtime.zig");
 
 allocator: std.mem.Allocator,
 
-components: std.ArrayListUnmanaged(Component) = .{}, // TODO should this be comptimestringmap?
-plugins: std.StringArrayHashMapUnmanaged(Plugin) = .{},
+db_pool: *zqlite.Pool,
 
-wasi_config: Plugin.Runtime.WasiConfig = .{},
+components: std.ArrayListUnmanaged(Component) = .{}, // TODO should this be comptimestringmap?
+
+wasi_config: Runtime.WasiConfig = .{},
 
 pub fn deinit(self: *@This()) void {
-    for (self.plugins.values()) |v| self.allocator.free(v.path);
-    self.plugins.deinit(self.allocator);
-
     for (self.components.items) |*component| component.deinit();
     self.components.deinit(self.allocator);
 }
@@ -23,29 +24,17 @@ pub fn registerComponent(self: *@This(), component_impl: anytype) !void {
 }
 
 /// Runs the plugin's main function if it is a new version.
-pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
-    const plugin = Plugin{
-        .path = try self.allocator.dupe(u8, plugin_borrowed.path),
-    };
-    const plugin_name = plugin.name();
+pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !bool {
+    {
+        const conn = self.db_pool.acquire();
+        defer self.db_pool.release(conn);
 
-    if (try self.plugins.fetchPut(self.allocator, plugin_name, plugin)) |prev| {
-        defer self.allocator.free(prev.value.path);
-
-        std.debug.assert(std.mem.eql(u8, plugin.name(), prev.value.name()));
-
-        const prev_wasm = try prev.value.wasm(self.allocator);
-        defer self.allocator.free(prev_wasm);
-
-        const plugin_wasm = try plugin.wasm(self.allocator);
-        defer self.allocator.free(plugin_wasm);
-
-        return !std.mem.eql(u8, plugin_wasm, prev_wasm);
+        try queries.plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
     }
 
-    std.log.info("registering plugin \"{s}\"…", .{plugin_name});
+    std.log.info("registering plugin \"{s}\"…", .{name});
 
-    var rt = try self.runtime(plugin_name);
+    var rt = try self.runtime(name);
     defer rt.deinit();
 
     if (!try rt.main()) return error.PluginMainFailed;
@@ -54,20 +43,33 @@ pub fn registerPlugin(self: *@This(), plugin_borrowed: Plugin) !bool {
 }
 
 /// Remember to deinit after use.
-pub fn runtime(self: *const @This(), plugin_name: []const u8) !Plugin.Runtime {
-    const p = self.plugins.get(plugin_name) orelse return error.NoSuchPlugin;
+pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
+    const conn = self.db_pool.acquire();
+    defer self.db_pool.release(conn);
+
+    const SelectWasm = queries.plugin.SelectByName(&.{.wasm});
+    const row = try SelectWasm.row(conn, .{plugin_name}) orelse return error.NoSuchPlugin;
+    errdefer row.deinit();
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
 
-    var rt = try Plugin.Runtime.init(self.allocator, p, host_functions);
+    var rt = try Runtime.init(
+        self.allocator,
+        plugin_name,
+        SelectWasm.column(row, .wasm),
+        host_functions,
+    );
     rt.wasi_config = &self.wasi_config;
+
+    try row.deinitErr();
+
     return rt;
 }
 
 /// Remember to deinit after use.
-fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef) {
-    var host_functions = std.StringArrayHashMapUnmanaged(Plugin.Runtime.HostFunctionDef){};
+fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
+    var host_functions = std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef){};
     try host_functions.ensureTotalCapacity(allocator, @intCast(self.components.items.len));
 
     for (self.components.items) |component| {

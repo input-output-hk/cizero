@@ -1,11 +1,11 @@
 const std = @import("std");
 const trait = @import("trait");
 
-const PluginRuntime = @import("Plugin.zig").Runtime;
+const Runtime = @import("Runtime.zig");
 
 impl: *anyopaque,
 impl_deinit: ?*const fn (*anyopaque) void,
-impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(PluginRuntime.HostFunctionDef),
+impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef),
 impl_start: ?*const fn (*anyopaque) StartError!std.Thread,
 impl_stop: ?*const fn (*anyopaque) void,
 
@@ -29,7 +29,7 @@ pub fn init(impl: anytype) @This() {
 
 /// The returned map's keys are expected to live at least as long as `impl`.
 /// Remember to deinit after use.
-pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(PluginRuntime.HostFunctionDef) {
+pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
     return self.impl_host_functions(self.impl, allocator);
 }
 
