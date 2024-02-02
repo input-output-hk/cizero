@@ -7,8 +7,11 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
+fn pluginName() []const u8 {
+    return std.fs.path.stem(build_options.plugin_path);
+}
+
 cizero: *Cizero,
-plugin: Cizero.Plugin,
 
 fn deinit(self: *@This()) void {
     self.cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
@@ -46,17 +49,16 @@ fn init() !@This() {
         }
     }.call, true);
 
-    const plugin = .{ .path = build_options.plugin_path };
-    _ = try cizero.registry.registerPlugin(plugin);
+    const plugin_wasm = try std.fs.cwd().readFileAlloc(testing.allocator, build_options.plugin_path, std.math.maxInt(usize));
+    defer testing.allocator.free(plugin_wasm);
 
-    return .{
-        .cizero = cizero,
-        .plugin = plugin,
-    };
+    _ = try cizero.registry.registerPlugin(pluginName(), plugin_wasm);
+
+    return .{ .cizero = cizero };
 }
 
-fn runtime(self: @This()) !Cizero.Plugin.Runtime {
-    return self.cizero.registry.runtime(self.plugin.name());
+fn runtime(self: @This()) !Cizero.Runtime {
+    return self.cizero.registry.runtime(pluginName());
 }
 
 fn expectEqualStdio(
@@ -64,7 +66,7 @@ fn expectEqualStdio(
     stdout: []const u8,
     stderr: []const u8,
     run_fn_ctx: anytype,
-    run_fn: fn (@TypeOf(run_fn_ctx), Cizero.Plugin.Runtime) anyerror!void,
+    run_fn: fn (@TypeOf(run_fn_ctx), Cizero.Runtime) anyerror!void,
 ) !void {
     var rt = try self.runtime();
     defer rt.deinit();
@@ -91,21 +93,35 @@ test "on_timestamp" {
         \\cizero.on_timestamp("pdk_test_on_timestamp_callback", 1000, 3000)
         \\
     , {}, struct {
-        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_timestamp", &.{}, &.{}));
         }
     }.call);
 
-    const Callback = @TypeOf(self.cizero.components.timeout.plugin_callbacks).Callback;
-    const callback = blk: {
-        var iter = self.cizero.components.timeout.plugin_callbacks.iterator();
-        const entry = iter.next().?;
-        try testing.expect(iter.next() == null);
+    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .plugin, .function, .user_data, .timestamp, .cron });
+    const callback_row = blk: {
+        const conn = self.cizero.registry.db_pool.acquire();
+        defer self.cizero.registry.db_pool.release(conn);
 
-        std.debug.assert(std.mem.eql(u8, self.plugin.name(), entry.pluginName()));
-
-        break :blk entry.callbackPtr();
+        break :blk try SelectNext.row(conn, .{}) orelse return testing.expect(false);
     };
+    errdefer callback_row.deinit();
+
+    try testing.expectEqualStrings(pluginName(), SelectNext.column(callback_row, .plugin));
+
+    const callback = blk: {
+        const func_name = try testing.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
+        errdefer testing.allocator.free(func_name);
+
+        const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
+        errdefer if (user_data) |ud| testing.allocator.free(ud);
+
+        break :blk Cizero.components.CallbackUnmanaged{
+            .func_name = func_name,
+            .user_data = user_data,
+        };
+    };
+    defer callback.deinit(testing.allocator);
 
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
@@ -113,14 +129,18 @@ test "on_timestamp" {
         try testing.expectEqualStrings("pdk_test_on_timestamp_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
-        try testing.expectEqualDeep(Callback.Condition{ .timestamp = 3 * std.time.ms_per_s }, callback.condition);
+
+        try testing.expectEqualDeep(3 * std.time.ms_per_s, SelectNext.column(callback_row, .timestamp));
+        try testing.expect(SelectNext.column(callback_row, .cron) == null);
     }
+
+    try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
         \\pdk_test_on_timestamp_callback(1000)
         \\
     , callback, struct {
-        fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try cb.run(testing.allocator, rt, &.{}, &.{}));
         }
     }.call);
@@ -134,46 +154,52 @@ test "on_cron" {
         \\cizero.on_cron("pdk_test_on_cron_callback", "* * * * *", "* * * * *") 60000
         \\
     , {}, struct {
-        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_cron", &.{}, &.{}));
         }
     }.call);
 
-    const Callback = @TypeOf(self.cizero.components.timeout.plugin_callbacks).Callback;
-    const callback = blk: {
-        var iter = self.cizero.components.timeout.plugin_callbacks.iterator();
-        const entry = iter.next().?;
-        try testing.expect(iter.next() == null);
+    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .plugin, .function, .user_data, .timestamp, .cron });
+    const callback_row = blk: {
+        const conn = self.cizero.registry.db_pool.acquire();
+        defer self.cizero.registry.db_pool.release(conn);
 
-        std.debug.assert(std.mem.eql(u8, self.plugin.name(), entry.pluginName()));
-
-        break :blk entry.callbackPtr();
+        break :blk try SelectNext.row(conn, .{}) orelse return testing.expect(false);
     };
+    errdefer callback_row.deinit();
+
+    const callback = blk: {
+        const func_name = try testing.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
+        errdefer testing.allocator.free(func_name);
+
+        const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
+        errdefer if (user_data) |ud| testing.allocator.free(ud);
+
+        break :blk Cizero.components.CallbackUnmanaged{
+            .func_name = func_name,
+            .user_data = user_data,
+        };
+    };
+    defer callback.deinit(testing.allocator);
 
     try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
-    try testing.expectEqual(Callback.Condition.cron, std.meta.activeTag(callback.condition));
 
-    {
-        const Cron = @import("cron").Cron;
-        const Datetime = @import("datetime").datetime.Datetime;
+    try testing.expectEqualDeep(std.time.ms_per_min, SelectNext.column(callback_row, .timestamp));
+    try testing.expect(SelectNext.column(callback_row, .cron) != null);
+    try testing.expectEqualSlices(u8, "* * * * *", SelectNext.column(callback_row, .cron).?);
 
-        var cron = Cron.init();
-        try cron.parse("* * * * *");
-        const now = Datetime.fromTimestamp(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
-
-        try testing.expect((try cron.next(now)).eql(try callback.condition.cron.next(now)));
-        try testing.expect((try cron.previous(now)).eql(try callback.condition.cron.previous(now)));
-    }
+    try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
         \\pdk_test_on_cron_callback("* * * * *")
         \\
     , callback, struct {
-        fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
             var outputs: [1]wasm.Value = undefined;
             try testing.expect(try cb.run(testing.allocator, rt, &.{}, &outputs));
+
             try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
         }
     }.call);
@@ -249,7 +275,7 @@ test "exec" {
         \\
         \\
     , {}, struct {
-        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_exec", &.{}, &.{}));
         }
     }.call);
@@ -265,26 +291,39 @@ test "on_webhook" {
         \\cizero.on_webhook("pdk_test_on_webhook_callback", .{ 25, 372 })
         \\
     , {}, struct {
-        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_on_webhook", &.{}, &.{}));
         }
     }.call);
 
-    const Callback = @TypeOf(self.cizero.components.http.plugin_callbacks).Callback;
-    const callback = blk: {
-        var iter = self.cizero.components.http.plugin_callbacks.iterator();
-        const entry = iter.next().?;
-        try testing.expect(iter.next() == null);
+    const SelectCallback = Cizero.sql.queries.http_callback.SelectCallback(&.{ .plugin, .function, .user_data });
+    const callback_row = blk: {
+        const conn = self.cizero.registry.db_pool.acquire();
+        defer self.cizero.registry.db_pool.release(conn);
 
-        std.debug.assert(std.mem.eql(u8, self.plugin.name(), entry.pluginName()));
-
-        break :blk entry.callbackPtr();
+        break :blk try SelectCallback.row(conn, .{}) orelse return testing.expect(false);
     };
+    errdefer callback_row.deinit();
+
+    const callback = blk: {
+        const func_name = try testing.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
+        errdefer testing.allocator.free(func_name);
+
+        const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
+        errdefer if (user_data) |ud| testing.allocator.free(ud);
+
+        break :blk Cizero.components.CallbackUnmanaged{
+            .func_name = func_name,
+            .user_data = user_data,
+        };
+    };
+    defer callback.deinit(testing.allocator);
 
     try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, &[_]u8{ 25, 116, 1 }, callback.user_data.?);
-    try testing.expectEqualDeep(Callback.Condition.webhook, callback.condition);
+
+    try callback_row.deinitErr();
 
     {
         const body = "body";
@@ -295,7 +334,7 @@ test "on_webhook" {
             \\")
             \\
         , callback, struct {
-            fn call(cb: *const Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
+            fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
                 const linear = try rt.linearMemoryAllocator();
                 const allocator = linear.allocator();
 
@@ -315,36 +354,17 @@ test "nix_build" {
     defer self.deinit();
 
     const MockStartBuildLoop = struct {
-        allocator: std.mem.Allocator,
-        flake_url: []const u8,
-        plugin_name: []const u8,
-        callback: Cizero.components.Nix.Callback,
-
         const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_build_loop).type).Optional.child.Fn).Fn;
 
         fn call(
-            ctx: *@This(),
-            allocator: std.mem.Allocator,
-            flake_url: []const u8,
-            plugin_name: []const u8,
-            callback: Cizero.components.Nix.Callback,
+            _: std.mem.Allocator,
+            _: []const u8,
         ) info.return_type.? {
-            ctx.* = .{
-                .allocator = allocator,
-                .flake_url = flake_url,
-                .plugin_name = plugin_name,
-                .callback = callback,
-            };
+            return false;
         }
     };
-    var mock_start_build_loop: MockStartBuildLoop = undefined;
-    defer {
-        var ctx = &mock_start_build_loop;
-        ctx.allocator.free(ctx.flake_url);
-        ctx.callback.deinit(ctx.allocator);
-    }
 
-    self.cizero.components.nix.mock_start_build_loop = meta.closure(MockStartBuildLoop.call, &mock_start_build_loop);
+    self.cizero.components.nix.mock_start_build_loop = meta.disclosure(MockStartBuildLoop.call, true);
 
     const MockLockFlakeUrl = struct {
         const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
@@ -366,14 +386,38 @@ test "nix_build" {
         \\")
         \\
     , {}, struct {
-        fn call(_: void, rt: Cizero.Plugin.Runtime) anyerror!void {
+        fn call(_: void, rt: Cizero.Runtime) anyerror!void {
             try testing.expect(try rt.call("pdk_test_nix_build", &.{}, &.{}));
         }
     }.call);
 
-    try testing.expectEqualStrings("pdk_test_nix_build_callback", mock_start_build_loop.callback.func_name);
-    try testing.expect(mock_start_build_loop.callback.user_data == null);
-    try testing.expectEqualStrings(MockLockFlakeUrl.output, mock_start_build_loop.flake_url);
+    const SelectCallback = Cizero.sql.queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .plugin, .function, .user_data });
+    const callback_row = blk: {
+        const conn = self.cizero.registry.db_pool.acquire();
+        defer self.cizero.registry.db_pool.release(conn);
+
+        break :blk try SelectCallback.row(conn, .{MockLockFlakeUrl.output}) orelse return testing.expect(false);
+    };
+    errdefer callback_row.deinit();
+
+    const callback = blk: {
+        const func_name = try testing.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
+        errdefer testing.allocator.free(func_name);
+
+        const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
+        errdefer if (user_data) |ud| testing.allocator.free(ud);
+
+        break :blk Cizero.components.CallbackUnmanaged{
+            .func_name = func_name,
+            .user_data = user_data,
+        };
+    };
+    defer callback.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("pdk_test_nix_build_callback", callback.func_name);
+    try testing.expect(callback.user_data == null);
+
+    try callback_row.deinitErr();
 
     const store_drv_output = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-example";
     const store_drv = store_drv_output ++ ".drv";
@@ -387,8 +431,8 @@ test "nix_build" {
     ++ " " ++ store_drv_output ++
         \\ }, null)
         \\
-    , &mock_start_build_loop.callback, struct {
-        fn call(cb: *const Cizero.components.Nix.Callback, rt: Cizero.Plugin.Runtime) anyerror!void {
+    , callback, struct {
+        fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
             const linear = try rt.linearMemoryAllocator();
             const allocator = linear.allocator();
 

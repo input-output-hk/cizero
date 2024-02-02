@@ -5,9 +5,8 @@ const zqlite = @import("zqlite");
 const lib = @import("lib");
 const meta = lib.meta;
 
-const sql = @import("sql.zig");
-
 pub const components = @import("components.zig");
+pub const sql = @import("sql.zig");
 
 pub const Registry = @import("Registry.zig");
 pub const Runtime = @import("Runtime.zig");
