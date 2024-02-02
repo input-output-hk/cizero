@@ -314,16 +314,26 @@ pub const queries = struct {
 
         pub const insert = SimpleInsert(table, Column);
 
-        pub fn SelectByCallback(comptime columns: []const ColumnName) type {
-            return SimpleSelectByRowid(table, Column, columns);
-        }
+        pub const ColumnJoined = meta.MergedUnions(callback.Column, Column, true);
+        pub const ColumnNameJoined = std.meta.Tag(ColumnJoined);
 
-        pub fn SelectNext(comptime columns: []const ColumnName) type {
+        pub fn SelectNext(comptime columns: []const ColumnNameJoined) type {
             return SimpleSelect(
-                Column,
+                ColumnJoined,
                 columns,
                 \\FROM "
+                ++ callback.table ++
+                    \\"
+                    \\INNER JOIN "
                 ++ table ++
+                    \\" ON "
+                ++ table ++
+                    \\"."
+                ++ @tagName(ColumnName.callback) ++
+                    \\" = "
+                ++ callback.table ++
+                    \\"."
+                ++ @tagName(callback.ColumnName.id) ++
                     \\"
                     \\ORDER BY "
                 ++ @tagName(ColumnName.timestamp) ++

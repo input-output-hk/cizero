@@ -59,9 +59,7 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        // XXX fetch both "callback" and "timeout_callback" in one query
-
-        const SelectNext = queries.timeout_callback.SelectNext(&.{ .callback, .timestamp, .cron });
+        const SelectNext = queries.timeout_callback.SelectNext(&.{ .id, .plugin, .function, .user_data, .timestamp, .cron });
         const next_callback_row = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -69,12 +67,12 @@ fn loop(self: *@This()) !void {
             break :blk try SelectNext.row(conn, .{});
         };
 
-        if (next_callback_row) |next_row| {
-            errdefer next_row.deinit();
+        if (next_callback_row) |callback_row| {
+            errdefer callback_row.deinit();
 
             {
                 const now_ms = self.milliTimestamp();
-                const next_timestamp = SelectNext.column(next_row, .timestamp);
+                const next_timestamp = SelectNext.column(callback_row, .timestamp);
                 if (now_ms < next_timestamp) {
                     const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
                     if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
@@ -85,23 +83,11 @@ fn loop(self: *@This()) !void {
                 }
             }
 
-            const callback_id = SelectNext.column(next_row, .callback);
-            const callback_kind: Callback = if (SelectNext.column(next_row, .cron) != null) .cron else .timestamp;
-
-            const SelectById = queries.callback.SelectById(&.{ .plugin, .function, .user_data });
-            const callback_row = blk: {
-                const conn = self.registry.db_pool.acquire();
-                defer self.registry.db_pool.release(conn);
-
-                break :blk (try SelectById.row(conn, .{callback_id})).?;
-            };
-            errdefer callback_row.deinit();
-
             var callback = blk: {
-                const func_name = try self.allocator.dupeZ(u8, SelectById.column(callback_row, .function));
+                const func_name = try self.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
                 errdefer self.allocator.free(func_name);
 
-                const user_data = if (SelectById.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
+                const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
                 errdefer if (user_data) |ud| self.allocator.free(ud);
 
                 break :blk components.CallbackUnmanaged{
@@ -111,6 +97,9 @@ fn loop(self: *@This()) !void {
             };
             defer callback.deinit(self.allocator);
 
+            const callback_id = SelectNext.column(callback_row, .id);
+            const callback_kind: Callback = if (SelectNext.column(callback_row, .cron) != null) .cron else .timestamp;
+
             // No need to heap-allocate here.
             // Just stack-allocate sufficient memory for all cases.
             var outputs_memory: [1]wasm.Value = undefined;
@@ -119,35 +108,34 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(SelectById.column(callback_row, .plugin));
+            var runtime = try self.registry.runtime(SelectNext.column(callback_row, .plugin));
             defer runtime.deinit();
-
-            try callback_row.deinitErr();
 
             const success = try callback.run(self.allocator, runtime, &.{}, outputs);
             const done = callback_kind.done().check(success, outputs);
 
-            {
+            if (done) {
                 const conn = self.registry.db_pool.acquire();
                 defer self.registry.db_pool.release(conn);
 
-                if (done)
-                    try queries.callback.deleteById.exec(conn, .{callback_id})
-                else switch (callback_kind) {
-                    .timestamp => {},
-                    .cron => {
-                        var cron = Cron.init();
-                        try cron.parse(SelectNext.column(next_row, .cron).?);
+                try queries.callback.deleteById.exec(conn, .{callback_id});
+            } else switch (callback_kind) {
+                .timestamp => {},
+                .cron => {
+                    var cron = Cron.init();
+                    try cron.parse(SelectNext.column(callback_row, .cron).?);
 
-                        const now_ms = self.milliTimestamp();
-                        const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
+                    const now_ms = self.milliTimestamp();
+                    const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
 
-                        try queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
-                    },
-                }
+                    const conn = self.registry.db_pool.acquire();
+                    defer self.registry.db_pool.release(conn);
+
+                    try queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
+                },
             }
 
-            try next_row.deinitErr();
+            try callback_row.deinitErr();
         } else self.loop_wait.wait();
     }
 }
