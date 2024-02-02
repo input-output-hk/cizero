@@ -394,11 +394,13 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
     outputs: []const []const u8,
     failed_drv: []const u8,
 }) !void {
-    const conn = self.registry.db_pool.acquire();
-    defer self.registry.db_pool.release(conn);
-
     const SelectCallback = queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .id, .plugin, .function, .user_data });
-    var callback_rows = try SelectCallback.rows(conn, .{build_state.flake_url});
+    var callback_rows = blk: {
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
+
+        break :blk try SelectCallback.rows(conn, .{build_state.flake_url});
+    };
     errdefer callback_rows.deinit();
 
     while (callback_rows.next()) |callback_row| {
@@ -444,6 +446,9 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
                 .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
             } },
         }, &.{});
+
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
 
         try queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
     }
