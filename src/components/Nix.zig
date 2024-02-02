@@ -38,7 +38,7 @@ mock_lock_flake_url: if (builtin.is_test) ?meta.Closure(fn (
 mock_start_build_loop: if (builtin.is_test) ?meta.Closure(fn (
     allocator: std.mem.Allocator,
     flake_url: []const u8,
-) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void, true) else void = if (builtin.is_test) null,
+) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool, true) else void = if (builtin.is_test) null,
 
 const Build = struct {
     flake_url: []const u8,
@@ -132,7 +132,8 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
         try conn.commit();
     }
 
-    try self.startBuildLoop(flake_url_locked);
+    const started = try self.startBuildLoop(flake_url_locked);
+    if (!started) self.allocator.free(flake_url_locked);
 }
 
 pub const LockFlakeUrlError =
@@ -223,8 +224,13 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
             break :blk try SelectPending.rows(conn, .{});
         };
         errdefer rows.deinit();
-        while (rows.next()) |row|
-            try self.startBuildLoop(SelectPending.column(row, .flake_url));
+        while (rows.next()) |row| {
+            const flake_url = try self.allocator.dupe(u8, SelectPending.column(row, .flake_url));
+            errdefer self.allocator.free(flake_url);
+
+            const started = try self.startBuildLoop(flake_url);
+            if (!started) self.allocator.free(flake_url);
+        }
         try rows.deinitErr();
     }
 
@@ -255,7 +261,9 @@ fn loop(self: *@This()) !void {
     }
 }
 
-fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!void {
+/// Returns whether a new build loop thread has been started.
+/// If true, takes ownership of the `flake_url` parameter, otherwise not.
+fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool {
     if (comptime @TypeOf(self.mock_start_build_loop) != void)
         if (self.mock_start_build_loop) |mock| return mock.call(.{
             self.allocator,
@@ -271,7 +279,7 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
             if (!std.mem.eql(u8, node.?.data.flake_url, flake_url)) continue;
 
             log.debug("build loop is already running for {s}", .{flake_url});
-            return;
+            return false;
         }
     }
 
@@ -321,6 +329,8 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
 
         break :thread_name thread_name;
     }) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+
+    return true;
 }
 
 fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
