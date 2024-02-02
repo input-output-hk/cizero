@@ -109,18 +109,11 @@ test "on_timestamp" {
 
     try testing.expectEqualStrings(pluginName(), SelectNext.column(callback_row, .plugin));
 
-    const callback = blk: {
-        const func_name = try testing.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
-        errdefer testing.allocator.free(func_name);
-
-        const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
-        errdefer if (user_data) |ud| testing.allocator.free(ud);
-
-        break :blk Cizero.components.CallbackUnmanaged{
-            .func_name = func_name,
-            .user_data = user_data,
-        };
-    };
+    var callback: Cizero.components.CallbackUnmanaged = undefined;
+    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
+        .func_name = .function,
+        .user_data = .user_data,
+    });
     defer callback.deinit(testing.allocator);
 
     {
@@ -168,18 +161,11 @@ test "on_cron" {
     };
     errdefer callback_row.deinit();
 
-    const callback = blk: {
-        const func_name = try testing.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
-        errdefer testing.allocator.free(func_name);
-
-        const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
-        errdefer if (user_data) |ud| testing.allocator.free(ud);
-
-        break :blk Cizero.components.CallbackUnmanaged{
-            .func_name = func_name,
-            .user_data = user_data,
-        };
-    };
+    var callback: Cizero.components.CallbackUnmanaged = undefined;
+    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
+        .func_name = .function,
+        .user_data = .user_data,
+    });
     defer callback.deinit(testing.allocator);
 
     try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
@@ -305,18 +291,11 @@ test "on_webhook" {
     };
     errdefer callback_row.deinit();
 
-    const callback = blk: {
-        const func_name = try testing.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
-        errdefer testing.allocator.free(func_name);
-
-        const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
-        errdefer if (user_data) |ud| testing.allocator.free(ud);
-
-        break :blk Cizero.components.CallbackUnmanaged{
-            .func_name = func_name,
-            .user_data = user_data,
-        };
-    };
+    var callback: Cizero.components.CallbackUnmanaged = undefined;
+    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
+        .func_name = .function,
+        .user_data = .user_data,
+    });
     defer callback.deinit(testing.allocator);
 
     try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
@@ -400,18 +379,11 @@ test "nix_build" {
     };
     errdefer callback_row.deinit();
 
-    const callback = blk: {
-        const func_name = try testing.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
-        errdefer testing.allocator.free(func_name);
-
-        const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try testing.allocator.dupe(u8, ud) else null;
-        errdefer if (user_data) |ud| testing.allocator.free(ud);
-
-        break :blk Cizero.components.CallbackUnmanaged{
-            .func_name = func_name,
-            .user_data = user_data,
-        };
-    };
+    var callback: Cizero.components.CallbackUnmanaged = undefined;
+    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
+        .func_name = .function,
+        .user_data = .user_data,
+    });
     defer callback.deinit(testing.allocator);
 
     try testing.expectEqualStrings("pdk_test_nix_build_callback", callback.func_name);

@@ -9,7 +9,7 @@ const meta = lib.meta;
 const wasm = lib.wasm;
 
 const components = @import("../components.zig");
-const queries = @import("../sql.zig").queries;
+const sql = @import("../sql.zig");
 
 const Registry = @import("../Registry.zig");
 const Runtime = @import("../Runtime.zig");
@@ -59,7 +59,7 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const SelectNext = queries.timeout_callback.SelectNext(&.{ .id, .plugin, .function, .user_data, .timestamp, .cron });
+        const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .id, .plugin, .function, .user_data, .timestamp, .cron });
         const next_callback_row = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -83,18 +83,11 @@ fn loop(self: *@This()) !void {
                 }
             }
 
-            var callback = blk: {
-                const func_name = try self.allocator.dupeZ(u8, SelectNext.column(callback_row, .function));
-                errdefer self.allocator.free(func_name);
-
-                const user_data = if (SelectNext.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
-                errdefer if (user_data) |ud| self.allocator.free(ud);
-
-                break :blk components.CallbackUnmanaged{
-                    .func_name = func_name,
-                    .user_data = user_data,
-                };
-            };
+            var callback: components.CallbackUnmanaged = undefined;
+            try sql.structFromRow(self.allocator, &callback, callback_row, SelectNext.column, .{
+                .func_name = .function,
+                .user_data = .user_data,
+            });
             defer callback.deinit(self.allocator);
 
             const callback_id = SelectNext.column(callback_row, .id);
@@ -118,7 +111,7 @@ fn loop(self: *@This()) !void {
                 const conn = self.registry.db_pool.acquire();
                 defer self.registry.db_pool.release(conn);
 
-                try queries.callback.deleteById.exec(conn, .{callback_id});
+                try sql.queries.callback.deleteById.exec(conn, .{callback_id});
             } else switch (callback_kind) {
                 .timestamp => {},
                 .cron => {
@@ -131,7 +124,7 @@ fn loop(self: *@This()) !void {
                     const conn = self.registry.db_pool.acquire();
                     defer self.registry.db_pool.release(conn);
 
-                    try queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
+                    try sql.queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
                 },
             }
 
@@ -180,12 +173,12 @@ fn onTimestamp(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem
     try conn.transaction();
     errdefer conn.rollback();
 
-    try queries.callback.insert.exec(conn, .{
+    try sql.queries.callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try queries.timeout_callback.insert.exec(conn, .{
+    try sql.queries.timeout_callback.insert.exec(conn, .{
         conn.lastInsertedRowId(),
         params.timestamp,
         null,
@@ -226,12 +219,12 @@ fn onCron(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allo
     try conn.transaction();
     errdefer conn.rollback();
 
-    try queries.callback.insert.exec(conn, .{
+    try sql.queries.callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try queries.timeout_callback.insert.exec(conn, .{
+    try sql.queries.timeout_callback.insert.exec(conn, .{
         conn.lastInsertedRowId(),
         outputs[0].i64,
         params.cron,

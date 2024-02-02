@@ -6,10 +6,9 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
-const queries = @import("../sql.zig").queries;
-
 const components = @import("../components.zig");
 const fs = @import("../fs.zig");
+const sql = @import("../sql.zig");
 
 const Registry = @import("../Registry.zig");
 const Runtime = @import("../Runtime.zig");
@@ -119,12 +118,12 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
         try conn.transaction();
         errdefer conn.rollback();
 
-        try queries.callback.insert.exec(conn, .{
+        try sql.queries.callback.insert.exec(conn, .{
             plugin_name,
             params.func_name,
             if (params.user_data_len != 0) .{ .value = params.user_data_ptr[0..params.user_data_len] } else null,
         });
-        try queries.nix_callback.insert.exec(conn, .{
+        try sql.queries.nix_callback.insert.exec(conn, .{
             conn.lastInsertedRowId(),
             flake_url_locked,
         });
@@ -216,7 +215,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 
     {
-        const SelectPending = queries.nix_callback.Select(&.{.flake_url});
+        const SelectPending = sql.queries.nix_callback.Select(&.{.flake_url});
         var rows = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -394,7 +393,7 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
     outputs: []const []const u8,
     failed_drv: []const u8,
 }) !void {
-    const SelectCallback = queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .id, .plugin, .function, .user_data });
+    const SelectCallback = sql.queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .id, .plugin, .function, .user_data });
     var callback_rows = blk: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -422,18 +421,11 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
             },
         };
 
-        var callback = blk: {
-            const func_name = try self.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
-            errdefer self.allocator.free(func_name);
-
-            const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
-            errdefer if (user_data) |ud| self.allocator.free(ud);
-
-            break :blk components.CallbackUnmanaged{
-                .func_name = func_name,
-                .user_data = user_data,
-            };
-        };
+        var callback: components.CallbackUnmanaged = undefined;
+        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
+            .func_name = .function,
+            .user_data = .user_data,
+        });
         defer callback.deinit(self.allocator);
 
         _ = try callback.run(self.allocator, runtime, &[_]wasm.Value{
@@ -450,7 +442,7 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+        try sql.queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
     }
 
     try callback_rows.deinitErr();

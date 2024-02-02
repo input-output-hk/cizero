@@ -449,6 +449,120 @@ pub const queries = struct {
     };
 };
 
+pub fn structFromRow(
+    allocator: std.mem.Allocator,
+    target_ptr: anytype,
+    row: zqlite.Row,
+    column_fn: anytype,
+    comptime mapping: anytype,
+) !void {
+    const Target = std.meta.Child(@TypeOf(target_ptr));
+    const target: *Target = @ptrCast(target_ptr);
+
+    const mapping_fields = @typeInfo(@TypeOf(mapping)).Struct.fields;
+
+    var allocated_mem: [mapping_fields.len][]const u8 = undefined;
+    var allocated: usize = 0;
+    var allocated_mem_z: [mapping_fields.len][:0]const u8 = undefined;
+    var allocated_z: usize = 0;
+    errdefer {
+        for (allocated_mem[0..allocated]) |slice| allocator.free(slice);
+        for (allocated_mem_z[0..allocated_z]) |slice_z| allocator.free(slice_z);
+    }
+
+    inline for (mapping_fields) |field| {
+        const column = comptime @field(mapping, field.name);
+        const value = column_fn(row, column);
+
+        const target_field = &@field(target, field.name);
+
+        target_field.* = switch (@TypeOf(target_field.*)) {
+            []u8,
+            []const u8,
+            => blk: {
+                const slice = try allocator.dupe(u8, value);
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            },
+            ?[]u8,
+            ?[]const u8,
+            => if (value) |v| blk: {
+                const slice = try allocator.dupe(u8, v);
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            } else null,
+
+            [*]u8,
+            [*]const u8,
+            => blk: {
+                const slice = try allocator.dupe(u8, value).ptr;
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            },
+            ?[*]u8,
+            ?[*]const u8,
+            => if (value) |v| blk: {
+                const slice = try allocator.dupe(u8, v).ptr;
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            } else null,
+
+            [:0]u8,
+            [:0]const u8,
+            => blk: {
+                const slice_z = try allocator.dupeZ(u8, value);
+                allocated_mem_z[allocated_z] = slice_z;
+                allocated_z += 1;
+                break :blk slice_z;
+            },
+            ?[:0]u8,
+            ?[:0]const u8,
+            => if (value) |v| blk: {
+                const slice_z = try allocator.dupeZ(u8, v);
+                allocated_mem_z[allocated_z] = slice_z;
+                allocated_z += 1;
+                break :blk slice_z;
+            } else null,
+
+            [*:0]u8,
+            [*:0]const u8,
+            => blk: {
+                const slice_z = try allocator.dupeZ(u8, value).ptr;
+                allocated_mem_z[allocated_z] = slice_z;
+                allocated_z += 1;
+                break :blk slice_z;
+            },
+            ?[*:0]u8,
+            ?[*:0]const u8,
+            => if (value) |v| blk: {
+                const slice_z = try allocator.dupeZ(u8, v).ptr;
+                allocated_mem_z[allocated_z] = slice_z;
+                allocated_z += 1;
+                break :blk slice_z;
+            } else null,
+
+            zqlite.Blob => blk: {
+                const slice = try allocator.dupe(u8, value);
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            },
+            ?zqlite.Blob => if (value) |v| blk: {
+                const slice = try allocator.dupe(u8, v);
+                allocated_mem[allocated] = slice;
+                allocated += 1;
+                break :blk slice;
+            } else null,
+
+            else => value,
+        };
+    }
+}
+
 test {
     std.testing.refAllDeclsRecursive(@This());
 }

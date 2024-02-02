@@ -5,9 +5,8 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
-const queries = @import("../sql.zig").queries;
-
 const components = @import("../components.zig");
+const sql = @import("../sql.zig");
 
 const Registry = @import("../Registry.zig");
 const Runtime = @import("../Runtime.zig");
@@ -62,7 +61,7 @@ pub fn stop(self: *@This()) void {
 }
 
 fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
-    const SelectCallback = queries.http_callback.SelectCallback(&.{ .id, .plugin, .function, .user_data });
+    const SelectCallback = sql.queries.http_callback.SelectCallback(&.{ .id, .plugin, .function, .user_data });
     var callback_rows = blk: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -72,18 +71,11 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     errdefer callback_rows.deinit();
 
     while (callback_rows.next()) |callback_row| {
-        var callback = blk: {
-            const func_name = try self.allocator.dupeZ(u8, SelectCallback.column(callback_row, .function));
-            errdefer self.allocator.free(func_name);
-
-            const user_data = if (SelectCallback.column(callback_row, .user_data)) |ud| try self.allocator.dupe(u8, ud) else null;
-            errdefer if (user_data) |ud| self.allocator.free(ud);
-
-            break :blk components.CallbackUnmanaged{
-                .func_name = func_name,
-                .user_data = user_data,
-            };
-        };
+        var callback: components.CallbackUnmanaged = undefined;
+        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
+            .func_name = .function,
+            .user_data = .user_data,
+        });
         defer callback.deinit(self.allocator);
 
         var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
@@ -109,7 +101,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            try queries.callback.deleteById.exec(conn, .{callback_id});
+            try sql.queries.callback.deleteById.exec(conn, .{callback_id});
         }
     }
 
@@ -148,12 +140,12 @@ fn onWebhook(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.A
     try conn.transaction();
     errdefer conn.rollback();
 
-    try queries.callback.insert.exec(conn, .{
+    try sql.queries.callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try queries.http_callback.insert.exec(conn, .{conn.lastInsertedRowId()});
+    try sql.queries.http_callback.insert.exec(conn, .{conn.lastInsertedRowId()});
 
     try conn.commit();
 }
