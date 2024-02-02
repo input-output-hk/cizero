@@ -60,7 +60,7 @@ pub fn init(allocator: std.mem.Allocator) (error{DbError} || Components.InitErro
             .path = "cizero.sqlite",
             .on_first_connection = initDb,
             .on_connection = initDbConn,
-        }) catch |err| @panic(@errorName(err)),
+        }) catch return error.DbError,
         .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
         .components = .{
             .http = http,
