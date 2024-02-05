@@ -8,6 +8,9 @@ const c = @import("c.zig");
 const fs = @import("fs.zig");
 const wasmtime = @import("wasmtime.zig");
 
+const log_scope = .rt;
+const log = std.log.scoped(log_scope);
+
 wasm_engine: *c.wasm_engine_t,
 wasm_store: *c.wasmtime_store,
 wasm_context: *c.wasmtime_context,
@@ -296,7 +299,7 @@ pub fn init(
             const gop_result = host_functions.getOrPutAssumeCapacity(def_entry.key_ptr.*);
             gop_result.value_ptr.* = def_entry.value_ptr.host_function;
 
-            std.log.debug("linking host function \"{s}\"…", .{gop_result.key_ptr.*});
+            log.debug("linking host function \"{s}\"…", .{gop_result.key_ptr.*});
 
             const host_module_name = "cizero";
 
@@ -627,7 +630,7 @@ pub const Allocator = struct {
         }
 
         if (output.kind != c.WASMTIME_I32) {
-            std.log.warn(export_names[0] ++ "() returned unexpected type: {}", .{output});
+            log.warn(export_names[0] ++ "() returned unexpected type: {}", .{output});
             return null;
         }
 
@@ -653,7 +656,7 @@ pub const Allocator = struct {
         }
 
         if (output.kind != c.WASMTIME_I32) {
-            std.log.warn(export_names[1] ++ "() returned unexpected type: {}", .{output});
+            log.warn(export_names[1] ++ "() returned unexpected type: {}", .{output});
             return false;
         }
 
@@ -671,7 +674,7 @@ pub const Allocator = struct {
         {
             var trap: ?*c.wasm_trap_t = null;
             const err = c.wasmtime_func_call(self.memory.wasm_context, &self.wasm_fn_free, &inputs, inputs.len, null, 0, &trap);
-            if (err != null or trap != null) std.log.warn(export_names[2] ++ "() failed, this likely leaked wasm memory", .{});
+            if (err != null or trap != null) log.warn(export_names[2] ++ "() failed, this likely leaked wasm memory", .{});
         }
     }
 };
@@ -697,17 +700,17 @@ pub fn main(self: @This()) !bool {
 }
 
 pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
-    std.log.debug("calling plugin \"{s}\" function \"{s}\"", .{ self.plugin_name, func_name });
+    log.debug("calling plugin \"{s}\" function \"{s}\"", .{ self.plugin_name, func_name });
 
     if (self.wasi_config) |wc| try self.configureWasi(wc.*);
 
     const wasi_collect: ?WasiConfig.CollectOutput = if (self.wasi_config) |wc| blk: {
-        if (!comptime std.log.defaultLogEnabled(.debug)) break :blk null;
+        if (!comptime std.log.logEnabled(.debug, log_scope)) break :blk null;
 
         if (wc.stdout != null and wc.stdout.? == .inherit or
             wc.stderr != null and wc.stderr.? == .inherit)
         {
-            std.log.debug("cannot capture WASI output because stdout or stderr is inherited", .{});
+            log.debug("cannot capture WASI output because stdout or stderr is inherited", .{});
             break :blk null;
         }
 
@@ -755,11 +758,11 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
         const wasi_output = try wc.collect(std.math.maxInt(usize));
         defer wasi_output.deinit();
 
-        std.log.debug("stdout: {s}\nstderr: {s}", .{ wasi_output.stdout, wasi_output.stderr });
+        log.debug("stdout: {s}\nstderr: {s}", .{ wasi_output.stdout, wasi_output.stderr });
     }
 
     if (try handleExit(wasmtime_err, trap)) |exit_status| {
-        std.log.debug("exit status: {?d}", .{exit_status});
+        log.debug("exit status: {?d}", .{exit_status});
         return exit_status == 0;
     }
 
@@ -780,14 +783,14 @@ fn handleError(
     if (err) |e| {
         defer c.wasmtime_error_delete(e);
         c.wasmtime_error_message(e, &error_message);
-        std.log.err("{s}: WASM error: {s}", .{ message, error_message.data });
+        log.err("{s}: WASM error: {s}", .{ message, error_message.data });
         return error.WasmError;
     }
 
     if (trap) |t| {
         defer c.wasm_trap_delete(t);
         c.wasm_trap_message(t, &error_message);
-        std.log.err("{s}: WASM trap: {s}", .{ message, error_message.data });
+        log.err("{s}: WASM trap: {s}", .{ message, error_message.data });
         return error.WasmTrap; // TODO decode wasm_trap_code
     }
 
