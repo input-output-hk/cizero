@@ -478,8 +478,7 @@ fn instantiate(allocator: std.mem.Allocator, build_hook: []const u8, flake_url: 
             "--apply",
             "drv: drv.drvPath or drv",
             "--raw",
-            "--verbose",
-            "--trace-verbose",
+            "--quiet",
             flake_url,
         };
 
@@ -539,8 +538,7 @@ fn build(allocator: std.mem.Allocator, store_drv: []const u8, output_spec: []con
             "--restrict-eval",
             "--no-link",
             "--print-out-paths",
-            "--verbose",
-            "--trace-verbose",
+            "--quiet",
             installable,
         },
     });
