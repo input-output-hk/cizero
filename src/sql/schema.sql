@@ -14,15 +14,16 @@ CREATE TABLE "timeout_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
 	"timestamp" INTEGER NOT NULL,
 	"cron" TEXT
-) STRICT, WITHOUT ROWID;
+) STRICT;
 
 CREATE INDEX "timeout_callback.timestamp" ON "timeout_callback" ("timestamp");
 
 CREATE TABLE "http_callback" (
-	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE
-) STRICT, WITHOUT ROWID;
+	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
+	"plugin" TEXT NOT NULL UNIQUE REFERENCES "plugin"
+) STRICT;
 
 CREATE TABLE "nix_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
 	"flake_url" TEXT NOT NULL
-) STRICT, WITHOUT ROWID;
+) STRICT;

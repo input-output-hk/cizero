@@ -98,7 +98,7 @@ test "on_timestamp" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .plugin, .function, .user_data, .timestamp, .cron });
+    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -107,12 +107,12 @@ test "on_timestamp" {
     };
     errdefer callback_row.deinit();
 
-    try testing.expectEqualStrings(pluginName(), SelectNext.column(callback_row, .plugin));
+    try testing.expectEqualStrings(pluginName(), SelectNext.column(callback_row, .@"callback.plugin"));
 
     var callback: Cizero.components.CallbackUnmanaged = undefined;
     try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
+        .func_name = .@"callback.function",
+        .user_data = .@"callback.user_data",
     });
     defer callback.deinit(testing.allocator);
 
@@ -152,7 +152,7 @@ test "on_cron" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .plugin, .function, .user_data, .timestamp, .cron });
+    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -163,8 +163,8 @@ test "on_cron" {
 
     var callback: Cizero.components.CallbackUnmanaged = undefined;
     try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
+        .func_name = .@"callback.function",
+        .user_data = .@"callback.user_data",
     });
     defer callback.deinit(testing.allocator);
 
@@ -282,12 +282,12 @@ test "on_webhook" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.http_callback.SelectCallback(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.http_callback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{}) orelse return testing.expect(false);
+        break :blk try SelectCallback.row(conn, .{pluginName()}) orelse return testing.expect(false);
     };
     errdefer callback_row.deinit();
 
@@ -305,11 +305,11 @@ test "on_webhook" {
     try callback_row.deinitErr();
 
     {
-        const body = "body";
+        const req_body = "request body";
 
         try self.expectEqualStdio("",
             \\pdk_test_on_webhook_callback(.{ 25, 372 }, "
-        ++ body ++
+        ++ req_body ++
             \\")
             \\
         , callback, struct {
@@ -317,12 +317,29 @@ test "on_webhook" {
                 const linear = try rt.linearMemoryAllocator();
                 const allocator = linear.allocator();
 
-                const body_wasm = try allocator.dupeZ(u8, body);
-                defer allocator.free(body_wasm);
+                const req_body_wasm = try allocator.dupeZ(u8, req_body);
+                defer allocator.free(req_body_wasm);
+
+                const res_status_wasm = try allocator.create(u16);
+                defer allocator.destroy(res_status_wasm);
+                res_status_wasm.* = 0;
+
+                const res_body_addr = try allocator.create(wasm.usize);
+                defer allocator.destroy(res_body_addr);
+                res_body_addr.* = 0;
 
                 var outputs: [1]wasm.Value = undefined;
-                try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{.{ .i32 = @intCast(linear.memory.offset(body_wasm.ptr)) }}, &outputs));
+
+                try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
+                    .{ .i32 = @intCast(linear.memory.offset(req_body_wasm.ptr)) },
+                    .{ .i32 = @intCast(linear.memory.offset(res_status_wasm)) },
+                    .{ .i32 = @intCast(linear.memory.offset(res_body_addr)) },
+                }, &outputs));
                 try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
+
+                try testing.expectEqual(200, res_status_wasm.*);
+                try testing.expect(res_body_addr.* != 0);
+                try testing.expectEqualStrings("response body", wasm.span(linear.memory.slice(), res_body_addr.*));
             }
         }.call);
     }

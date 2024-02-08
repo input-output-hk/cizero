@@ -197,53 +197,121 @@ test Exec {
     try std.testing.expect(std.meta.hasFn(Exec("", struct {}), "execNoArgs"));
 }
 
-fn SimpleSelect(comptime Column: type, comptime columns: []const std.meta.FieldEnum(Column), comptime sql: []const u8, comptime multi: bool, comptime Values: type) type {
-    return Query("SELECT " ++ columnList(columns) ++ "\n" ++ sql, multi, meta.SubUnion(Column, columns), Values);
-}
-
 fn SimpleInsert(comptime table: []const u8, comptime Column: type) type {
     return Exec(
         \\INSERT INTO "
     ++ table ++
         \\" (
-    ++ columnList(std.meta.fieldNames(Column)) ++
+    ++ columnList(null, std.meta.fieldNames(Column)) ++
         \\) VALUES (
     ++ "?, " ** (std.meta.fields(Column).len - 1) ++ "?" ++
         \\)
     , meta.FieldsTuple(Column));
 }
 
-fn SimpleSelectByRowid(comptime table: []const u8, comptime Column: type, comptime columns: []const std.meta.Tag(Column)) type {
-    return SimpleSelect(
-        Column,
-        columns,
-        \\FROM "
-        ++ table ++
-            \\"
-            \\WHERE "rowid" = ?
-    ,
-        false,
-        struct { i64 },
-    );
-}
-
-fn columnList(comptime columns: anytype) []const u8 {
-    comptime var sql: []const u8 = "";
-    inline for (columns, 0..) |column, i| {
+fn columnList(comptime table: ?[]const u8, comptime columns: anytype) []const u8 {
+    comptime var selects: [columns.len][]const u8 = undefined;
+    inline for (columns, &selects) |column, *select| {
         const column_name = if (trait.isZigString(@TypeOf(column))) column else @tagName(column);
-        sql = sql ++ "\"" ++ column_name ++ "\"";
-        if (i + 1 < columns.len) sql = sql ++ ", ";
+        select.* = "\"" ++ column_name ++ "\"";
+        if (table) |t| select.* = "\"" ++ t ++ "\"." ++ select.*;
     }
-    return sql;
+    return comptimeJoin(&selects, ", ");
 }
 
 test columnList {
     try std.testing.expectEqualStrings(
         \\"foo", "bar", "baz"
-    , columnList(.{ .foo, .bar, .baz }));
+    , columnList(null, .{ .foo, .bar, .baz }));
+
+    {
+        const expected =
+            \\"a"."foo", "a"."bar", "a"."baz"
+        ;
+        try std.testing.expectEqualStrings(expected, columnList("a", .{ .foo, .bar, .baz }));
+        try std.testing.expectEqualStrings(expected, columnList("a", .{ "foo", "bar", "baz" }));
+    }
+}
+
+fn comptimeJoin(comptime strs: []const []const u8, comptime sep: []const u8) []const u8 {
+    comptime var result: []const u8 = "";
+    inline for (strs, 0..) |str, i| {
+        result = result ++ str;
+        if (i + 1 < strs.len) result = result ++ sep;
+    }
+    return result;
+}
+
+test comptimeJoin {
     try std.testing.expectEqualStrings(
-        \\"foo", "bar", "baz"
-    , columnList(.{ "foo", "bar", "baz" }));
+        \\a, b, c
+    , comptimeJoin(&.{ "a", "b", "c" }, ", "));
+    try std.testing.expectEqualStrings(
+        \\a
+    , comptimeJoin(&.{"a"}, ", "));
+}
+
+fn MergedColumns(
+    comptime table_a: ?[]const u8,
+    comptime ColumnA: type,
+    comptime table_b: ?[]const u8,
+    comptime ColumnB: type,
+) type {
+    const mapFn = struct {
+        fn mapFn(comptime table: ?[]const u8, comptime T: type) fn (meta.FieldInfo(T)) meta.FieldInfo(T) {
+            const fns = struct {
+                fn map(field: meta.FieldInfo(T)) meta.FieldInfo(T) {
+                    var f = field;
+                    f.name = table.? ++ "." ++ f.name;
+                    return f;
+                }
+
+                fn id(field: meta.FieldInfo(T)) meta.FieldInfo(T) {
+                    return field;
+                }
+            };
+            return if (table != null) fns.map else fns.id;
+        }
+    }.mapFn;
+
+    return meta.MergedUnions(
+        meta.MapTaggedUnionFields(ColumnA, mapFn(table_a, ColumnA), mapFn(table_a, @typeInfo(ColumnA).Union.tag_type.?)),
+        meta.MapTaggedUnionFields(ColumnB, mapFn(table_b, ColumnB), mapFn(table_b, @typeInfo(ColumnB).Union.tag_type.?)),
+        true,
+    );
+}
+
+test MergedColumns {
+    const ColumnA = union(enum) {
+        foo: []const u8,
+        bar: zqlite.Blob,
+    };
+    const ColumnB = union(enum) {
+        foo: []const u8,
+        baz: zqlite.Blob,
+    };
+
+    {
+        const ColumnMerged = MergedColumns("a", ColumnA, "b", ColumnB);
+        const column_names = std.meta.tags(std.meta.Tag(ColumnMerged));
+
+        try std.testing.expectEqual(4, column_names.len);
+        try std.testing.expectEqual(.@"a.foo", column_names[0]);
+        try std.testing.expectEqual(.@"a.bar", column_names[1]);
+        try std.testing.expectEqual(.@"b.foo", column_names[2]);
+        try std.testing.expectEqual(.@"b.baz", column_names[3]);
+    }
+
+    {
+        const ColumnMerged = MergedColumns(null, ColumnA, "b", ColumnB);
+        const column_names = std.meta.tags(std.meta.Tag(ColumnMerged));
+
+        try std.testing.expectEqual(4, column_names.len);
+        try std.testing.expectEqual(.foo, column_names[0]);
+        try std.testing.expectEqual(.bar, column_names[1]);
+        try std.testing.expectEqual(.@"b.foo", column_names[2]);
+        try std.testing.expectEqual(.@"b.baz", column_names[3]);
+    }
 }
 
 pub const queries = struct {
@@ -259,10 +327,10 @@ pub const queries = struct {
         pub const insert = SimpleInsert(table, Column);
 
         pub fn SelectByName(comptime columns: []const ColumnName) type {
-            return SimpleSelect(
-                Column,
-                columns,
-                \\FROM "
+            return Query(
+                \\SELECT
+                ++ columnList(table, columns) ++
+                    \\FROM "
                 ++ table ++
                     \\"
                     \\WHERE "
@@ -270,6 +338,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 false,
+                meta.SubUnion(Column, columns),
                 struct { []const u8 },
             );
         }
@@ -289,7 +358,18 @@ pub const queries = struct {
         pub const insert = SimpleInsert(table, meta.SubUnion(Column, &.{ .plugin, .function, .user_data }));
 
         pub fn SelectById(comptime columns: []const ColumnName) type {
-            return SimpleSelectByRowid(table, Column, columns);
+            return Query(
+                \\SELECT
+                ++ columnList(table, columns) ++
+                    \\FROM "
+                ++ table ++
+                    \\"
+                    \\WHERE "rowid" = ?
+            ,
+                false,
+                meta.SubUnion(Column, columns),
+                struct { i64 },
+            );
         }
 
         pub const deleteById = Exec(
@@ -314,14 +394,14 @@ pub const queries = struct {
 
         pub const insert = SimpleInsert(table, Column);
 
-        pub const ColumnJoined = meta.MergedUnions(callback.Column, Column, true);
-        pub const ColumnNameJoined = std.meta.Tag(ColumnJoined);
-
-        pub fn SelectNext(comptime columns: []const ColumnNameJoined) type {
-            return SimpleSelect(
-                ColumnJoined,
-                columns,
-                \\FROM "
+        pub fn SelectNext(comptime columns: []const ColumnName, comptime callback_columns: []const callback.ColumnName) type {
+            return Query(
+                \\SELECT
+                ++ comptimeJoin(&.{
+                    columnList(table, columns),
+                    columnList(callback.table, callback_columns),
+                }, ", ") ++
+                    \\FROM "
                 ++ callback.table ++
                     \\"
                     \\INNER JOIN "
@@ -341,6 +421,12 @@ pub const queries = struct {
                     \\LIMIT 1
             ,
                 false,
+                MergedColumns(
+                    null,
+                    meta.SubUnion(Column, columns),
+                    callback.table,
+                    meta.SubUnion(callback.Column, callback_columns),
+                ),
                 @TypeOf(.{}),
             );
         }
@@ -363,16 +449,17 @@ pub const queries = struct {
 
         pub const Column = union(enum) {
             callback: i64,
+            plugin: []const u8,
         };
         pub const ColumnName = std.meta.Tag(Column);
 
         pub const insert = SimpleInsert(table, Column);
 
-        pub fn SelectCallback(comptime columns: []const callback.ColumnName) type {
-            return SimpleSelect(
-                callback.Column,
-                columns,
-                \\FROM "
+        pub fn SelectCallbackByPlugin(comptime columns: []const callback.ColumnName) type {
+            return Query(
+                \\SELECT
+                ++ columnList(callback.table, columns) ++
+                    \\FROM "
                 ++ callback.table ++
                     \\"
                     \\INNER JOIN "
@@ -386,9 +473,15 @@ pub const queries = struct {
                     \\"."
                 ++ @tagName(callback.ColumnName.id) ++
                     \\"
+                    \\WHERE "
+                ++ table ++
+                    \\"."
+                ++ @tagName(ColumnName.plugin) ++
+                    \\" = ?
             ,
-                true,
-                @TypeOf(.{}),
+                false,
+                meta.SubUnion(callback.Column, columns),
+                struct { []const u8 },
             );
         }
     };
@@ -404,27 +497,25 @@ pub const queries = struct {
 
         pub const insert = SimpleInsert(table, Column);
 
-        pub const ColumnJoined = meta.MergedUnions(callback.Column, Column, true);
-        pub const ColumnNameJoined = std.meta.Tag(ColumnJoined);
-
         pub fn Select(comptime columns: []const ColumnName) type {
-            return SimpleSelect(
-                Column,
-                columns,
-                \\FROM "
+            return Query(
+                \\SELECT
+                ++ columnList(table, columns) ++
+                    \\FROM "
                 ++ table ++
                     \\"
             ,
                 true,
+                meta.SubUnion(Column, columns),
                 @TypeOf(.{}),
             );
         }
 
-        pub fn SelectCallbackByFlakeUrl(comptime columns: []const ColumnNameJoined) type {
-            return SimpleSelect(
-                ColumnJoined,
-                columns,
-                \\FROM "
+        pub fn SelectCallbackByFlakeUrl(comptime columns: []const callback.ColumnName) type {
+            return Query(
+                \\SELECT
+                ++ columnList(callback.table, columns) ++
+                    \\FROM "
                 ++ callback.table ++
                     \\"
                     \\INNER JOIN "
@@ -443,6 +534,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 true,
+                meta.SubUnion(callback.Column, columns),
                 struct { []const u8 },
             );
         }

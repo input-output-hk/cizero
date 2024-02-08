@@ -38,12 +38,22 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         pdk_tests.onWebhook();
     }
 
-    export fn pdk_test_on_webhook_callback(user_data: ?*const root.pdk_tests.OnWebhookUserData, user_data_len: usize, body_ptr: [*:0]const u8) bool {
+    export fn pdk_test_on_webhook_callback(
+        user_data: ?*const root.pdk_tests.OnWebhookUserData,
+        user_data_len: usize,
+        req_body_ptr: [*:0]const u8,
+        res_status: *u16,
+        res_body_ptr: *?[*:0]const u8,
+    ) bool {
         std.debug.assert(user_data_len == lib.mem.sizeOfUnpad(root.pdk_tests.OnWebhookUserData));
+        std.debug.assert(res_status.* == 204);
 
-        const body = std.mem.span(body_ptr);
+        const req_body = std.mem.span(req_body_ptr);
 
-        std.debug.print("{s}(.{{ {d}, {d} }}, \"{s}\")\n", .{ @src().fn_name, user_data.?.a, user_data.?.b, body });
+        std.debug.print("{s}(.{{ {d}, {d} }}, \"{s}\")\n", .{ @src().fn_name, user_data.?.a, user_data.?.b, req_body });
+
+        res_status.* = 200;
+        res_body_ptr.* = "response body";
 
         return false;
     }

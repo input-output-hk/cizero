@@ -59,7 +59,7 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .id, .plugin, .function, .user_data, .timestamp, .cron });
+        const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
         const next_callback_row = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -85,12 +85,12 @@ fn loop(self: *@This()) !void {
 
             var callback: components.CallbackUnmanaged = undefined;
             try sql.structFromRow(self.allocator, &callback, callback_row, SelectNext.column, .{
-                .func_name = .function,
-                .user_data = .user_data,
+                .func_name = .@"callback.function",
+                .user_data = .@"callback.user_data",
             });
             defer callback.deinit(self.allocator);
 
-            const callback_id = SelectNext.column(callback_row, .id);
+            const callback_id = SelectNext.column(callback_row, .@"callback.id");
             const callback_kind: Callback = if (SelectNext.column(callback_row, .cron) != null) .cron else .timestamp;
 
             // No need to heap-allocate here.
@@ -101,7 +101,7 @@ fn loop(self: *@This()) !void {
                 .cron => 1,
             }];
 
-            var runtime = try self.registry.runtime(SelectNext.column(callback_row, .plugin));
+            var runtime = try self.registry.runtime(SelectNext.column(callback_row, .@"callback.plugin"));
             defer runtime.deinit();
 
             const success = try callback.run(self.allocator, runtime, &.{}, outputs);
