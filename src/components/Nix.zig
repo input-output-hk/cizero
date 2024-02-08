@@ -278,14 +278,6 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
     errdefer self.allocator.destroy(node);
 
     node.data = try std.Thread.spawn(.{}, buildLoop, .{ self, flake_url });
-
-    {
-        self.build_threads_mutex.lock();
-        defer self.build_threads_mutex.unlock();
-
-        self.build_threads.append(node);
-    }
-
     node.data.setName(thread_name: {
         var thread_name_buf: [std.Thread.max_name_len]u8 = undefined;
 
@@ -311,6 +303,13 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
 
         break :thread_name thread_name;
     }) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+
+    {
+        self.build_threads_mutex.lock();
+        defer self.build_threads_mutex.unlock();
+
+        self.build_threads.append(node);
+    }
 
     return true;
 }
