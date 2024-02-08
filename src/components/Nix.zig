@@ -241,9 +241,9 @@ fn loop(self: *@This()) !void {
                 defer self.build_threads_mutex.unlock();
 
                 self.build_threads.remove(node);
-
-                log.debug("waiting on {d} build threads", .{self.build_threads.len});
             }
+
+            log.debug("waiting on {d} build threads", .{self.build_threads.len});
 
             self.allocator.destroy(node);
         } else self.loop_wait.wait();
