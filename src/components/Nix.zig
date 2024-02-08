@@ -25,7 +25,10 @@ registry: *const Registry,
 build_hook: []const u8,
 
 builds_mutex: std.Thread.Mutex = .{},
-builds: std.DoublyLinkedList(Build) = .{},
+builds: std.StringHashMapUnmanaged(Instantiation) = .{},
+
+build_threads_mutex: std.Thread.Mutex = .{},
+build_threads: std.DoublyLinkedList(std.Thread) = .{},
 
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
@@ -39,22 +42,9 @@ mock_start_build_loop: if (builtin.is_test) ?meta.Closure(fn (
     flake_url: []const u8,
 ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool, true) else void = if (builtin.is_test) null,
 
-const Build = struct {
-    flake_url: []const u8,
-    output_spec: []const u8,
-    instantiation: Instantiation,
-    thread: std.Thread,
-
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.flake_url);
-        self.instantiation.deinit();
-
-        // `output_spec` is a slice of `flake_url`
-    }
-};
-
 pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
+    self.builds.deinit(self.allocator);
 }
 
 pub const InitError = std.mem.Allocator.Error;
@@ -242,17 +232,17 @@ pub fn stop(self: *@This()) void {
 }
 
 fn loop(self: *@This()) !void {
-    while (self.loop_run.load(.Monotonic) or self.builds.len != 0) : (self.loop_wait.reset()) {
-        if (self.builds.first) |node| {
-            node.data.thread.join();
+    while (self.loop_run.load(.Monotonic) or self.build_threads.len != 0) : (self.loop_wait.reset()) {
+        if (self.build_threads.first) |node| {
+            node.data.join();
 
             {
-                self.builds_mutex.lock();
-                defer self.builds_mutex.unlock();
+                self.build_threads_mutex.lock();
+                defer self.build_threads_mutex.unlock();
 
-                self.builds.remove(node);
+                self.build_threads.remove(node);
 
-                log.debug("number of builds shrank to {d}", .{self.builds.len});
+                log.debug("waiting on {d} build threads", .{self.build_threads.len});
             }
 
             self.allocator.destroy(node);
@@ -273,37 +263,30 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
         self.builds_mutex.lock();
         defer self.builds_mutex.unlock();
 
-        var node = self.builds.first;
-        while (node != null) : (node = node.?.next) {
-            if (!std.mem.eql(u8, node.?.data.flake_url, flake_url)) continue;
+        const gop = try self.builds.getOrPut(self.allocator, flake_url);
 
+        if (gop.found_existing) {
             log.debug("build loop is already running for {s}", .{flake_url});
             return false;
         }
+
+        log.debug("starting build loop for {s}", .{flake_url});
+        gop.value_ptr.* = .{ .ifds = std.BufSet.init(self.allocator) };
     }
 
-    log.debug("starting build loop for {s}", .{flake_url});
-
-    const node = try self.allocator.create(@TypeOf(self.builds).Node);
+    const node = try self.allocator.create(@TypeOf(self.build_threads).Node);
     errdefer self.allocator.destroy(node);
 
-    node.data = .{
-        .flake_url = flake_url,
-        .output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..],
-        .instantiation = .{ .ifds = std.BufSet.init(self.allocator) },
-        .thread = try std.Thread.spawn(.{}, buildLoop, .{ self, node }),
-    };
+    node.data = try std.Thread.spawn(.{}, buildLoop, .{ self, flake_url });
 
     {
-        self.builds_mutex.lock();
-        defer self.builds_mutex.unlock();
+        self.build_threads_mutex.lock();
+        defer self.build_threads_mutex.unlock();
 
-        self.builds.append(node);
-
-        log.debug("number of builds grew to {d}", .{self.builds.len});
+        self.build_threads.append(node);
     }
 
-    node.data.thread.setName(thread_name: {
+    node.data.setName(thread_name: {
         var thread_name_buf: [std.Thread.max_name_len]u8 = undefined;
 
         const prefix = name ++ ": ";
@@ -332,73 +315,120 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
     return true;
 }
 
-fn buildLoop(self: *@This(), node: *std.DoublyLinkedList(Build).Node) !void {
-    log.debug("entered build loop for {s}", .{node.data.flake_url});
+fn buildLoop(self: *@This(), flake_url: []const u8) !void {
+    log.debug("entered build loop for {s}", .{flake_url});
 
     defer {
-        node.data.deinit(self.allocator);
+        self.allocator.free(flake_url);
 
         self.loop_wait.set();
         std.Thread.yield() catch {};
     }
 
-    instantiate: while (true) {
-        log.debug("instantiating {s}", .{node.data.flake_url});
+    const output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..];
 
-        const instantiation = try instantiate(
+    while (true) {
+        log.debug("instantiating {s}", .{flake_url});
+
+        var instantiation = try instantiate(
             self.allocator,
             self.build_hook,
-            node.data.flake_url,
+            flake_url,
         );
-        node.data.instantiation.deinit();
-        node.data.instantiation = instantiation;
+        errdefer instantiation.deinit();
 
-        switch (instantiation) {
-            .drv => |drv| {
-                const outputs = try build(self.allocator, drv.items, node.data.output_spec);
-                defer {
+        {
+            self.builds_mutex.lock();
+            defer self.builds_mutex.unlock();
+
+            const build_state = self.builds.getPtr(flake_url).?;
+            build_state.deinit();
+            build_state.* = instantiation;
+        }
+
+        const result: BuildResult = switch (instantiation) {
+            .drv => |drv| blk: {
+                const outputs = try build(self.allocator, drv.items, output_spec);
+                errdefer {
                     for (outputs) |output| self.allocator.free(output);
                     self.allocator.free(outputs);
                 }
 
-                log.debug("built {s} as {s} producing {s}", .{ node.data.flake_url, drv.items, outputs });
+                if (outputs.len == 0) {
+                    log.debug("could not build {s} as {s}", .{ flake_url, drv.items });
 
-                try self.runCallbacks(node.data, if (outputs.len != 0) .{ .outputs = outputs } else .{ .failed_drv = drv.items });
-                break;
+                    self.allocator.free(outputs);
+                    break :blk .{ .failed_drv = drv.items };
+                }
+
+                log.debug("built {s} as {s} producing {s}", .{ flake_url, drv.items, outputs });
+
+                break :blk .{ .built = .{
+                    .drv = drv.items,
+                    .outputs = outputs,
+                } };
             },
-            .ifds => |ifds| {
+            .ifds => |ifds| blk: {
                 var iter = ifds.iterator();
                 while (iter.next()) |ifd| {
-                    const outputs = try build(self.allocator, ifd.*, node.data.output_spec);
+                    const outputs = try build(self.allocator, ifd.*, output_spec);
                     defer {
                         for (outputs) |output| self.allocator.free(output);
                         self.allocator.free(outputs);
                     }
 
-                    log.debug("built {s} IFD {s} producing {s}", .{ node.data.flake_url, ifd.*, outputs });
+                    log.debug("built {s} IFD {s} producing {s}", .{ flake_url, ifd.*, outputs });
 
                     if (outputs.len == 0) {
-                        log.debug("could not build {s} due to failure building IFD {s}", .{ node.data.flake_url, ifd.* });
-
-                        try self.runCallbacks(node.data, .{ .failed_drv = ifd.* });
-                        break :instantiate;
+                        log.debug("could not build {s} due to failure building IFD {s}", .{ flake_url, ifd.* });
+                        break :blk .{ .failed_drv = ifd.* };
                     }
+
+                    continue;
                 }
             },
+        };
+
+        defer {
+            switch (result) {
+                .built => |built| {
+                    for (built.outputs) |output| self.allocator.free(output);
+                    self.allocator.free(built.outputs);
+                },
+                .failed_drv => {},
+            }
+
+            instantiation.deinit();
         }
+
+        {
+            self.builds_mutex.lock();
+            defer self.builds_mutex.unlock();
+
+            std.debug.assert(self.builds.remove(flake_url));
+        }
+
+        try self.runCallbacks(flake_url, result);
+
+        break;
     }
 }
 
-fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
-    outputs: []const []const u8,
+const BuildResult = union(enum) {
+    built: struct {
+        drv: []const u8,
+        outputs: []const []const u8,
+    },
     failed_drv: []const u8,
-}) !void {
+};
+
+fn runCallbacks(self: *@This(), flake_url: []const u8, result: BuildResult) !void {
     const SelectCallback = sql.queries.nix_callback.SelectCallbackByFlakeUrl(&.{ .id, .plugin, .function, .user_data });
     var callback_rows = blk: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{build_state.flake_url});
+        break :blk try SelectCallback.rows(conn, .{flake_url});
     };
     errdefer callback_rows.deinit();
 
@@ -411,9 +441,9 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
 
         const outputs = switch (result) {
             .failed_drv => null,
-            .outputs => |result_outputs| blk: {
-                const addrs = try linear_allocator.alloc(wasm.usize, result_outputs.len);
-                for (result_outputs, addrs) |result_output, *addr| {
+            .built => |built| blk: {
+                const addrs = try linear_allocator.alloc(wasm.usize, built.outputs.len);
+                for (built.outputs, addrs) |result_output, *addr| {
                     const out = try linear_allocator.dupeZ(u8, result_output);
                     addr.* = linear.memory.offset(out.ptr);
                 }
@@ -429,12 +459,12 @@ fn runCallbacks(self: *@This(), build_state: Build, result: union(enum) {
         defer callback.deinit(self.allocator);
 
         _ = try callback.run(self.allocator, runtime, &[_]wasm.Value{
-            .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.flake_url)).ptr)) },
-            .{ .i32 = if (result == .outputs) @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, build_state.instantiation.drv.items)).ptr)) else 0 },
+            .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, flake_url)).ptr)) },
+            .{ .i32 = if (result == .built) @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, result.built.drv)).ptr)) else 0 },
             .{ .i32 = if (outputs) |outs| @intCast(linear.memory.offset(outs.ptr)) else 0 },
             .{ .i32 = if (outputs) |outs| @intCast(outs.len) else 0 },
             .{ .i32 = switch (result) {
-                .outputs => 0,
+                .built => 0,
                 .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
             } },
         }, &.{});
