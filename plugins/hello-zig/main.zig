@@ -63,7 +63,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     export fn pdk_test_nix_build_callback(
-        user_data: ?*const root.pdk_tests.OnWebhookUserData,
+        user_data: ?*const anyopaque,
         user_data_len: usize,
         flake_url_locked: [*:0]const u8,
         store_drv: [*:0]const u8,

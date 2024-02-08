@@ -278,31 +278,7 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
     errdefer self.allocator.destroy(node);
 
     node.data = try std.Thread.spawn(.{}, buildLoop, .{ self, flake_url });
-    node.data.setName(thread_name: {
-        var thread_name_buf: [std.Thread.max_name_len]u8 = undefined;
-
-        const prefix = name ++ ": ";
-        const prefix_len: usize = @min(prefix.len, std.Thread.max_name_len);
-
-        @memcpy(thread_name_buf[0..prefix_len], prefix[0..prefix_len]);
-
-        const name_len = if (prefix_len != std.Thread.max_name_len) len: {
-            const flake_url_len = std.Thread.max_name_len - prefix_len;
-            @memcpy(thread_name_buf[prefix_len..], flake_url[0..flake_url_len]);
-            break :len prefix_len + flake_url_len;
-        } else prefix_len;
-
-        const thread_name = thread_name_buf[0..name_len];
-
-        if (thread_name.len == std.Thread.max_name_len) {
-            const ellip = "...";
-            @memcpy(thread_name[thread_name.len - ellip.len ..], ellip);
-        }
-
-        log.debug("spawned thread: {s}", .{thread_name});
-
-        break :thread_name thread_name;
-    }) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+    node.data.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 
     {
         self.build_threads_mutex.lock();
