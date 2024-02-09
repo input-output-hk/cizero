@@ -106,8 +106,12 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
     const flake_url_locked = try self.lockFlakeUrl(params.flake_url);
     errdefer self.allocator.free(flake_url_locked);
 
-    if (!std.mem.eql(u8, params.flake_url, flake_url_locked))
-        log.debug("locked flake URL {s} to {s}", .{ params.flake_url, flake_url_locked });
+    if (comptime std.log.logEnabled(.debug, log_scope)) {
+        if (std.mem.eql(u8, flake_url_locked, params.flake_url))
+            log.debug("flake URL {s} is already locked", .{params.flake_url})
+        else
+            log.debug("flake URL {s} locked to {s}", .{ params.flake_url, flake_url_locked });
+    }
 
     {
         const conn = self.registry.db_pool.acquire();
