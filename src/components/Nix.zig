@@ -44,7 +44,15 @@ mock_start_build_loop: if (builtin.is_test) ?meta.Closure(fn (
 
 pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
-    self.builds.deinit(self.allocator);
+
+    {
+        var iter = self.builds.iterator();
+        while (iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            entry.value_ptr.deinit();
+        }
+        self.builds.deinit(self.allocator);
+    }
 }
 
 pub const InitError = std.mem.Allocator.Error;
@@ -294,8 +302,6 @@ fn buildLoop(self: *@This(), flake_url: []const u8) !void {
     log.debug("entered build loop for {s}", .{flake_url});
 
     defer {
-        self.allocator.free(flake_url);
-
         self.loop_wait.set();
         std.Thread.yield() catch {};
     }
@@ -310,9 +316,10 @@ fn buildLoop(self: *@This(), flake_url: []const u8) !void {
             self.build_hook,
             flake_url,
         );
-        errdefer instantiation.deinit();
 
         {
+            errdefer instantiation.deinit();
+
             self.builds_mutex.lock();
             defer self.builds_mutex.unlock();
 
@@ -364,23 +371,21 @@ fn buildLoop(self: *@This(), flake_url: []const u8) !void {
             },
         };
 
-        defer {
-            switch (result) {
-                .built => |built| {
-                    for (built.outputs) |output| self.allocator.free(output);
-                    self.allocator.free(built.outputs);
-                },
-                .failed_drv => {},
-            }
-
-            instantiation.deinit();
-        }
+        defer switch (result) {
+            .built => |built| {
+                for (built.outputs) |output| self.allocator.free(output);
+                self.allocator.free(built.outputs);
+            },
+            .failed_drv => {},
+        };
 
         {
             self.builds_mutex.lock();
             defer self.builds_mutex.unlock();
 
-            std.debug.assert(self.builds.remove(flake_url));
+            var kv = self.builds.fetchRemove(flake_url);
+            self.allocator.free(kv.?.key);
+            kv.?.value.deinit();
         }
 
         try self.runCallbacks(flake_url, result);
