@@ -245,19 +245,17 @@ pub fn stop(self: *@This()) void {
 
 fn loop(self: *@This()) !void {
     while (self.loop_run.load(.Monotonic) or self.build_threads.len != 0) : (self.loop_wait.reset()) {
-        if (self.build_threads.first) |node| {
-            node.data.join();
+        const first_node = blk: {
+            self.build_threads_mutex.lock();
+            defer self.build_threads_mutex.unlock();
 
-            {
-                self.build_threads_mutex.lock();
-                defer self.build_threads_mutex.unlock();
+            break :blk self.build_threads.popFirst();
+        };
 
-                self.build_threads.remove(node);
-            }
-
-            log.debug("waiting on {d} build threads", .{self.build_threads.len});
-
+        if (first_node) |node| {
+            const thread = node.data;
             self.allocator.destroy(node);
+            thread.join();
         } else self.loop_wait.wait();
     }
 }
@@ -289,25 +287,24 @@ fn startBuildLoop(self: *@This(), flake_url: []const u8) (std.Thread.SpawnError 
     const node = try self.allocator.create(@TypeOf(self.build_threads).Node);
     errdefer self.allocator.destroy(node);
 
-    node.data = try std.Thread.spawn(.{}, buildLoop, .{ self, flake_url });
+    node.data = try std.Thread.spawn(.{}, buildLoop, .{ self, flake_url, node });
     node.data.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
-
-    {
-        self.build_threads_mutex.lock();
-        defer self.build_threads_mutex.unlock();
-
-        self.build_threads.append(node);
-    }
 
     return true;
 }
 
-fn buildLoop(self: *@This(), flake_url: []const u8) !void {
+fn buildLoop(self: *@This(), flake_url: []const u8, node: *@TypeOf(self.build_threads).Node) !void {
     log.debug("entered build loop for {s}", .{flake_url});
 
     defer {
+        {
+            self.build_threads_mutex.lock();
+            defer self.build_threads_mutex.unlock();
+
+            self.build_threads.prepend(node);
+        }
+
         self.loop_wait.set();
-        std.Thread.yield() catch {};
     }
 
     const output_spec = flake_url[if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| i + 1 else flake_url.len..];
