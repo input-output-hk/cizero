@@ -492,6 +492,8 @@ pub const queries = struct {
         pub const Column = union(enum) {
             callback: i64,
             flake_url: []const u8,
+            expression: ?[]const u8,
+            build: bool,
         };
         pub const ColumnName = std.meta.Tag(Column);
 
@@ -511,7 +513,7 @@ pub const queries = struct {
             );
         }
 
-        pub fn SelectCallbackByFlakeUrl(comptime columns: []const callback.ColumnName) type {
+        pub fn SelectCallbackByAll(comptime columns: []const callback.ColumnName) type {
             return Query(
                 \\SELECT
                 ++ columnList(callback.table, columns) ++
@@ -531,11 +533,17 @@ pub const queries = struct {
                     \\"
                     \\WHERE "
                 ++ @tagName(ColumnName.flake_url) ++
-                    \\" = ?
+                    \\" = ?1 AND ("
+                ++ @tagName(ColumnName.expression) ++
+                    \\" = ?2 OR ?2 IS NULL AND "
+                ++ @tagName(ColumnName.expression) ++
+                    \\" IS NULL) AND "
+                ++ @tagName(ColumnName.build) ++
+                    \\" = ?3
             ,
                 true,
                 meta.SubUnion(callback.Column, columns),
-                struct { []const u8 },
+                struct { []const u8, ?[]const u8, bool },
             );
         }
     };

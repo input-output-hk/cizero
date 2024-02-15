@@ -83,6 +83,29 @@ usingnamespace if (builtin.is_test) struct {} else struct {
             failed_drv,
         });
     }
+
+    pub export fn pdk_test_nix_eval() void {
+        tryFn(pdk_tests.nixEval, .{}, {});
+    }
+
+    export fn pdk_test_nix_eval_callback(
+        user_data: ?*const anyopaque,
+        user_data_len: usize,
+        flake_url_locked: [*:0]const u8,
+        result: [*:0]const u8,
+        failed_drv: ?[*:0]const u8,
+    ) void {
+        std.debug.assert(user_data == null);
+        std.debug.assert(user_data_len == 0);
+        std.debug.assert(failed_drv == null);
+
+        std.debug.print("{s}(null, 0, \"{s}\", \"{s}\", {any})\n", .{
+            @src().fn_name,
+            flake_url_locked,
+            result,
+            failed_drv,
+        });
+    }
 };
 
 const pdk_tests = struct {
@@ -156,6 +179,17 @@ const pdk_tests = struct {
         };
         std.debug.print("cizero.nix_build(\"{s}\", {}, \"{s}\")\n", args);
         try @call(.auto, cizero.nixBuild, args);
+    }
+
+    pub fn nixEval() !void {
+        const args = .{
+            "pdk_test_nix_eval_callback",
+            null,
+            "github:NixOS/nixpkgs/nixos-23.11#hello",
+            "hello: hello.meta.description",
+        };
+        std.debug.print("cizero.nix_eval(\"{s}\", {}, \"{s}\", \"{s}\")\n", args);
+        try @call(.auto, cizero.nixEval, args);
     }
 };
 

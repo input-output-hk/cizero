@@ -29,6 +29,13 @@ const externs = struct {
         user_data_len: usize,
         flake_url: [*:0]const u8,
     ) void;
+    extern "cizero" fn nix_eval(
+        func_name: [*:0]const u8,
+        user_data_ptr: ?*const anyopaque,
+        user_data_len: usize,
+        flake_url: [*:0]const u8,
+        expression: ?[*:0]const u8,
+    ) void;
 
     // process
     extern "cizero" fn exec(
@@ -68,6 +75,11 @@ pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
 pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8) !void {
     const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
     externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url);
+}
+
+pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8, expression: ?[:0]const u8) !void {
+    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url, if (expression) |e| e.ptr else null);
 }
 
 pub fn exec(args: struct {
