@@ -497,6 +497,7 @@ pub const queries = struct {
             callback: i64,
             flake_url: []const u8,
             expression: ?[]const u8,
+            output_format: i64,
             build: bool,
         };
         pub const ColumnName = std.meta.Tag(Column);
@@ -544,12 +545,14 @@ pub const queries = struct {
                     \\" = ?2 OR ?2 IS NULL AND "
                 ++ @tagName(ColumnName.expression) ++
                     \\" IS NULL) AND "
+                ++ @tagName(ColumnName.output_format) ++
+                    \\" = ?3 AND "
                 ++ @tagName(ColumnName.build) ++
-                    \\" = ?3
+                    \\" = ?4
             ,
                 true,
                 meta.SubUnion(callback.Column, columns),
-                struct { []const u8, ?[]const u8, bool },
+                struct { []const u8, ?[]const u8, i64, bool },
             );
         }
     };

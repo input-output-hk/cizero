@@ -187,8 +187,9 @@ const pdk_tests = struct {
             null,
             "github:NixOS/nixpkgs/nixos-23.11#hello",
             "hello: hello.meta.description",
+            .raw,
         };
-        std.debug.print("cizero.nix_eval(\"{s}\", {}, \"{s}\", \"{s}\")\n", args);
+        std.debug.print("cizero.nix_eval(\"{s}\", {}, \"{s}\", \"{s}\", {})\n", args);
         try @call(.auto, cizero.nixEval, args);
     }
 };

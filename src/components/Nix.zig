@@ -59,14 +59,22 @@ mock_start_job_loop: if (builtin.is_test) ?meta.Closure(fn (
 pub const Job = struct {
     flake_url: []const u8,
     expression: ?[]const u8,
+    output_format: OutputFormat,
     build: bool,
 
+    pub const OutputFormat = enum { nix, json, raw };
+
     pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try std.fmt.format(writer, "`nix {s} {s}{s}{s}`", .{
+        try std.fmt.format(writer, "`nix {s} {s}{s}{s}{s}`", .{
             if (self.build) "build" else "eval",
             self.flake_url,
             if (self.expression != null) " --apply " else "",
             self.expression orelse "",
+            switch (self.output_format) {
+                .nix => "",
+                .json => "--json",
+                .raw => "--raw",
+            },
         });
     }
 
@@ -116,14 +124,14 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
         .nix_build = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .i32, .i32, .i32, .i32 },
+                .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(nixBuild, self),
         },
         .nix_eval = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &.{ .i32, .i32, .i32, .i32, .i32 },
+                .params = &[_]wasm.Value.Type{.i32} ** 6,
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(nixEval, self),
@@ -147,6 +155,7 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
     const job = Job{
         .flake_url = try self.lockFlakeUrl(params.flake_url),
         .expression = null,
+        .output_format = .raw,
         .build = true,
     };
     errdefer job.deinit(self.allocator);
@@ -158,7 +167,7 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
 }
 
 fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 5);
+    std.debug.assert(inputs.len == 6);
     std.debug.assert(outputs.len == 0);
 
     try components.rejectIfStopped(&self.loop_run);
@@ -169,6 +178,7 @@ fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
         .flake_url = wasm.span(memory, inputs[3]),
         .expression = if (inputs[4].i32 != 0) wasm.span(memory, inputs[4]) else null,
+        .output_format = @as(Job.OutputFormat, @enumFromInt(inputs[5].i32)),
     };
 
     const job = job: {
@@ -181,6 +191,7 @@ fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
         break :job Job{
             .flake_url = flake_url,
             .expression = expression,
+            .output_format = params.output_format,
             .build = false,
         };
     };
@@ -215,6 +226,7 @@ fn insertCallback(
         conn.lastInsertedRowId(),
         job.flake_url,
         job.expression,
+        @intFromEnum(job.output_format),
         job.build,
     });
 
@@ -315,7 +327,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 
     {
-        const SelectPending = sql.queries.nix_callback.Select(&.{ .flake_url, .expression, .build });
+        const SelectPending = sql.queries.nix_callback.Select(&.{ .flake_url, .expression, .output_format, .build });
         var rows = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -333,6 +345,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
             const job = Job{
                 .flake_url = flake_url,
                 .expression = expression,
+                .output_format = @enumFromInt(SelectPending.column(row, .output_format)),
                 .build = SelectPending.column(row, .build),
             };
 
@@ -444,7 +457,7 @@ fn jobLoop(self: *@This(), job: Job, node: *@TypeOf(self.job_threads).Node) !voi
         } else self.eval(
             job.flake_url,
             job.expression,
-            .json,
+            job.output_format,
         );
 
         {
@@ -554,7 +567,7 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{ job.flake_url, job.expression, job.build });
+        break :blk try SelectCallback.rows(conn, .{ job.flake_url, job.expression, @intFromEnum(job.output_format), job.build });
     };
     errdefer callback_rows.deinit();
 
@@ -638,7 +651,7 @@ const Eval = union(enum) {
     }
 };
 
-fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: enum { raw, json }) !Eval {
+fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: Job.OutputFormat) !Eval {
     const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
     defer ifds_tmp.deinit(self.allocator);
 
@@ -657,11 +670,12 @@ fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: enum {
                 ifds_tmp.path,
             },
             if (apply) |a| &.{ "--apply", a } else &.{},
+            switch (output) {
+                .nix => &.{},
+                .json => &.{"--json"},
+                .raw => &.{"--raw"},
+            },
             &.{
-                switch (output) {
-                    .raw => "--raw",
-                    .json => "--json",
-                },
                 "--quiet",
                 flake_url,
             },

@@ -35,7 +35,9 @@ const externs = struct {
         user_data_len: usize,
         flake_url: [*:0]const u8,
         expression: ?[*:0]const u8,
+        output_format: NixEvalOutputFormat,
     ) void;
+    const NixEvalOutputFormat = enum(u8) { nix, json, raw };
 
     // process
     extern "cizero" fn exec(
@@ -77,9 +79,9 @@ pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, flake_url:
     externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url);
 }
 
-pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8, expression: ?[:0]const u8) !void {
+pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8, expression: ?[:0]const u8, output_format: externs.NixEvalOutputFormat) !void {
     const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url, if (expression) |e| e.ptr else null);
+    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url, if (expression) |e| e.ptr else null, output_format);
 }
 
 pub fn exec(args: struct {

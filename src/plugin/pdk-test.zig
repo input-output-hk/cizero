@@ -392,7 +392,7 @@ test "nix_build" {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, null, true }) orelse return testing.expect(false);
+        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, null, @intFromEnum(Cizero.components.Nix.Job.OutputFormat.raw), true }) orelse return testing.expect(false);
     };
     errdefer callback_row.deinit();
 
@@ -487,7 +487,7 @@ test "nix_eval" {
     ++ MockLockFlakeUrl.input ++
         \\", "
     ++ expression ++
-        \\")
+        \\", .raw)
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -500,7 +500,7 @@ test "nix_eval" {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, expression, false }) orelse return testing.expect(false);
+        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, expression, @intFromEnum(Cizero.components.Nix.Job.OutputFormat.raw), false }) orelse return testing.expect(false);
     };
     errdefer callback_row.deinit();
 

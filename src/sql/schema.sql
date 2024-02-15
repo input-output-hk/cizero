@@ -27,5 +27,6 @@ CREATE TABLE "nix_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
 	"flake_url" TEXT NOT NULL,
 	"expression" TEXT,
+	"output_format" INTEGER NOT NULL CHECK ("output_format" BETWEEN 0 AND 2),
 	"build" INTEGER NOT NULL CHECK ("build" = TRUE OR "build" = FALSE)
 ) STRICT;
