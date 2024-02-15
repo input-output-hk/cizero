@@ -4,6 +4,7 @@ const zqlite = @import("zqlite");
 const Cizero = @import("cizero");
 
 var cizero: *Cizero = undefined;
+var shell_fg: ?bool = null;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -18,11 +19,17 @@ pub fn main() !void {
     });
     defer cizero.deinit();
 
+    shell_fg = if (std.io.getStdIn().isTty()) true else null;
+
     {
         const sa = std.os.Sigaction{
             .handler = .{ .handler = struct {
                 fn handler(sig: c_int) callconv(.C) void {
                     std.log.info("graceful shutdown requested via signal {d}", .{sig});
+                    if (shell_fg) |*fg| {
+                        fg.* = false;
+                        std.log.info("cizero is shutting down in the background", .{});
+                    }
                     cizero.stop();
                 }
             }.handler },
@@ -47,4 +54,6 @@ pub fn main() !void {
     }
 
     try cizero.run();
+
+    if (shell_fg) |fg| if (!fg) std.log.info("cizero exited", .{});
 }
