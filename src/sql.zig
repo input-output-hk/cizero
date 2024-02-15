@@ -329,7 +329,8 @@ pub const queries = struct {
         pub fn SelectByName(comptime columns: []const ColumnName) type {
             return Query(
                 \\SELECT
-                ++ columnList(table, columns) ++
+                ++ " " ++ columnList(table, columns) ++
+                    \\
                     \\FROM "
                 ++ table ++
                     \\"
@@ -360,7 +361,8 @@ pub const queries = struct {
         pub fn SelectById(comptime columns: []const ColumnName) type {
             return Query(
                 \\SELECT
-                ++ columnList(table, columns) ++
+                ++ " " ++ columnList(table, columns) ++
+                    \\
                     \\FROM "
                 ++ table ++
                     \\"
@@ -397,10 +399,11 @@ pub const queries = struct {
         pub fn SelectNext(comptime columns: []const ColumnName, comptime callback_columns: []const callback.ColumnName) type {
             return Query(
                 \\SELECT
-                ++ comptimeJoin(&.{
+                ++ " " ++ comptimeJoin(&.{
                     columnList(table, columns),
                     columnList(callback.table, callback_columns),
                 }, ", ") ++
+                    \\
                     \\FROM "
                 ++ callback.table ++
                     \\"
@@ -458,7 +461,8 @@ pub const queries = struct {
         pub fn SelectCallbackByPlugin(comptime columns: []const callback.ColumnName) type {
             return Query(
                 \\SELECT
-                ++ columnList(callback.table, columns) ++
+                ++ " " ++ columnList(callback.table, columns) ++
+                    \\
                     \\FROM "
                 ++ callback.table ++
                     \\"
@@ -502,7 +506,8 @@ pub const queries = struct {
         pub fn Select(comptime columns: []const ColumnName) type {
             return Query(
                 \\SELECT
-                ++ columnList(table, columns) ++
+                ++ " " ++ columnList(table, columns) ++
+                    \\
                     \\FROM "
                 ++ table ++
                     \\"
@@ -516,7 +521,8 @@ pub const queries = struct {
         pub fn SelectCallbackByAll(comptime columns: []const callback.ColumnName) type {
             return Query(
                 \\SELECT
-                ++ columnList(callback.table, columns) ++
+                ++ " " ++ columnList(callback.table, columns) ++
+                    \\
                     \\FROM "
                 ++ callback.table ++
                     \\"
