@@ -349,8 +349,8 @@ test "nix_build" {
     var self = try init();
     defer self.deinit();
 
-    const MockStartJobLoop = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job_loop).type).Optional.child.Fn).Fn;
+    const MockStartJob = struct {
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
 
         fn call(
             _: std.mem.Allocator,
@@ -360,25 +360,14 @@ test "nix_build" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job_loop = meta.disclosure(MockStartJobLoop.call, true);
+    self.cizero.components.nix.mock_start_job = meta.disclosure(MockStartJob.call, true);
 
-    const MockLockFlakeUrl = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
-
-        const input = "github:NixOS/nixpkgs/nixos-23.11#hello^out";
-        const output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello^out";
-
-        fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
-            testing.expectEqualStrings(flake_url, input) catch return error.CouldNotLockFlake;
-            return allocator.dupe(u8, output);
-        }
-    };
-
-    self.cizero.components.nix.mock_lock_flake_url = meta.disclosure(MockLockFlakeUrl.call, true);
+    const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
+    const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
 
     try self.expectEqualStdio("",
         \\cizero.nix_build("pdk_test_nix_build_callback", null, "
-    ++ MockLockFlakeUrl.input ++
+    ++ installable ++
         \\")
         \\
     , {}, struct {
@@ -387,12 +376,12 @@ test "nix_build" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.nix_callback.SelectCallbackByAll(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, null, @intFromEnum(Cizero.components.Nix.Job.OutputFormat.raw), true }) orelse return testing.expect(false);
+        break :blk try SelectCallback.row(conn, .{installable}) orelse return testing.expect(false);
     };
     errdefer callback_row.deinit();
 
@@ -408,16 +397,9 @@ test "nix_build" {
 
     try callback_row.deinitErr();
 
-    const store_drv_output = "/nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-example";
-    const store_drv = store_drv_output ++ ".drv";
-
     try self.expectEqualStdio("",
-        \\pdk_test_nix_build_callback(null, 0, "
-    ++ MockLockFlakeUrl.output ++
-        \\", "
-    ++ store_drv ++
-        \\", {
-    ++ " " ++ store_drv_output ++
+        \\pdk_test_nix_build_callback(null, 0, {
+    ++ " " ++ installable_output ++
         \\ }, null)
         \\
     , callback, struct {
@@ -425,13 +407,7 @@ test "nix_build" {
             const linear = try rt.linearMemoryAllocator();
             const allocator = linear.allocator();
 
-            const flake_url_wasm = try allocator.dupeZ(u8, MockLockFlakeUrl.output);
-            defer allocator.free(flake_url_wasm);
-
-            const store_drv_wasm = try allocator.dupeZ(u8, store_drv);
-            defer allocator.free(store_drv_wasm);
-
-            const store_drv_output_wasm = try allocator.dupeZ(u8, store_drv_output);
+            const store_drv_output_wasm = try allocator.dupeZ(u8, installable_output);
             defer allocator.free(store_drv_output_wasm);
 
             var store_drv_outputs_wasm = try allocator.alloc(wasm.usize, 1);
@@ -439,8 +415,6 @@ test "nix_build" {
             store_drv_outputs_wasm[0] = linear.memory.offset(store_drv_output_wasm.ptr);
 
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
-                .{ .i32 = @intCast(linear.memory.offset(flake_url_wasm.ptr)) },
-                .{ .i32 = @intCast(linear.memory.offset(store_drv_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },
                 .{ .i32 = @intCast(store_drv_outputs_wasm.len) },
                 .{ .i32 = 0 },
@@ -453,8 +427,8 @@ test "nix_eval" {
     var self = try init();
     defer self.deinit();
 
-    const MockStartJobLoop = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job_loop).type).Optional.child.Fn).Fn;
+    const MockStartJob = struct {
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
 
         fn call(
             _: std.mem.Allocator,
@@ -464,29 +438,13 @@ test "nix_eval" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job_loop = meta.disclosure(MockStartJobLoop.call, true);
+    self.cizero.components.nix.mock_start_job = meta.disclosure(MockStartJob.call, true);
 
-    const MockLockFlakeUrl = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_lock_flake_url).type).Optional.child.Fn).Fn;
-
-        const input = "github:NixOS/nixpkgs/nixos-23.11#hello";
-        const output = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e#hello";
-
-        fn call(allocator: std.mem.Allocator, flake_url: []const u8) info.return_type.? {
-            testing.expectEqualStrings(flake_url, input) catch return error.CouldNotLockFlake;
-            return allocator.dupe(u8, output);
-        }
-    };
-
-    self.cizero.components.nix.mock_lock_flake_url = meta.disclosure(MockLockFlakeUrl.call, true);
-
-    const expression = "hello: hello.meta.description";
+    const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
 
     try self.expectEqualStdio("",
         \\cizero.nix_eval("pdk_test_nix_eval_callback", null, "
-    ++ MockLockFlakeUrl.input ++
-        \\", "
-    ++ expression ++
+    ++ expr ++
         \\", .raw)
         \\
     , {}, struct {
@@ -495,12 +453,12 @@ test "nix_eval" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.nix_callback.SelectCallbackByAll(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{ MockLockFlakeUrl.output, expression, @intFromEnum(Cizero.components.Nix.Job.OutputFormat.raw), false }) orelse return testing.expect(false);
+        break :blk try SelectCallback.row(conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) }) orelse return testing.expect(false);
     };
     errdefer callback_row.deinit();
 
@@ -520,25 +478,21 @@ test "nix_eval" {
 
     try self.expectEqualStdio("",
         \\pdk_test_nix_eval_callback(null, 0, "
-    ++ MockLockFlakeUrl.output ++
-        \\", "
     ++ result ++
-        \\", null)
+        \\", null, null, null)
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
             const linear = try rt.linearMemoryAllocator();
             const allocator = linear.allocator();
 
-            const flake_url_wasm = try allocator.dupeZ(u8, MockLockFlakeUrl.output);
-            defer allocator.free(flake_url_wasm);
-
             const result_wasm = try allocator.dupeZ(u8, result);
             defer allocator.free(result_wasm);
 
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
-                .{ .i32 = @intCast(linear.memory.offset(flake_url_wasm.ptr)) },
                 .{ .i32 = @intCast(linear.memory.offset(result_wasm.ptr)) },
+                .{ .i32 = 0 },
+                .{ .i32 = 0 },
                 .{ .i32 = 0 },
             }, &.{}));
         }

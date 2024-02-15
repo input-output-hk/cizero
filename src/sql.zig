@@ -490,15 +490,12 @@ pub const queries = struct {
         }
     };
 
-    pub const nix_callback = struct {
-        const table = "nix_callback";
+    pub const nix_build_callback = struct {
+        const table = "nix_build_callback";
 
         pub const Column = union(enum) {
             callback: i64,
-            flake_url: []const u8,
-            expression: ?[]const u8,
-            output_format: i64,
-            build: bool,
+            installable: []const u8,
         };
         pub const ColumnName = std.meta.Tag(Column);
 
@@ -519,7 +516,7 @@ pub const queries = struct {
             );
         }
 
-        pub fn SelectCallbackByAll(comptime columns: []const callback.ColumnName) type {
+        pub fn SelectCallbackByInstallable(comptime columns: []const callback.ColumnName) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(callback.table, columns) ++
@@ -539,20 +536,71 @@ pub const queries = struct {
                 ++ @tagName(callback.ColumnName.id) ++
                     \\"
                     \\WHERE "
-                ++ @tagName(ColumnName.flake_url) ++
-                    \\" = ?1 AND ("
-                ++ @tagName(ColumnName.expression) ++
-                    \\" = ?2 OR ?2 IS NULL AND "
-                ++ @tagName(ColumnName.expression) ++
-                    \\" IS NULL) AND "
-                ++ @tagName(ColumnName.output_format) ++
-                    \\" = ?3 AND "
-                ++ @tagName(ColumnName.build) ++
-                    \\" = ?4
+                ++ @tagName(ColumnName.installable) ++
+                    \\" = ?
             ,
                 true,
                 meta.SubUnion(callback.Column, columns),
-                struct { []const u8, ?[]const u8, i64, bool },
+                struct { []const u8 },
+            );
+        }
+    };
+
+    pub const nix_eval_callback = struct {
+        const table = "nix_eval_callback";
+
+        pub const Column = union(enum) {
+            callback: i64,
+            expr: []const u8,
+            format: i64,
+        };
+        pub const ColumnName = std.meta.Tag(Column);
+
+        pub const insert = SimpleInsert(table, Column);
+
+        pub fn Select(comptime columns: []const ColumnName) type {
+            return Query(
+                \\SELECT
+                ++ " " ++ columnList(table, columns) ++
+                    \\
+                    \\FROM "
+                ++ table ++
+                    \\"
+            ,
+                true,
+                meta.SubUnion(Column, columns),
+                @TypeOf(.{}),
+            );
+        }
+
+        pub fn SelectCallbackByExprAndFormat(comptime columns: []const callback.ColumnName) type {
+            return Query(
+                \\SELECT
+                ++ " " ++ columnList(callback.table, columns) ++
+                    \\
+                    \\FROM "
+                ++ callback.table ++
+                    \\"
+                    \\INNER JOIN "
+                ++ table ++
+                    \\" ON "
+                ++ table ++
+                    \\"."
+                ++ @tagName(ColumnName.callback) ++
+                    \\" = "
+                ++ callback.table ++
+                    \\"."
+                ++ @tagName(callback.ColumnName.id) ++
+                    \\"
+                    \\WHERE "
+                ++ @tagName(ColumnName.expr) ++
+                    \\" = ? AND "
+                ++ @tagName(ColumnName.format) ++
+                    \\" = ?
+            ,
+                true,
+                meta.SubUnion(callback.Column, columns),
+                struct { []const u8, i64 },
             );
         }
     };

@@ -23,10 +23,13 @@ CREATE TABLE "http_callback" (
 	"plugin" TEXT NOT NULL UNIQUE REFERENCES "plugin"
 ) STRICT;
 
-CREATE TABLE "nix_callback" (
+CREATE TABLE "nix_build_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
-	"flake_url" TEXT NOT NULL,
-	"expression" TEXT,
-	"output_format" INTEGER NOT NULL CHECK ("output_format" BETWEEN 0 AND 2),
-	"build" INTEGER NOT NULL CHECK ("build" = TRUE OR "build" = FALSE)
+	"installable" TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE "nix_eval_callback" (
+	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
+	"expr" TEXT NOT NULL,
+	"format" INTEGER NOT NULL CHECK ("format" BETWEEN 0 AND 2)
 ) STRICT;

@@ -27,17 +27,16 @@ const externs = struct {
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
-        flake_url: [*:0]const u8,
+        installable: [*:0]const u8,
     ) void;
     extern "cizero" fn nix_eval(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
-        flake_url: [*:0]const u8,
-        expression: ?[*:0]const u8,
-        output_format: NixEvalOutputFormat,
+        expression: [*:0]const u8,
+        format: NixEvalFormat,
     ) void;
-    const NixEvalOutputFormat = enum(u8) { nix, json, raw };
+    const NixEvalFormat = enum(u8) { nix, json, raw };
 
     // process
     extern "cizero" fn exec(
@@ -74,14 +73,14 @@ pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
     externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
 }
 
-pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8) !void {
+pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, installable: [:0]const u8) !void {
     const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url);
+    externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, installable);
 }
 
-pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, flake_url: [:0]const u8, expression: ?[:0]const u8, output_format: externs.NixEvalOutputFormat) !void {
+pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, expression: [:0]const u8, format: externs.NixEvalFormat) !void {
     const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, flake_url, if (expression) |e| e.ptr else null, output_format);
+    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, expression, format);
 }
 
 pub fn exec(args: struct {

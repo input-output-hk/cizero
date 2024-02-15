@@ -24,18 +24,17 @@ registry: *const Registry,
 
 build_hook: []const u8,
 
-jobs_mutex: std.Thread.Mutex = .{},
-jobs: std.HashMapUnmanaged(Job, Eval, struct {
-    pub fn hash(_: @This(), key: Job) u64 {
+// could store this in the database but memory is easier for now
+eval_jobs_mutex: std.Thread.Mutex = .{},
+eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
+    pub fn hash(_: @This(), key: Job.Eval) u64 {
         var hasher = std.hash.Wyhash.init(0);
         std.hash.autoHashStrat(&hasher, key, .Deep);
         return hasher.final();
     }
 
-    pub fn eql(_: @This(), a: Job, b: Job) bool {
-        return std.mem.eql(u8, a.flake_url, b.flake_url) and
-            std.mem.eql(u8, a.expression orelse "", b.expression orelse "") and
-            a.build == b.build;
+    pub fn eql(_: @This(), a: Job.Eval, b: Job.Eval) bool {
+        return a.output_format == b.output_format and std.mem.eql(u8, a.expr, b.expr);
     }
 }, std.hash_map.default_max_load_percentage) = .{},
 
@@ -47,40 +46,79 @@ db_busy_mutex: std.Thread.Mutex = .{},
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
-mock_lock_flake_url: if (builtin.is_test) ?meta.Closure(fn (
-    allocator: std.mem.Allocator,
-    flake_url: []const u8,
-) LockFlakeUrlError![]const u8, true) else void = if (builtin.is_test) null,
-mock_start_job_loop: if (builtin.is_test) ?meta.Closure(fn (
-    allocator: std.mem.Allocator,
-    job: Job,
-) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool, true) else void = if (builtin.is_test) null,
+mock_start_job: if (builtin.is_test) ?meta.Closure(
+    fn (
+        allocator: std.mem.Allocator,
+        job: Job,
+    ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool,
+    true,
+) else void = if (builtin.is_test) null,
 
-pub const Job = struct {
-    flake_url: []const u8,
-    expression: ?[]const u8,
-    output_format: OutputFormat,
-    build: bool,
+pub const Job = union(enum) {
+    build: Build,
+    eval: Eval,
 
-    pub const OutputFormat = enum { nix, json, raw };
+    pub const Build = struct {
+        installable: []const u8,
 
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try std.fmt.format(writer, "`nix {s} {s}{s}{s}{s}`", .{
-            if (self.build) "build" else "eval",
-            self.flake_url,
-            if (self.expression != null) " --apply " else "",
-            self.expression orelse "",
-            switch (self.output_format) {
-                .nix => "",
-                .json => "--json",
-                .raw => "--raw",
+        pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.installable);
+        }
+
+        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try std.fmt.format(writer, "`nix build {s}`", .{self.installable});
+        }
+
+        pub const Result = BuildResult;
+    };
+
+    pub const Eval = struct {
+        expr: []const u8,
+        // Naming this just `format` collides with custom `format()` for `std.fmt.format()`,
+        // leading to a hard to understand error saying `type 'EvalFormat' is not a function`.
+        output_format: EvalFormat,
+
+        pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+            allocator.free(self.expr);
+        }
+
+        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try std.fmt.format(writer, "`nix eval{s} --expr {s}`", .{
+                switch (self.output_format) {
+                    .nix => "",
+                    .json => " --json",
+                    .raw => " --raw",
+                },
+                self.expr,
+            });
+        }
+
+        pub const Result = union(enum) {
+            /// evaluation result
+            ok: []const u8,
+            /// evaluation error message
+            failed: []const u8,
+            /// IFD derivation that failed
+            ifd_failed: []const u8,
+            ifd_dep_failed: struct {
+                /// IFD derivation
+                ifd: []const u8,
+                /// dependency derivation that failed
+                drv: []const u8,
             },
-        });
-    }
+        };
+    };
 
     pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.flake_url);
-        if (self.expression) |e| allocator.free(e);
+        switch (self) {
+            inline else => |case| case.deinit(allocator),
+        }
+    }
+
+    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try switch (self) {
+            inline else => |case| case.format(fmt, options, writer),
+        };
     }
 };
 
@@ -88,12 +126,12 @@ pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
 
     {
-        var iter = self.jobs.iterator();
+        var iter = self.eval_jobs.iterator();
         while (iter.next()) |entry| {
             entry.key_ptr.deinit(self.allocator);
             entry.value_ptr.deinit();
         }
-        self.jobs.deinit(self.allocator);
+        self.eval_jobs.deinit(self.allocator);
     }
 }
 
@@ -131,7 +169,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
         },
         .nix_eval = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.Value.Type{.i32} ** 6,
+                .params = &[_]wasm.Value.Type{.i32} ** 5,
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(nixEval, self),
@@ -149,25 +187,25 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
         .func_name = wasm.span(memory, inputs[0]),
         .user_data_ptr = @as([*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
-        .flake_url = wasm.span(memory, inputs[3]),
+        .installable = wasm.span(memory, inputs[3]),
     };
 
-    const job = Job{
-        .flake_url = try self.lockFlakeUrl(params.flake_url),
-        .expression = null,
-        .output_format = .raw,
-        .build = true,
+    const job = job: {
+        const installable = try self.allocator.dupe(u8, params.installable);
+        errdefer self.allocator.free(installable);
+
+        break :job Job{ .build = .{ .installable = installable } };
     };
     errdefer job.deinit(self.allocator);
 
     try self.insertCallback(plugin_name, params.func_name, params.user_data_ptr, params.user_data_len, job);
 
-    const started = try self.startJobLoop(job);
+    const started = try self.startJob(job);
     if (!started) job.deinit(self.allocator);
 }
 
 fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 6);
+    std.debug.assert(inputs.len == 5);
     std.debug.assert(outputs.len == 0);
 
     try components.rejectIfStopped(&self.loop_run);
@@ -176,30 +214,24 @@ fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
         .func_name = wasm.span(memory, inputs[0]),
         .user_data_ptr = @as([*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
-        .flake_url = wasm.span(memory, inputs[3]),
-        .expression = if (inputs[4].i32 != 0) wasm.span(memory, inputs[4]) else null,
-        .output_format = @as(Job.OutputFormat, @enumFromInt(inputs[5].i32)),
+        .expr = wasm.span(memory, inputs[3]),
+        .output_format = @as(EvalFormat, @enumFromInt(inputs[4].i32)),
     };
 
     const job = job: {
-        const flake_url = try self.lockFlakeUrl(params.flake_url);
-        errdefer self.allocator.free(flake_url);
+        const expr = try self.allocator.dupe(u8, params.expr);
+        errdefer self.allocator.free(expr);
 
-        const expression = if (params.expression) |expression| try self.allocator.dupe(u8, expression) else null;
-        errdefer if (expression) |e| self.allocator.free(e);
-
-        break :job Job{
-            .flake_url = flake_url,
-            .expression = expression,
+        break :job Job{ .eval = .{
+            .expr = expr,
             .output_format = params.output_format,
-            .build = false,
-        };
+        } };
     };
     errdefer job.deinit(self.allocator);
 
     try self.insertCallback(plugin_name, params.func_name, params.user_data_ptr, params.user_data_len, job);
 
-    const started = try self.startJobLoop(job);
+    const started = try self.startJob(job);
     if (!started) job.deinit(self.allocator);
 }
 
@@ -222,101 +254,13 @@ fn insertCallback(
         func_name,
         if (user_data_len != 0) .{ .value = user_data_ptr[0..user_data_len] } else null,
     });
-    try sql.queries.nix_callback.insert.exec(conn, .{
-        conn.lastInsertedRowId(),
-        job.flake_url,
-        job.expression,
-        @intFromEnum(job.output_format),
-        job.build,
-    });
+
+    switch (job) {
+        .build => |build_job| try sql.queries.nix_build_callback.insert.exec(conn, .{ conn.lastInsertedRowId(), build_job.installable }),
+        .eval => |eval_job| try sql.queries.nix_eval_callback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.expr, @intFromEnum(eval_job.output_format) }),
+    }
 
     try conn.commit();
-}
-
-pub const LockFlakeUrlError =
-    error{CouldNotLockFlake} ||
-    std.mem.Allocator.Error ||
-    std.process.Child.RunError ||
-    std.json.ParseError(std.json.Scanner);
-
-fn lockFlakeUrl(self: @This(), flake_url: []const u8) LockFlakeUrlError![]const u8 {
-    if (comptime @TypeOf(self.mock_lock_flake_url) != void)
-        if (self.mock_lock_flake_url) |mock|
-            return mock.call(.{ self.allocator, flake_url });
-
-    const flake_base_url = std.mem.sliceTo(flake_url, '#');
-
-    const result = try std.process.Child.run(.{
-        .allocator = self.allocator,
-        .argv = &.{
-            "nix",
-            "flake",
-            "metadata",
-            "--refresh",
-            "--json",
-            flake_base_url,
-        },
-    });
-    defer {
-        self.allocator.free(result.stdout);
-        self.allocator.free(result.stderr);
-    }
-
-    if (result.term != .Exited or result.term.Exited != 0) {
-        log.debug("Could not lock {s}: {}\n{s}", .{ flake_url, result.term, result.stderr });
-        return error.CouldNotLockFlake; // TODO return proper error to plugin caller
-    }
-
-    const metadata = try std.json.parseFromSlice(struct {
-        lockedUrl: ?[]const u8 = null,
-        url: ?[]const u8 = null,
-    }, self.allocator, result.stdout, .{
-        .ignore_unknown_fields = true,
-    });
-    defer metadata.deinit();
-
-    // As of Nix 2.18.1, the man page says
-    // the key should be called `lockedUrl`,
-    // but it is actually called just `url`.
-    const locked_base_url = metadata.value.lockedUrl orelse metadata.value.url.?;
-
-    const locked_flake_url = try std.mem.concat(self.allocator, u8, &.{ locked_base_url, flake_url[flake_base_url.len..] });
-
-    if (comptime std.log.logEnabled(.debug, log_scope)) {
-        if (std.mem.eql(u8, locked_flake_url, flake_url))
-            log.debug("flake URL {s} is already locked", .{flake_url})
-        else
-            log.debug("flake URL {s} locked to {s}", .{ flake_url, locked_flake_url });
-    }
-
-    return locked_flake_url;
-}
-
-test lockFlakeUrl {
-    // this test spawns a child process and needs internet
-    if (true) return error.SkipZigTest;
-
-    const latest = "github:NixOS/nixpkgs";
-    const input = latest ++ "/23.11";
-    const expected = latest ++ "/057f9aecfb71c4437d2b27d3323df7f93c010b7e";
-
-    {
-        const locked = try lockFlakeUrl(std.testing.allocator, input);
-        defer std.testing.allocator.free(locked);
-
-        try std.testing.expectEqualStrings(expected, locked);
-    }
-
-    {
-        const locked = try lockFlakeUrl(std.testing.allocator, input ++ "#hello^out");
-        defer std.testing.allocator.free(locked);
-
-        try std.testing.expectEqualStrings(expected ++ "#hello^out", locked);
-    }
-}
-
-fn flakeUrlOutputSpec(flake_url: []const u8) ?[]const u8 {
-    return if (std.mem.indexOfScalar(u8, flake_url, '^')) |i| flake_url[i + 1 ..] else null;
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!std.Thread {
@@ -327,7 +271,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 
     {
-        const SelectPending = sql.queries.nix_callback.Select(&.{ .flake_url, .expression, .output_format, .build });
+        const SelectPending = sql.queries.nix_build_callback.Select(&.{.installable});
         var rows = blk: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
@@ -336,20 +280,38 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
         };
         errdefer rows.deinit();
         while (rows.next()) |row| {
-            const flake_url = try self.allocator.dupe(u8, SelectPending.column(row, .flake_url));
-            errdefer self.allocator.free(flake_url);
+            const installable = try self.allocator.dupe(u8, SelectPending.column(row, .installable));
+            errdefer self.allocator.free(installable);
 
-            const expression = if (SelectPending.column(row, .expression)) |e| try self.allocator.dupe(u8, e) else null;
-            errdefer if (expression) |e| self.allocator.free(e);
+            const job = Job{ .build = .{
+                .installable = installable,
+            } };
 
-            const job = Job{
-                .flake_url = flake_url,
-                .expression = expression,
-                .output_format = @enumFromInt(SelectPending.column(row, .output_format)),
-                .build = SelectPending.column(row, .build),
-            };
+            const started = try self.startJob(job);
+            if (!started) job.deinit(self.allocator);
+        }
+        try rows.deinitErr();
+    }
 
-            const started = try self.startJobLoop(job);
+    {
+        const SelectPending = sql.queries.nix_eval_callback.Select(&.{ .expr, .format });
+        var rows = blk: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
+
+            break :blk try SelectPending.rows(conn, .{});
+        };
+        errdefer rows.deinit();
+        while (rows.next()) |row| {
+            const expr = try self.allocator.dupe(u8, SelectPending.column(row, .expr));
+            errdefer self.allocator.free(expr);
+
+            const job = Job{ .eval = .{
+                .expr = expr,
+                .output_format = @enumFromInt(SelectPending.column(row, .format)),
+            } };
+
+            const started = try self.startJob(job);
             if (!started) job.deinit(self.allocator);
         }
         try rows.deinitErr();
@@ -380,43 +342,49 @@ fn loop(self: *@This()) !void {
     }
 }
 
-/// Returns whether a new job loop thread has been started.
+/// Returns whether a new job thread has been started.
 /// If true, takes ownership of the `job` parameter, otherwise not.
-fn startJobLoop(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool {
-    if (comptime @TypeOf(self.mock_start_job_loop) != void)
-        if (self.mock_start_job_loop) |mock| return mock.call(.{
-            self.allocator,
-            job,
-        });
+fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool {
+    if (comptime @TypeOf(self.mock_start_job) != void)
+        if (self.mock_start_job) |mock| return mock.call(.{ self.allocator, job });
 
-    {
-        self.jobs_mutex.lock();
-        defer self.jobs_mutex.unlock();
+    if (switch (job) {
+        .build => |build_job| running: {
+            _ = build_job;
 
-        const gop = try self.jobs.getOrPut(self.allocator, job);
+            // TODO check if this job is already running
+            break :running false;
+        },
+        .eval => |eval_job| running: {
+            self.eval_jobs_mutex.lock();
+            defer self.eval_jobs_mutex.unlock();
 
-        if (gop.found_existing) {
-            log.debug("loop is already running for job: {}", .{job});
-            return false;
-        }
+            const gop = try self.eval_jobs.getOrPut(self.allocator, eval_job);
+            if (gop.found_existing) break :running true;
 
-        log.debug("starting loop for job {}", .{job});
-        gop.value_ptr.* = .{ .ifds = std.BufSet.init(self.allocator) };
+            gop.value_ptr.* = .{ .ifds = std.BufSet.init(self.allocator) };
+
+            break :running false;
+        },
+    }) {
+        log.debug("job is already running: {}", .{job});
+        return false;
     }
 
     const node = try self.allocator.create(@TypeOf(self.job_threads).Node);
     errdefer self.allocator.destroy(node);
 
-    node.data = try std.Thread.spawn(.{}, jobLoop, .{ self, job, node });
+    node.data = try std.Thread.spawn(.{}, runJob, .{ self, job, node });
     node.data.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
 
+    log.debug("started job {}", .{job});
     return true;
 }
 
-fn jobLoop(self: *@This(), job: Job, node: *@TypeOf(self.job_threads).Node) !void {
-    log.debug("entered loop for job {}", .{job});
-
+fn runJob(self: *@This(), job: Job, node: *@TypeOf(self.job_threads).Node) !void {
     defer {
+        job.deinit(self.allocator);
+
         {
             self.job_threads_mutex.lock();
             defer self.job_threads_mutex.unlock();
@@ -427,147 +395,106 @@ fn jobLoop(self: *@This(), job: Job, node: *@TypeOf(self.job_threads).Node) !voi
         self.loop_wait.set();
     }
 
-    const output_spec = flakeUrlOutputSpec(job.flake_url);
-
-    while (true) {
-        log.debug("evaluating job {}", .{job});
-
-        var evaluation = try if (job.build) blk: {
-            const apply = try std.mem.concat(
-                self.allocator,
-                u8,
-                if (job.expression) |expression| &.{
-                    \\let apply =
-                    ,
-                    expression,
-                    \\; in
-                    \\x: let result = apply x; in
-                    \\x.drvPath or x
-                } else &.{
-                    \\drv: drv.drvPath or drv
-                },
-            );
-            defer self.allocator.free(apply);
-
-            break :blk self.eval(
-                job.flake_url,
-                apply,
-                .raw,
-            );
-        } else self.eval(
-            job.flake_url,
-            job.expression,
-            job.output_format,
-        );
-
-        {
-            errdefer evaluation.deinit();
-
-            self.jobs_mutex.lock();
-            defer self.jobs_mutex.unlock();
-
-            const job_state = self.jobs.getPtr(job).?;
-            job_state.deinit();
-            job_state.* = evaluation;
-        }
-
-        const result: JobResult = switch (evaluation) {
-            .ok => |evaluated| if (job.build) blk: {
-                const outputs = try build(self.allocator, evaluated.items, output_spec);
-                errdefer {
-                    for (outputs) |output| self.allocator.free(output);
-                    self.allocator.free(outputs);
-                }
-
-                if (outputs.len == 0) {
-                    log.debug("could not build job {} as {s}", .{ job, evaluated.items });
-
-                    self.allocator.free(outputs);
-                    break :blk .{ .failed_drv = evaluated.items };
-                }
-
-                log.debug("built job {} as {s} producing {s}", .{ job, evaluated.items, outputs });
-
-                break :blk .{ .ok = .{
-                    .evaluated = evaluated.items,
-                    .built_outputs = outputs,
-                } };
-            } else blk: {
-                log.debug("evaluated job {}", .{job});
-
-                break :blk .{ .ok = .{
-                    .evaluated = evaluated.items,
-                    .built_outputs = null,
-                } };
-            },
-            .ifds => |ifds| blk: {
-                // XXX build all IFDs in parallel
-                var iter = ifds.iterator();
-                while (iter.next()) |ifd| {
-                    const outputs = try build(self.allocator, ifd.*, output_spec);
-                    defer {
-                        for (outputs) |output| self.allocator.free(output);
-                        self.allocator.free(outputs);
-                    }
-
-                    log.debug("built job {} IFD {s} producing {s}", .{ job, ifd.*, outputs });
-
-                    if (outputs.len == 0) {
-                        log.debug("could not build job {} due to failure building IFD {s}", .{ job, ifd.* });
-                        break :blk .{ .failed_drv = ifd.* };
-                    }
-
-                    continue;
-                }
-            },
-        };
-
-        defer switch (result) {
-            .ok => |ok| if (ok.built_outputs) |outputs| {
-                for (outputs) |output| self.allocator.free(output);
-                self.allocator.free(outputs);
-            },
-            .failed_drv => {},
-        };
-
-        {
-            var kv = blk: {
-                self.jobs_mutex.lock();
-                defer self.jobs_mutex.unlock();
-
-                break :blk self.jobs.fetchRemove(job).?;
-            };
-
-            defer {
-                // same as `job`
-                kv.key.deinit(self.allocator);
-
-                // same as `evaluation`, owns memory for `result`
-                kv.value.deinit();
-            }
-
-            try self.runCallbacks(job, result);
-        }
-
-        break;
-    }
+    try switch (job) {
+        .build => |build_job| self.runBuildJob(build_job),
+        .eval => |eval_job| self.runEvalJob(eval_job),
+    };
 }
 
-const JobResult = union(enum) {
-    ok: struct {
-        evaluated: []const u8,
-        built_outputs: ?[]const []const u8,
-    },
-    failed_drv: []const u8,
-};
+fn runBuildJob(self: *@This(), job: Job.Build) !void {
+    const result = try build(self.allocator, job.installable);
+    defer result.deinit(self.allocator);
 
-fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
-    const SelectCallback = sql.queries.nix_callback.SelectCallbackByAll(&.{ .id, .plugin, .function, .user_data });
+    switch (result) {
+        .outputs => |outputs| if (outputs.len == 0)
+            log.debug("job {} failed", .{job})
+        else
+            log.debug("job {} produced outputs {s}", .{ job, outputs }),
+        .dep_failed => |drv| log.debug("dependency {s} of job {} failed", .{ drv, job }),
+    }
+
+    try self.runBuildJobCallbacks(job, result);
+}
+
+fn runEvalJob(self: *@This(), job: Job.Eval) !void {
+    // owns memory that `result` references so we can free it later
+    var ifd_build_result: ?BuildResult = null;
+
+    const result: Job.Eval.Result = eval: {
+        const max_eval_attempts = 10;
+        var eval_attempts: usize = 0;
+        while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
+            var eval_state = try self.eval(job.expr, job.output_format);
+
+            {
+                errdefer eval_state.deinit();
+
+                self.eval_jobs_mutex.lock();
+                defer self.eval_jobs_mutex.unlock();
+
+                const job_state = self.eval_jobs.getPtr(job).?;
+                job_state.deinit();
+                job_state.* = eval_state;
+            }
+
+            switch (eval_state) {
+                .ok => |evaluated| break :eval .{ .ok = evaluated.items },
+                .failure => |msg| break :eval .{ .failed = msg.items },
+                .ifds => |ifds| {
+                    // XXX build all IFDs in parallel
+                    var iter = ifds.iterator();
+                    while (iter.next()) |ifd| {
+                        const build_result = try build(self.allocator, ifd.*);
+                        errdefer build_result.deinit(self.allocator);
+
+                        switch (build_result) {
+                            .outputs => |outputs| if (outputs.len == 0) {
+                                log.debug("could not build IFD {s} for job {}", .{ ifd.*, job });
+                                ifd_build_result = build_result;
+                                break :eval .{ .ifd_failed = ifd.* };
+                            } else {
+                                log.debug("built IFD {s} producing {s} for job {}", .{ ifd.*, outputs, job });
+                                build_result.deinit(self.allocator);
+                            },
+                            .dep_failed => |drv| {
+                                log.debug("could not build dependency {s} of IFD {s} for job {}", .{ drv, ifd.*, job });
+                                ifd_build_result = build_result;
+                                break :eval .{ .ifd_dep_failed = .{ .drv = drv, .ifd = ifd.* } };
+                            },
+                        }
+                    }
+                },
+            }
+        } else {
+            log.warn("max eval attempts exceeded for job {}", .{job});
+            return error.MaxEvalAttemptsExceeded;
+        }
+    };
+
+    var kv = blk: {
+        self.eval_jobs_mutex.lock();
+        defer self.eval_jobs_mutex.unlock();
+
+        break :blk self.eval_jobs.fetchRemove(job).?;
+    };
+
+    defer {
+        // same as `eval_state`, owns memory referenced by `result`
+        kv.value.deinit();
+
+        if (ifd_build_result) |ibr| ibr.deinit(self.allocator);
+    }
+
+    try self.runEvalJobCallbacks(job, result);
+}
+
+fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result) !void {
+    const SelectCallback = sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
     var callback_rows = blk: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{ job.flake_url, job.expression, @intFromEnum(job.output_format), job.build });
+        break :blk try SelectCallback.rows(conn, .{job.installable});
     };
     errdefer callback_rows.deinit();
 
@@ -588,43 +515,27 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
         const linear = try runtime.linearMemoryAllocator();
         const linear_allocator = linear.allocator();
 
-        var inputs = std.ArrayListUnmanaged(wasm.Value){};
-        defer inputs.deinit(self.allocator);
-        {
-            try inputs.appendSlice(self.allocator, &.{
-                .{ .i32 = @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, job.flake_url)).ptr)) },
-                .{ .i32 = switch (result) {
-                    .ok => |ok| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ok.evaluated)).ptr)),
-                    .failed_drv => 0,
-                } },
-            });
-
-            if (job.build) {
-                const outputs, const outputs_len = switch (result) {
-                    .ok => |ok| outputs: {
-                        const addrs = try linear_allocator.alloc(wasm.usize, ok.built_outputs.?.len);
-                        for (ok.built_outputs.?, addrs) |result_output, *addr| {
-                            const out = try linear_allocator.dupeZ(u8, result_output);
-                            addr.* = linear.memory.offset(out.ptr);
-                        }
-                        break :outputs .{ linear.memory.offset(addrs.ptr), addrs.len };
-                    },
-                    .failed_drv => .{ 0, 0 },
-                };
-
-                try inputs.appendSlice(self.allocator, &.{
-                    .{ .i32 = @intCast(outputs) },
-                    .{ .i32 = @intCast(outputs_len) },
-                });
-            }
-
-            try inputs.append(self.allocator, .{ .i32 = switch (result) {
-                .ok => 0,
-                .failed_drv => |dep| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, dep)).ptr)),
-            } });
-        }
-
-        _ = try callback.run(self.allocator, runtime, inputs.items, &.{});
+        _ = try callback.run(self.allocator, runtime, &.{
+            .{ .i32 = switch (result) {
+                .outputs => |outputs| if (outputs.len == 0) 0 else addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, outputs.len);
+                    for (outputs, addrs) |output, *addr| {
+                        const out = try linear_allocator.dupeZ(u8, output);
+                        addr.* = linear.memory.offset(out.ptr);
+                    }
+                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
+                },
+                .dep_failed => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .outputs => |outputs| @intCast(outputs.len),
+                .dep_failed => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .outputs => 0,
+                .dep_failed => |drv| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, drv)).ptr)),
+            } },
+        }, &.{});
 
         self.db_busy_mutex.lock();
         defer self.db_busy_mutex.unlock();
@@ -640,9 +551,74 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
     try callback_rows.deinitErr();
 }
 
-const Eval = union(enum) {
+fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !void {
+    const SelectCallback = sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
+    var callback_rows = blk: {
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
+
+        break :blk try SelectCallback.rows(conn, .{ job.expr, @intFromEnum(job.output_format) });
+    };
+    errdefer callback_rows.deinit();
+
+    var found_callback: bool = false;
+    while (callback_rows.next()) |callback_row| {
+        found_callback = true;
+
+        var callback: components.CallbackUnmanaged = undefined;
+        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
+            .func_name = .function,
+            .user_data = .user_data,
+        });
+        defer callback.deinit(self.allocator);
+
+        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
+        defer runtime.deinit();
+
+        const linear = try runtime.linearMemoryAllocator();
+        const linear_allocator = linear.allocator();
+
+        _ = try callback.run(self.allocator, runtime, &.{
+            .{ .i32 = switch (result) {
+                .ok => |evaluated| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, evaluated)).ptr)),
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .failed => |msg| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, msg)).ptr)),
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .ifd_failed => |drv| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, drv)).ptr)),
+                .ifd_dep_failed => |ifd_dep_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_dep_failed.ifd)).ptr)),
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .ifd_dep_failed => |ifd_dep_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_dep_failed.drv)).ptr)),
+                else => 0,
+            } },
+        }, &.{});
+
+        self.db_busy_mutex.lock();
+        defer self.db_busy_mutex.unlock();
+
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
+
+        try sql.queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+    }
+
+    if (!found_callback) log.err("no callbacks found for job {}", .{job});
+
+    try callback_rows.deinitErr();
+}
+
+pub const EvalFormat = enum { nix, json, raw };
+
+pub const EvalState = union(enum) {
     ok: std.ArrayList(u8),
     ifds: std.BufSet,
+    /// error message
+    failure: std.ArrayList(u8),
 
     pub fn deinit(self: *@This()) void {
         switch (self.*) {
@@ -651,11 +627,12 @@ const Eval = union(enum) {
     }
 };
 
-fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: Job.OutputFormat) !Eval {
+fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
     const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
     defer ifds_tmp.deinit(self.allocator);
 
     {
+        // XXX use ++ instead of concat()
         const args = try std.mem.concat(self.allocator, []const u8, &.{
             &.{
                 "nix",
@@ -669,15 +646,15 @@ fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: Job.Ou
                 "--builders",
                 ifds_tmp.path,
             },
-            if (apply) |a| &.{ "--apply", a } else &.{},
-            switch (output) {
+            switch (format) {
                 .nix => &.{},
                 .json => &.{"--json"},
                 .raw => &.{"--raw"},
             },
             &.{
                 "--quiet",
-                flake_url,
+                "--expr",
+                expression,
             },
         });
         defer self.allocator.free(args);
@@ -689,11 +666,12 @@ fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: Job.Ou
         defer self.allocator.free(result.stderr);
 
         if (result.term == .Exited and result.term.Exited == 0) {
+            defer self.allocator.free(result.stderr);
             return .{ .ok = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stdout) };
-        } else {
-            log.debug("command {s} terminated with {}\n{s}", .{ args, result.term, result.stderr });
-            self.allocator.free(result.stdout);
-        }
+        } else log.debug("command {s} terminated with {}", .{ args, result.term });
+
+        // TODO catch eval failure
+        // return .{ .failed = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stderr) };
     }
 
     var ifds = std.BufSet.init(self.allocator);
@@ -719,11 +697,25 @@ fn eval(self: @This(), flake_url: []const u8, apply: ?[]const u8, output: Job.Ou
     return .{ .ifds = ifds };
 }
 
-/// Returns the outputs.
-fn build(allocator: std.mem.Allocator, store_drv: []const u8, output_spec: ?[]const u8) ![]const []const u8 {
-    const installable = try std.mem.concat(allocator, u8, if (output_spec) |out| &.{ store_drv, "^", out } else &.{store_drv});
-    defer allocator.free(installable);
+pub const BuildResult = union(enum) {
+    /// Output paths produced.
+    /// If empty, the build failed.
+    outputs: []const []const u8,
+    /// dependency derivation that failed
+    dep_failed: []const u8,
 
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        switch (self) {
+            .outputs => |outputs| {
+                for (outputs) |output| allocator.free(output);
+                allocator.free(outputs);
+            },
+            .dep_failed => |drv| allocator.free(drv),
+        }
+    }
+};
+
+fn build(allocator: std.mem.Allocator, installable: []const u8) !BuildResult {
     log.debug("building {s}", .{installable});
 
     const result = try std.process.Child.run(.{
@@ -743,22 +735,21 @@ fn build(allocator: std.mem.Allocator, store_drv: []const u8, output_spec: ?[]co
         allocator.free(result.stderr);
     }
 
-    if (result.term != .Exited or result.term.Exited != 0) {
-        log.debug("build of {s} failed: {s}", .{ store_drv, result.stderr });
-        return &.{};
-    }
-
     var outputs = std.ArrayListUnmanaged([]const u8){};
     errdefer {
         for (outputs.items) |output| allocator.free(output);
         outputs.deinit(allocator);
     }
-    {
+
+    if (result.term == .Exited and result.term.Exited == 0) {
         var iter = std.mem.tokenizeScalar(u8, result.stdout, '\n');
         while (iter.next()) |output|
             try outputs.append(allocator, try allocator.dupe(u8, output));
-    }
-    return outputs.toOwnedSlice(allocator);
+    } else log.debug("build of {s} failed: {s}", .{ installable, result.stderr });
+
+    // TODO discover BuildResult.dep_failed
+
+    return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }
 
 test {

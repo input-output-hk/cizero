@@ -65,22 +65,17 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     export fn pdk_test_nix_build_callback(
         user_data: ?*const anyopaque,
         user_data_len: usize,
-        flake_url_locked: [*:0]const u8,
-        store_drv: [*:0]const u8,
         outputs_ptr: [*]const [*:0]const u8,
         outputs_len: usize,
-        failed_drv: ?[*:0]const u8,
+        failed_dep: ?[*:0]const u8,
     ) void {
         std.debug.assert(user_data == null);
         std.debug.assert(user_data_len == 0);
-        std.debug.assert(failed_drv == null);
 
-        std.debug.print("{s}(null, 0, \"{s}\", \"{s}\", {s}, {any})\n", .{
+        std.debug.print("{s}(null, 0, {s}, {any})\n", .{
             @src().fn_name,
-            flake_url_locked,
-            store_drv,
             outputs_ptr[0..outputs_len],
-            failed_drv,
+            failed_dep,
         });
     }
 
@@ -91,19 +86,20 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     export fn pdk_test_nix_eval_callback(
         user_data: ?*const anyopaque,
         user_data_len: usize,
-        flake_url_locked: [*:0]const u8,
-        result: [*:0]const u8,
-        failed_drv: ?[*:0]const u8,
+        result: ?[*:0]const u8,
+        err_msg: ?[*:0]const u8,
+        failed_ifd: ?[*:0]const u8,
+        failed_ifd_dep: ?[*:0]const u8,
     ) void {
         std.debug.assert(user_data == null);
         std.debug.assert(user_data_len == 0);
-        std.debug.assert(failed_drv == null);
 
-        std.debug.print("{s}(null, 0, \"{s}\", \"{s}\", {any})\n", .{
+        std.debug.print("{s}(null, 0, \"{?s}\", {any}, {any}, {any})\n", .{
             @src().fn_name,
-            flake_url_locked,
             result,
-            failed_drv,
+            err_msg,
+            failed_ifd,
+            failed_ifd_dep,
         });
     }
 };
@@ -175,7 +171,7 @@ const pdk_tests = struct {
         const args = .{
             "pdk_test_nix_build_callback",
             null,
-            "github:NixOS/nixpkgs/nixos-23.11#hello^out",
+            "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*",
         };
         std.debug.print("cizero.nix_build(\"{s}\", {}, \"{s}\")\n", args);
         try @call(.auto, cizero.nixBuild, args);
@@ -185,11 +181,10 @@ const pdk_tests = struct {
         const args = .{
             "pdk_test_nix_eval_callback",
             null,
-            "github:NixOS/nixpkgs/nixos-23.11#hello",
-            "hello: hello.meta.description",
+            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description",
             .raw,
         };
-        std.debug.print("cizero.nix_eval(\"{s}\", {}, \"{s}\", \"{s}\", {})\n", args);
+        std.debug.print("cizero.nix_eval(\"{s}\", {}, \"{s}\", {})\n", args);
         try @call(.auto, cizero.nixEval, args);
     }
 };
