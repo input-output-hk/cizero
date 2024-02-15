@@ -556,7 +556,10 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
     };
     errdefer callback_rows.deinit();
 
+    var found_callback: bool = false;
     while (callback_rows.next()) |callback_row| {
+        found_callback = true;
+
         var callback: components.CallbackUnmanaged = undefined;
         try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
             .func_name = .function,
@@ -613,6 +616,8 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
 
         try sql.queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
     }
+
+    if (!found_callback) log.err("no callbacks found for job {}", .{job});
 
     try callback_rows.deinitErr();
 }
