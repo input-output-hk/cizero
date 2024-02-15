@@ -42,6 +42,8 @@ jobs: std.HashMapUnmanaged(Job, Eval, struct {
 job_threads_mutex: std.Thread.Mutex = .{},
 job_threads: std.DoublyLinkedList(std.Thread) = .{},
 
+db_busy_mutex: std.Thread.Mutex = .{},
+
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
@@ -610,6 +612,9 @@ fn runCallbacks(self: *@This(), job: Job, result: JobResult) !void {
         }
 
         _ = try callback.run(self.allocator, runtime, inputs.items, &.{});
+
+        self.db_busy_mutex.lock();
+        defer self.db_busy_mutex.unlock();
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
