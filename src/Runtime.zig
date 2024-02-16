@@ -291,6 +291,7 @@ pub fn init(
     );
 
     var host_functions = std.StringArrayHashMapUnmanaged(HostFunction){};
+    errdefer host_functions.deinit(allocator);
     {
         try host_functions.ensureTotalCapacity(allocator, host_function_defs.count());
 
