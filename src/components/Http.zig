@@ -138,7 +138,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
-        .on_webhook = Runtime.HostFunctionDef{
+        .http_on_webhook = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32 },
                 .returns = &.{},

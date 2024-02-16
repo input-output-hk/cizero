@@ -160,24 +160,24 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!@
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
-        .nix_build = Runtime.HostFunctionDef{
+        .nix_on_build = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{},
             },
-            .host_function = Runtime.HostFunction.init(nixBuild, self),
+            .host_function = Runtime.HostFunction.init(onBuild, self),
         },
-        .nix_eval = Runtime.HostFunctionDef{
+        .nix_on_eval = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 5,
                 .returns = &.{},
             },
-            .host_function = Runtime.HostFunction.init(nixEval, self),
+            .host_function = Runtime.HostFunction.init(onEval, self),
         },
     });
 }
 
-fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
@@ -204,7 +204,7 @@ fn nixBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Al
     if (!started) job.deinit(self.allocator);
 }
 
-fn nixEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+fn onEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
     std.debug.assert(inputs.len == 5);
     std.debug.assert(outputs.len == 0);
 

@@ -135,14 +135,14 @@ fn loop(self: *@This()) !void {
 
 pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef) {
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
-        .on_timestamp = Runtime.HostFunctionDef{
+        .timeout_on_timestamp = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &.{ .i32, .i32, .i32, .i64 },
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(onTimestamp, self),
         },
-        .on_cron = Runtime.HostFunctionDef{
+        .timeout_on_cron = Runtime.HostFunctionDef{
             .signature = .{
                 .params = &[_]wasm.Value.Type{.i32} ** 4,
                 .returns = &.{.i64},

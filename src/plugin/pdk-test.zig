@@ -85,19 +85,19 @@ fn expectEqualStdio(
     try testing.expectEqualStrings(stderr, output.stderr);
 }
 
-test "on_timestamp" {
+test "timeout_on_timestamp" {
     var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_timestamp
-        \\pdk_test_on_timestamp_callback
+        \\cizero.timeout_on_timestamp
+        \\pdk_test_timeout_on_timestamp_callback
         \\1000
         \\3000
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_on_timestamp", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_timeout_on_timestamp", &.{}, &.{}));
         }
     }.call);
 
@@ -122,7 +122,7 @@ test "on_timestamp" {
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
 
-        try testing.expectEqualStrings("pdk_test_on_timestamp_callback", callback.func_name);
+        try testing.expectEqualStrings("pdk_test_timeout_on_timestamp_callback", callback.func_name);
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
 
@@ -133,7 +133,7 @@ test "on_timestamp" {
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_on_timestamp_callback
+        \\pdk_test_timeout_on_timestamp_callback
         \\1000
         \\
     , callback, struct {
@@ -143,20 +143,20 @@ test "on_timestamp" {
     }.call);
 }
 
-test "on_cron" {
+test "timeout_on_cron" {
     var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_cron
-        \\pdk_test_on_cron_callback
+        \\cizero.timeout_on_cron
+        \\pdk_test_timeout_on_cron_callback
         \\* * * * *
         \\* * * * *
         \\60000
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_on_cron", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_timeout_on_cron", &.{}, &.{}));
         }
     }.call);
 
@@ -176,7 +176,7 @@ test "on_cron" {
     });
     defer callback.deinit(testing.allocator);
 
-    try testing.expectEqualStrings("pdk_test_on_cron_callback", callback.func_name);
+    try testing.expectEqualStrings("pdk_test_timeout_on_cron_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
 
@@ -187,7 +187,7 @@ test "on_cron" {
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_on_cron_callback
+        \\pdk_test_timeout_on_cron_callback
         \\* * * * *
         \\
     , callback, struct {
@@ -200,7 +200,7 @@ test "on_cron" {
     }.call);
 }
 
-test "exec" {
+test "process_exec" {
     var self = try init();
     defer self.deinit();
 
@@ -271,25 +271,25 @@ test "exec" {
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_exec", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_process_exec", &.{}, &.{}));
         }
     }.call);
 
     if (mock_child_run.exec_test_err) |err| return err;
 }
 
-test "on_webhook" {
+test "http_on_webhook" {
     var self = try init();
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_webhook
-        \\pdk_test_on_webhook_callback
+        \\cizero.http_on_webhook
+        \\pdk_test_http_on_webhook_callback
         \\.{ 25, 372 }
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_on_webhook", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_http_on_webhook", &.{}, &.{}));
         }
     }.call);
 
@@ -309,7 +309,7 @@ test "on_webhook" {
     });
     defer callback.deinit(testing.allocator);
 
-    try testing.expectEqualStrings("pdk_test_on_webhook_callback", callback.func_name);
+    try testing.expectEqualStrings("pdk_test_http_on_webhook_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, &[_]u8{ 25, 116, 1 }, callback.user_data.?);
 
@@ -319,7 +319,7 @@ test "on_webhook" {
         const req_body = "request body";
 
         try self.expectEqualStdio("",
-            \\pdk_test_on_webhook_callback
+            \\pdk_test_http_on_webhook_callback
             \\.{ 25, 372 }
             \\
         ++ req_body ++
@@ -358,7 +358,7 @@ test "on_webhook" {
     }
 }
 
-test "nix_build" {
+test "nix_on_build" {
     var self = try init();
     defer self.deinit();
 
@@ -379,8 +379,8 @@ test "nix_build" {
     const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_build
-        \\pdk_test_nix_build_callback
+        \\cizero.nix_on_build
+        \\pdk_test_nix_on_build_callback
         \\null
         \\
     ++ installable ++
@@ -388,7 +388,7 @@ test "nix_build" {
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_nix_build", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_nix_on_build", &.{}, &.{}));
         }
     }.call);
 
@@ -408,13 +408,13 @@ test "nix_build" {
     });
     defer callback.deinit(testing.allocator);
 
-    try testing.expectEqualStrings("pdk_test_nix_build_callback", callback.func_name);
+    try testing.expectEqualStrings("pdk_test_nix_on_build_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
 
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_nix_build_callback
+        \\pdk_test_nix_on_build_callback
         \\null
         \\0
         \\{
@@ -443,7 +443,7 @@ test "nix_build" {
     }.call);
 }
 
-test "nix_eval" {
+test "nix_on_eval" {
     var self = try init();
     defer self.deinit();
 
@@ -463,8 +463,8 @@ test "nix_eval" {
     const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_eval
-        \\pdk_test_nix_eval_callback
+        \\cizero.nix_on_eval
+        \\pdk_test_nix_on_eval_callback
         \\null
         \\
     ++ expr ++
@@ -473,7 +473,7 @@ test "nix_eval" {
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
-            try testing.expect(try rt.call("pdk_test_nix_eval", &.{}, &.{}));
+            try testing.expect(try rt.call("pdk_test_nix_on_eval", &.{}, &.{}));
         }
     }.call);
 
@@ -493,7 +493,7 @@ test "nix_eval" {
     });
     defer callback.deinit(testing.allocator);
 
-    try testing.expectEqualStrings("pdk_test_nix_eval_callback", callback.func_name);
+    try testing.expectEqualStrings("pdk_test_nix_on_eval_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
 
     try callback_row.deinitErr();
@@ -501,7 +501,7 @@ test "nix_eval" {
     const result = "A program that produces a familiar, friendly greeting";
 
     try self.expectEqualStdio("",
-        \\pdk_test_nix_eval_callback
+        \\pdk_test_nix_on_eval_callback
         \\null
         \\0
         \\

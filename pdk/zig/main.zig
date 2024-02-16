@@ -16,30 +16,30 @@ export fn cizero_mem_free(buf: [*]u8, buf_len: usize, buf_align: u8) void {
 
 const externs = struct {
     // http
-    extern "cizero" fn on_webhook(
+    extern "cizero" fn http_on_webhook(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
     ) void;
 
     // nix
-    extern "cizero" fn nix_build(
+    extern "cizero" fn nix_on_build(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
         installable: [*:0]const u8,
     ) void;
-    extern "cizero" fn nix_eval(
+    const NixEvalFormat = enum(u8) { nix, json, raw };
+    extern "cizero" fn nix_on_eval(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
         expression: [*:0]const u8,
         format: NixEvalFormat,
     ) void;
-    const NixEvalFormat = enum(u8) { nix, json, raw };
 
     // process
-    extern "cizero" fn exec(
+    extern "cizero" fn process_exec(
         argv_ptr: [*]const [*:0]const u8,
         argc: usize,
         expand_arg0: bool,
@@ -54,13 +54,13 @@ const externs = struct {
     ) u8;
 
     // timeout
-    extern "cizero" fn on_cron(
+    extern "cizero" fn timeout_on_cron(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
         cron: [*:0]const u8,
     ) i64;
-    extern "cizero" fn on_timestamp(
+    extern "cizero" fn timeout_on_timestamp(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
@@ -68,105 +68,115 @@ const externs = struct {
     ) void;
 };
 
-pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
-}
+pub const http = struct{
+    pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
+        const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+        externs.http_on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
+    }
+};
 
-pub fn nixBuild(callback_func_name: [:0]const u8, user_data: anytype, installable: [:0]const u8) !void {
-    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.nix_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, installable);
-}
-
-pub fn nixEval(callback_func_name: [:0]const u8, user_data: anytype, expression: [:0]const u8, format: externs.NixEvalFormat) !void {
-    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.nix_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, expression, format);
-}
-
-pub fn exec(args: struct {
-    allocator: std.mem.Allocator,
-    argv: []const []const u8,
-    env_map: ?*const std.process.EnvMap = null,
-    max_output_bytes: usize = 50 * 1024,
-    expand_arg0: std.process.Child.Arg0Expand = .no_expand,
-}) std.process.Child.RunError!std.process.Child.RunResult {
-    const argv = try CStringArray.initDupe(args.allocator, args.argv);
-    defer argv.deinit();
-
-    const env_map = if (args.env_map) |env_map| try CStringArray.initStringStringMap(args.allocator, env_map) else null;
-    defer if (env_map) |env| env.deinit();
-
-    var output = try args.allocator.alloc(u8, args.max_output_bytes);
-    defer args.allocator.free(output);
-
-    var stdout_len: usize = undefined;
-    var stderr_len: usize = undefined;
-
-    var term_tag: enum(u8) {
-        Exited,
-        Signal,
-        Stopped,
-        Unknown,
-    } = undefined;
-    var term_code: usize = undefined;
-
-    const err_code = externs.exec(
-        fixZeroLenSlice([*:0]const u8, argv.c).ptr,
-        fixZeroLenSlice([*:0]const u8, argv.c).len,
-        args.expand_arg0 == .expand,
-        if (env_map) |env| @ptrCast(fixZeroLenSlice([*:0]const u8, env.c).ptr) else null,
-        if (env_map) |env| fixZeroLenSlice([*:0]const u8, env.c).len else 0,
-        args.max_output_bytes,
-        output.ptr,
-        &stdout_len,
-        &stderr_len,
-        @ptrCast(&term_tag),
-        &term_code,
-    );
-    if (err_code != 0) {
-        const E = std.process.Child.RunError;
-
-        const err_tags = try args.allocator.dupe(E, std.meta.tags(E));
-        defer args.allocator.free(err_tags);
-
-        std.mem.sortUnstable(E, err_tags, {}, struct {
-            fn call(_: void, lhs: E, rhs: E) bool {
-                return std.mem.order(u8, @errorName(lhs), @errorName(rhs)) == .lt;
-            }
-        }.call);
-
-        for (err_tags, 1..) |err, i|
-            if (err_code == i) return err;
-        unreachable;
+pub const nix = struct {
+    pub fn onBuild(callback_func_name: [:0]const u8, user_data: anytype, installable: [:0]const u8) !void {
+        const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+        externs.nix_on_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, installable);
     }
 
-    const stdout = try args.allocator.dupe(u8, output[0..stdout_len]);
-    errdefer args.allocator.free(stdout);
+    pub const EvalFormat = externs.NixEvalFormat;
 
-    const stderr = try args.allocator.dupe(u8, output[stdout_len .. stdout_len + stderr_len]);
-    errdefer args.allocator.free(stderr);
+    pub fn onEval(callback_func_name: [:0]const u8, user_data: anytype, expression: [:0]const u8, format: externs.NixEvalFormat) !void {
+        const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+        externs.nix_on_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, expression, format);
+    }
+};
 
-    return .{
-        .term = switch (term_tag) {
-            .Exited => .{ .Exited = @intCast(term_code) },
-            .Signal => .{ .Signal = term_code },
-            .Stopped => .{ .Stopped = term_code },
-            .Unknown => .{ .Unknown = term_code },
-        },
-        .stdout = stdout,
-        .stderr = stderr,
-    };
-}
+pub const process = struct {
+    pub fn exec(args: struct {
+        allocator: std.mem.Allocator,
+        argv: []const []const u8,
+        env_map: ?*const std.process.EnvMap = null,
+        max_output_bytes: usize = 50 * 1024,
+        expand_arg0: std.process.Child.Arg0Expand = .no_expand,
+    }) std.process.Child.RunError!std.process.Child.RunResult {
+        const argv = try CStringArray.initDupe(args.allocator, args.argv);
+        defer argv.deinit();
 
-pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    return externs.on_cron(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, cron_expr.ptr);
-}
+        const env_map = if (args.env_map) |env_map| try CStringArray.initStringStringMap(args.allocator, env_map) else null;
+        defer if (env_map) |env| env.deinit();
 
-pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
-    externs.on_timestamp(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, timestamp_ms);
-}
+        var output = try args.allocator.alloc(u8, args.max_output_bytes);
+        defer args.allocator.free(output);
+
+        var stdout_len: usize = undefined;
+        var stderr_len: usize = undefined;
+
+        var term_tag: enum(u8) {
+            Exited,
+            Signal,
+            Stopped,
+            Unknown,
+        } = undefined;
+        var term_code: usize = undefined;
+
+        const err_code = externs.process_exec(
+            fixZeroLenSlice([*:0]const u8, argv.c).ptr,
+            fixZeroLenSlice([*:0]const u8, argv.c).len,
+            args.expand_arg0 == .expand,
+            if (env_map) |env| @ptrCast(fixZeroLenSlice([*:0]const u8, env.c).ptr) else null,
+            if (env_map) |env| fixZeroLenSlice([*:0]const u8, env.c).len else 0,
+            args.max_output_bytes,
+            output.ptr,
+            &stdout_len,
+            &stderr_len,
+            @ptrCast(&term_tag),
+            &term_code,
+        );
+        if (err_code != 0) {
+            const E = std.process.Child.RunError;
+
+            const err_tags = try args.allocator.dupe(E, std.meta.tags(E));
+            defer args.allocator.free(err_tags);
+
+            std.mem.sortUnstable(E, err_tags, {}, struct {
+                fn call(_: void, lhs: E, rhs: E) bool {
+                    return std.mem.order(u8, @errorName(lhs), @errorName(rhs)) == .lt;
+                }
+            }.call);
+
+            for (err_tags, 1..) |err, i|
+                if (err_code == i) return err;
+            unreachable;
+        }
+
+        const stdout = try args.allocator.dupe(u8, output[0..stdout_len]);
+        errdefer args.allocator.free(stdout);
+
+        const stderr = try args.allocator.dupe(u8, output[stdout_len .. stdout_len + stderr_len]);
+        errdefer args.allocator.free(stderr);
+
+        return .{
+            .term = switch (term_tag) {
+                .Exited => .{ .Exited = @intCast(term_code) },
+                .Signal => .{ .Signal = term_code },
+                .Stopped => .{ .Stopped = term_code },
+                .Unknown => .{ .Unknown = term_code },
+            },
+            .stdout = stdout,
+            .stderr = stderr,
+        };
+    }
+};
+
+pub const timeout = struct {
+    pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
+        const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+        return externs.timeout_on_cron(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, cron_expr.ptr);
+    }
+
+    pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
+        const user_data_bytes = fixZeroLenSlice(u8, lib.mem.anyAsBytesUnpad(user_data));
+        externs.timeout_on_timestamp(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, timestamp_ms);
+    }
+};
 
 const CStringArray = struct {
     allocator: std.mem.Allocator,
