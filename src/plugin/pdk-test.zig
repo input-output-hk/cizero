@@ -90,7 +90,10 @@ test "on_timestamp" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_timestamp("pdk_test_on_timestamp_callback", 1000, 3000)
+        \\cizero.on_timestamp
+        \\pdk_test_on_timestamp_callback
+        \\1000
+        \\3000
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -130,7 +133,8 @@ test "on_timestamp" {
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_on_timestamp_callback(1000)
+        \\pdk_test_on_timestamp_callback
+        \\1000
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -144,7 +148,11 @@ test "on_cron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_cron("pdk_test_on_cron_callback", "* * * * *", "* * * * *") 60000
+        \\cizero.on_cron
+        \\pdk_test_on_cron_callback
+        \\* * * * *
+        \\* * * * *
+        \\60000
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -179,7 +187,8 @@ test "on_cron" {
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_on_cron_callback("* * * * *")
+        \\pdk_test_on_cron_callback
+        \\* * * * *
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -274,7 +283,9 @@ test "on_webhook" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.on_webhook("pdk_test_on_webhook_callback", .{ 25, 372 })
+        \\cizero.on_webhook
+        \\pdk_test_on_webhook_callback
+        \\.{ 25, 372 }
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -308,9 +319,11 @@ test "on_webhook" {
         const req_body = "request body";
 
         try self.expectEqualStdio("",
-            \\pdk_test_on_webhook_callback(.{ 25, 372 }, "
+            \\pdk_test_on_webhook_callback
+            \\.{ 25, 372 }
+            \\
         ++ req_body ++
-            \\")
+            \\
             \\
         , callback, struct {
             fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -366,9 +379,12 @@ test "nix_build" {
     const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_build("pdk_test_nix_build_callback", null, "
+        \\cizero.nix_build
+        \\pdk_test_nix_build_callback
+        \\null
+        \\
     ++ installable ++
-        \\")
+        \\
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -398,9 +414,13 @@ test "nix_build" {
     try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
-        \\pdk_test_nix_build_callback(null, 0, {
+        \\pdk_test_nix_build_callback
+        \\null
+        \\0
+        \\{
     ++ " " ++ installable_output ++
-        \\ }, null)
+        \\ }
+        \\null
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -443,9 +463,13 @@ test "nix_eval" {
     const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_eval("pdk_test_nix_eval_callback", null, "
+        \\cizero.nix_eval
+        \\pdk_test_nix_eval_callback
+        \\null
+        \\
     ++ expr ++
-        \\", .raw)
+        \\
+        \\.raw
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -477,9 +501,15 @@ test "nix_eval" {
     const result = "A program that produces a familiar, friendly greeting";
 
     try self.expectEqualStdio("",
-        \\pdk_test_nix_eval_callback(null, 0, "
+        \\pdk_test_nix_eval_callback
+        \\null
+        \\0
+        \\
     ++ result ++
-        \\", null, null, null)
+        \\
+        \\null
+        \\null
+        \\null
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
