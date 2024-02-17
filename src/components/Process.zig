@@ -48,7 +48,10 @@ fn exec(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, input
             0 => .no_expand,
             else => unreachable,
         }),
-        .env_map = @as(?[*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[3].i32)]))),
+        .env_map = blk: {
+            const addr: wasm.usize = @intCast(inputs[3].i32);
+            break :blk if (addr == 0) null else @as([*]const u8, @ptrCast(&memory[addr]));
+        },
         .env_map_len = @as(wasm.usize, @intCast(inputs[4].i32)),
         .max_output_bytes = @as(wasm.usize, @intCast(inputs[5].i32)),
         .output_ptr = @as([*]u8, @ptrCast(&memory[@intCast(inputs[6].i32)])),
@@ -69,8 +72,8 @@ fn exec(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, input
             var env_map = std.process.EnvMap.init(self.allocator);
             // Put directly into the underlying hash map to avoid copying.
             for (0.., 1..params.env_map_len) |ki, vi| try env_map.hash_map.put(
-                wasm.span(memory, env_array[ki]),
-                wasm.span(memory, env_array[vi]),
+                wasm.span(memory, @as(wasm.usize, env_array[ki])),
+                wasm.span(memory, @as(wasm.usize, env_array[vi])),
             );
             break :blk &env_map;
         } else null,
