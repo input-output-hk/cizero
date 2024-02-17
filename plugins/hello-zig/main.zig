@@ -104,6 +104,9 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 };
 
+/// Tests for cizero's host functions.
+/// These are invoked by the PDK tests
+/// to test communication over the ABI.
 const pdk_tests = struct {
     pub fn @"timeout.onTimestamp"() void {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
@@ -189,9 +192,16 @@ const pdk_tests = struct {
     }
 };
 
-fn isPdkTest() bool {
-    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch std.debug.panic("OOM", .{});
-}
+/// Tests for further things provided by the PDK,
+/// possibly built on top of cizero's host functions.
+const tests = struct {
+    pub fn @"nix.lockFlakeRef"() !void {
+        const flake_locked = try cizero.nix.lockFlakeRef(allocator, "github:NixOS/nixpkgs/23.11", .{});
+        defer allocator.free(flake_locked);
+
+        try std.testing.expectEqualStrings("github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e", flake_locked);
+    }
+};
 
 fn FnErrorUnionPayload(comptime Fn: type) type {
     return @typeInfo(@typeInfo(Fn).Fn.return_type.?).ErrorUnion.payload;
@@ -204,16 +214,26 @@ fn tryFn(func: anytype, args: anytype, default: FnErrorUnionPayload(@TypeOf(func
     };
 }
 
+fn runContainerFns(comptime container: type) !void {
+    inline for (@typeInfo(container).Struct.decls) |decl| {
+        const func = @field(container, decl.name);
+        const result = func();
+        if (@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?) == .ErrorUnion) try result;
+    }
+}
+
+fn isPdkTest() bool {
+    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch std.debug.panic("OOM", .{});
+}
+
 pub fn main() u8 {
     return tryFn(mainZig, .{}, 1);
 }
 
 fn mainZig() !u8 {
-    if (!isPdkTest()) inline for (@typeInfo(pdk_tests).Struct.decls) |decl| {
-        const func = @field(pdk_tests, decl.name);
-        if (@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?) == .ErrorUnion) {
-            try func();
-        } else func();
-    };
+    if (!isPdkTest()) {
+        try runContainerFns(pdk_tests);
+        try runContainerFns(tests);
+    }
     return 0;
 }
