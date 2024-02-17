@@ -751,16 +751,16 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
         &trap,
     );
 
-    for (outputs, c_outputs) |*output, *c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
-        error.UnknownWasmtimeVal => return false,
-    };
-
     if (wasi_collect) |wc| {
         const wasi_output = try wc.collect(std.math.maxInt(usize));
         defer wasi_output.deinit();
 
         log.debug("stdout: {s}\nstderr: {s}", .{ wasi_output.stdout, wasi_output.stderr });
     }
+
+    for (outputs, c_outputs) |*output, *c_output| output.* = wasmtime.fromVal(c_output) catch |err| switch (err) {
+        error.UnknownWasmtimeVal => return false,
+    };
 
     if (try handleExit(wasmtime_err, trap)) |exit_status| {
         log.debug("exit status: {?d}", .{exit_status});
