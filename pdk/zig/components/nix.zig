@@ -198,7 +198,7 @@ pub fn flakeMetadata(allocator: std.mem.Allocator, flake: []const u8, opts: Flak
     const json_options = .{ .ignore_unknown_fields = true };
 
     const json = try std.json.parseFromSlice(std.json.Value, allocator, result.stdout, json_options);
-    defer json.deinit(); // TODO only errdefer?
+    defer json.deinit();
 
     return std.json.parseFromValue(FlakeMetadata, allocator, json.value, json_options);
 }
