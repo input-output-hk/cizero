@@ -10,7 +10,7 @@ allocator: std.mem.Allocator,
 
 db_pool: *zqlite.Pool,
 
-components: std.ArrayListUnmanaged(Component) = .{}, // TODO should this be comptimestringmap?
+components: std.ArrayListUnmanaged(Component) = .{},
 
 wasi_config: Runtime.WasiConfig = .{},
 
