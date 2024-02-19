@@ -95,13 +95,13 @@ pub fn run(self: *@This()) !void {
     var threads_buf: [Components.fields.len]std.Thread = undefined;
     var threads: []const std.Thread = threads_buf[0..0];
 
+    defer for (threads) |thread| thread.join();
+
     for (self.registry.components.items) |component|
         if (try component.start()) |thread| {
             threads_buf[threads.len] = thread;
             threads = threads_buf[0 .. threads.len + 1];
         };
-
-    for (threads) |thread| thread.join();
 }
 
 pub fn stop(self: *@This()) void {
