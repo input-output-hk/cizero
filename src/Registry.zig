@@ -60,6 +60,7 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
         SelectWasm.column(row, .wasm),
         host_functions,
     );
+    errdefer rt.deinit();
     rt.wasi_config = &self.wasi_config;
 
     try row.deinitErr();
