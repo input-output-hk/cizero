@@ -632,7 +632,6 @@ fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
     defer ifds_tmp.deinit(self.allocator);
 
     {
-        // XXX use ++ instead of concat()
         const args = try std.mem.concat(self.allocator, []const u8, &.{
             &.{
                 "nix",
