@@ -419,6 +419,7 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
     // owns memory that `result` references so we can free it later
     var ifd_build_result: ?BuildResult = null;
+    defer if (ifd_build_result) |build_result| build_result.deinit(self.allocator);
 
     const result: Job.Eval.Result = eval: {
         const max_eval_attempts = 10;
@@ -478,12 +479,8 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
         break :blk self.eval_jobs.fetchRemove(job).?;
     };
 
-    defer {
-        // same as `eval_state`, owns memory referenced by `result`
-        kv.value.deinit();
-
-        if (ifd_build_result) |ibr| ibr.deinit(self.allocator);
-    }
+    // same as `eval_state`, owns memory referenced by `result`
+    defer kv.value.deinit();
 
     try self.runEvalJobCallbacks(job, result);
 }
