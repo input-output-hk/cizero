@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const zqlite = @import("zqlite");
 
@@ -13,8 +14,17 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) std.log.err("leaked memory", .{});
     const allocator = gpa.allocator();
 
+    const db_path = "cizero.sqlite";
+
+    if (builtin.mode == .Debug) {
+        const cwd = std.fs.cwd();
+        cwd.deleteFile(db_path) catch {};
+        cwd.deleteFile(db_path ++ "-wal") catch {};
+        cwd.deleteFile(db_path ++ "-shm") catch {};
+    }
+
     cizero = try Cizero.init(allocator, .{
-        .path = "cizero.sqlite",
+        .path = db_path,
         .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
     });
     defer cizero.deinit();
