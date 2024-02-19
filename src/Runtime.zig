@@ -44,7 +44,6 @@ wasi_config: ?*const WasiConfig = null,
 allocator: std.mem.Allocator,
 
 plugin_name: []const u8,
-plugin_wasm: []const u8,
 
 host_functions: std.StringArrayHashMapUnmanaged(HostFunction),
 
@@ -258,7 +257,6 @@ pub fn deinit(self: *@This()) void {
     self.host_functions.deinit(self.allocator);
 
     self.allocator.free(self.plugin_name);
-    self.allocator.free(self.plugin_wasm);
 
     c.wasmtime_store_delete(self.wasm_store);
     c.wasm_engine_delete(self.wasm_engine);
@@ -328,16 +326,12 @@ pub fn init(
     const plugin_name_copy = try allocator.dupe(u8, plugin_name);
     errdefer allocator.free(plugin_name_copy);
 
-    const plugin_wasm_copy = try allocator.dupe(u8, plugin_wasm);
-    errdefer allocator.free(plugin_wasm_copy);
-
     var self = @This(){
         .wasm_engine = wasm_engine,
         .wasm_store = wasm_store,
         .wasm_context = wasm_context,
         .allocator = allocator,
         .plugin_name = plugin_name_copy,
-        .plugin_wasm = plugin_wasm_copy,
         .host_functions = host_functions,
         .wasm_instance = undefined,
     };
@@ -347,8 +341,7 @@ pub fn init(
         defer c.wasmtime_module_delete(wasm_module);
         try handleError(
             "failed to compile module",
-            // XXX do we really have to keep plugin_wasm alive?
-            c.wasmtime_module_new(wasm_engine, self.plugin_wasm.ptr, self.plugin_wasm.len, &wasm_module),
+            c.wasmtime_module_new(wasm_engine, plugin_wasm.ptr, plugin_wasm.len, &wasm_module),
             null,
         );
 
