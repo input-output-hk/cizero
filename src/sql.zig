@@ -3,8 +3,9 @@ const trait = @import("trait");
 const zqlite = @import("zqlite");
 
 const lib = @import("lib");
-const meta = lib.meta;
 const enums = lib.enums;
+const fmt = lib.fmt;
+const meta = lib.meta;
 
 const c = @import("c.zig");
 
@@ -65,7 +66,7 @@ fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) ca
     std.debug.assert(ctx == null);
 
     const sql: [*:0]const u8 = @ptrCast(x.?);
-    log.debug("trace: {s}", .{sql});
+    log.debug("trace: {}", .{fmt.oneline(std.mem.span(sql))});
 
     return 0;
 }
@@ -78,7 +79,7 @@ fn logErr(conn: zqlite.Conn, comptime func_name: std.meta.DeclEnum(zqlite.Conn),
     const func = @field(zqlite.Conn, @tagName(func_name));
     return if (@call(.auto, func, .{conn} ++ args)) |result| result else |err| blk: {
         const sql: []const u8 = args.@"0";
-        log.err("{s}: {s}. Statement: {s}", .{ @errorName(err), conn.lastError(), sql });
+        log.err("{s}: {s}. Statement: {}", .{ @errorName(err), conn.lastError(), fmt.oneline(sql) });
         break :blk err;
     };
 }
