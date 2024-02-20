@@ -29,6 +29,7 @@ const Callback = enum {
 };
 
 registry: *const Registry,
+wait_group: *std.Thread.WaitGroup,
 
 allocator: std.mem.Allocator,
 
@@ -43,13 +44,16 @@ fn milliTimestamp(self: @This()) i64 {
     return std.time.milliTimestamp();
 }
 
-pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!void {
     self.loop_run.store(true, .Monotonic);
     self.loop_wait.reset();
 
+    self.wait_group.start();
+    errdefer self.wait_group.finish();
+
     const thread = try std.Thread.spawn(.{}, loop, .{self});
     thread.setName(name) catch |err| std.log.debug("could not set thread name: {s}", .{@errorName(err)});
-    return thread;
+    thread.detach();
 }
 
 pub fn stop(self: *@This()) void {
@@ -58,6 +62,8 @@ pub fn stop(self: *@This()) void {
 }
 
 fn loop(self: *@This()) !void {
+    defer self.wait_group.finish();
+
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
         const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
         const next_callback_row = blk: {

@@ -6,7 +6,7 @@ const Runtime = @import("Runtime.zig");
 impl: *anyopaque,
 impl_deinit: ?*const fn (*anyopaque) void,
 impl_host_functions: *const fn (*anyopaque, std.mem.Allocator) std.mem.Allocator.Error!std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef),
-impl_start: ?*const fn (*anyopaque) StartError!std.Thread,
+impl_start: ?*const fn (*anyopaque) StartError!void,
 impl_stop: ?*const fn (*anyopaque) void,
 
 name: []const u8,
@@ -35,8 +35,8 @@ pub fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArr
 
 pub const StartError = std.Thread.SpawnError || std.Thread.SetNameError;
 
-pub fn start(self: @This()) StartError!?std.Thread {
-    return if (self.impl_start) |f| try f(self.impl) else null;
+pub fn start(self: @This()) StartError!void {
+    if (self.impl_start) |f| try f(self.impl);
 }
 
 pub fn stop(self: @This()) void {

@@ -39,6 +39,7 @@ const Components = struct {
 db_pool: zqlite.Pool,
 registry: Registry,
 components: Components,
+wait_group: std.Thread.WaitGroup = .{},
 
 pub fn deinit(self: *@This()) void {
     self.registry.deinit();
@@ -51,10 +52,10 @@ pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size
 pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
 
-    var http = try components.Http.init(allocator, &self.registry);
+    var http = try components.Http.init(allocator, &self.registry, &self.wait_group);
     errdefer http.deinit();
 
-    var nix = try components.Nix.init(allocator, &self.registry);
+    var nix = try components.Nix.init(allocator, &self.registry, &self.wait_group);
     errdefer nix.deinit();
 
     self.* = .{
@@ -70,7 +71,7 @@ pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} |
             .http = http,
             .nix = nix,
             .process = .{ .allocator = allocator },
-            .timeout = .{ .allocator = allocator, .registry = &self.registry },
+            .timeout = .{ .allocator = allocator, .registry = &self.registry, .wait_group = &self.wait_group },
         },
     };
     errdefer self.deinit();
@@ -91,17 +92,8 @@ fn initDbConn(conn: zqlite.Conn) !void {
     sql.enableLogging(conn);
 }
 
-pub fn run(self: *@This()) !void {
-    var threads_buf: [Components.fields.len]std.Thread = undefined;
-    var threads: []const std.Thread = threads_buf[0..0];
-
-    defer for (threads) |thread| thread.join();
-
-    for (self.registry.components.items) |component|
-        if (try component.start()) |thread| {
-            threads_buf[threads.len] = thread;
-            threads = threads_buf[0 .. threads.len + 1];
-        };
+pub fn start(self: *@This()) !void {
+    for (self.registry.components.items) |component| try component.start();
 }
 
 pub fn stop(self: *@This()) void {

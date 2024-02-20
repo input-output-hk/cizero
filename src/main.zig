@@ -50,20 +50,38 @@ pub fn main() !void {
         try std.os.sigaction(std.os.SIG.INT, &sa, null);
     }
 
-    {
-        var args = try std.process.argsWithAllocator(allocator);
-        defer args.deinit();
-
-        _ = args.next(); // discard executable (not a plugin)
-        while (args.next()) |arg| {
-            const wasm = try std.fs.cwd().readFileAlloc(allocator, arg, std.math.maxInt(usize));
-            defer allocator.free(wasm);
-
-            _ = try cizero.registry.registerPlugin(std.fs.path.stem(arg), wasm);
-        }
+    errdefer {
+        std.log.info("shutting down…", .{});
+        cizero.stop();
+        cizero.wait_group.wait();
     }
 
-    try cizero.run();
+    cizero.start() catch |err| {
+        std.log.err("failed to start: {s}", .{@errorName(err)});
+        return err;
+    };
+
+    registerPlugins(allocator) catch |err| {
+        std.log.err("failed to register plugins: {s}", .{@errorName(err)});
+        return err;
+    };
+
+    cizero.wait_group.wait();
 
     if (shell_fg) |fg| if (!fg) std.log.info("cizero exited", .{});
+}
+
+fn registerPlugins(allocator: std.mem.Allocator) !void {
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+
+    const cwd = std.fs.cwd();
+
+    _ = args.next(); // discard executable (not a plugin)
+    while (args.next()) |arg| {
+        const wasm = try cwd.readFileAlloc(allocator, arg, std.math.maxInt(usize));
+        defer allocator.free(wasm);
+
+        try cizero.registry.registerPlugin(std.fs.path.stem(arg), wasm);
+    }
 }

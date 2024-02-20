@@ -21,6 +21,7 @@ const log = std.log.scoped(log_scope);
 allocator: std.mem.Allocator,
 
 registry: *const Registry,
+wait_group: *std.Thread.WaitGroup,
 
 build_hook: []const u8,
 
@@ -38,13 +39,12 @@ eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
     }
 }, std.hash_map.default_max_load_percentage) = .{},
 
-job_threads_mutex: std.Thread.Mutex = .{},
-job_threads: std.DoublyLinkedList(std.Thread) = .{},
+jobs_thread_pool: std.Thread.Pool = undefined,
+
+/// Only purpose is to reject new jobs during shutdown.
+running: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 
 db_busy_mutex: std.Thread.Mutex = .{},
-
-loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
-loop_wait: std.Thread.ResetEvent = .{},
 
 mock_start_job: if (builtin.is_test) ?meta.Closure(
     fn (
@@ -133,14 +133,17 @@ pub fn deinit(self: *@This()) void {
         }
         self.eval_jobs.deinit(self.allocator);
     }
+
+    self.jobs_thread_pool.deinit();
 }
 
-pub const InitError = std.mem.Allocator.Error;
+pub const InitError = std.mem.Allocator.Error || std.Thread.SpawnError;
 
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!@This() {
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
     return .{
         .allocator = allocator,
         .registry = registry,
+        .wait_group = wait_group,
         .build_hook = blk: {
             var args = try std.process.argsWithAllocator(allocator);
             defer args.deinit();
@@ -181,7 +184,7 @@ fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
     std.debug.assert(inputs.len == 4);
     std.debug.assert(outputs.len == 0);
 
-    try components.rejectIfStopped(&self.loop_run);
+    try components.rejectIfStopped(&self.running);
 
     const params = .{
         .func_name = wasm.span(memory, inputs[0]),
@@ -208,7 +211,7 @@ fn onEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allo
     std.debug.assert(inputs.len == 5);
     std.debug.assert(outputs.len == 0);
 
-    try components.rejectIfStopped(&self.loop_run);
+    try components.rejectIfStopped(&self.running);
 
     const params = .{
         .func_name = wasm.span(memory, inputs[0]),
@@ -263,12 +266,10 @@ fn insertCallback(
     try conn.commit();
 }
 
-pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!std.Thread {
-    self.loop_run.store(true, .Monotonic);
-    self.loop_wait.reset();
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!void {
+    try self.jobs_thread_pool.init(.{ .allocator = self.allocator });
 
-    const thread = try std.Thread.spawn(.{}, loop, .{self});
-    thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+    self.running.store(true, .Monotonic);
 
     {
         const SelectPending = sql.queries.nix_build_callback.Select(&.{.installable});
@@ -316,30 +317,10 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
         }
         try rows.deinitErr();
     }
-
-    return thread;
 }
 
 pub fn stop(self: *@This()) void {
-    self.loop_run.store(false, .Monotonic);
-    self.loop_wait.set();
-}
-
-fn loop(self: *@This()) !void {
-    while (self.loop_run.load(.Monotonic) or self.job_threads.len != 0) : (self.loop_wait.reset()) {
-        const first_node = blk: {
-            self.job_threads_mutex.lock();
-            defer self.job_threads_mutex.unlock();
-
-            break :blk self.job_threads.popFirst();
-        };
-
-        if (first_node) |node| {
-            const thread = node.data;
-            self.allocator.destroy(node);
-            thread.join();
-        } else self.loop_wait.wait();
-    }
+    self.running.store(false, .Monotonic);
 }
 
 /// Returns whether a new job thread has been started.
@@ -371,34 +352,27 @@ fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNa
         return false;
     }
 
-    const node = try self.allocator.create(@TypeOf(self.job_threads).Node);
-    errdefer self.allocator.destroy(node);
+    log.debug("starting job {}", .{job});
 
-    node.data = try std.Thread.spawn(.{}, runJob, .{ self, job, node });
-    node.data.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+    self.wait_group.start();
+    errdefer self.wait_group.finish();
 
-    log.debug("started job {}", .{job});
+    try self.jobs_thread_pool.spawn(runJob, .{ self, job });
+
     return true;
 }
 
-fn runJob(self: *@This(), job: Job, node: *@TypeOf(self.job_threads).Node) !void {
+fn runJob(self: *@This(), job: Job) void {
     defer {
         job.deinit(self.allocator);
 
-        {
-            self.job_threads_mutex.lock();
-            defer self.job_threads_mutex.unlock();
-
-            self.job_threads.prepend(node);
-        }
-
-        self.loop_wait.set();
+        self.wait_group.finish();
     }
 
-    try switch (job) {
+    (switch (job) {
         .build => |build_job| self.runBuildJob(build_job),
         .eval => |eval_job| self.runEvalJob(eval_job),
-    };
+    }) catch |err| log.err("job {} failed: {s}", .{ job, @errorName(err) });
 }
 
 fn runBuildJob(self: *@This(), job: Job.Build) !void {

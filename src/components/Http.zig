@@ -13,6 +13,8 @@ const Runtime = @import("../Runtime.zig");
 
 pub const name = "http";
 
+const log = std.log.scoped(.http);
+
 const Callback = enum {
     webhook,
 
@@ -22,6 +24,7 @@ const Callback = enum {
 };
 
 registry: *const Registry,
+wait_group: *std.Thread.WaitGroup,
 
 allocator: std.mem.Allocator,
 
@@ -34,7 +37,7 @@ pub fn deinit(self: *@This()) void {
 
 pub const InitError = std.mem.Allocator.Error;
 
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*@This() {
+pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!*@This() {
     var self = try allocator.create(@This());
     errdefer allocator.destroy(self);
 
@@ -42,6 +45,7 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*
         .allocator = allocator,
         .server = try httpz.ServerCtx(*@This(), *@This()).init(allocator, .{}, self),
         .registry = registry,
+        .wait_group = wait_group,
     };
 
     var router = self.server.router();
@@ -50,10 +54,19 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry) InitError!*
     return self;
 }
 
-pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!std.Thread {
-    const thread = try self.server.listenInNewThread();
-    thread.setName(name) catch |err| std.log.debug("could not set thread name: {s}", .{@errorName(err)});
-    return thread;
+pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!void {
+    self.wait_group.start();
+    errdefer self.wait_group.finish();
+
+    const thread = try std.Thread.spawn(.{}, run, .{self});
+    thread.setName(name) catch |err| log.debug("could not set thread name: {s}", .{@errorName(err)});
+    thread.detach();
+}
+
+fn run(self: *@This()) !void {
+    defer self.wait_group.finish();
+
+    try self.server.listen();
 }
 
 pub fn stop(self: *@This()) void {

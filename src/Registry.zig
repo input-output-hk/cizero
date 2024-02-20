@@ -24,7 +24,7 @@ pub fn registerComponent(self: *@This(), component_impl: anytype) !void {
 }
 
 /// Runs the plugin's main function if it is a new version.
-pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !bool {
+pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !void {
     {
         const conn = self.db_pool.acquire();
         defer self.db_pool.release(conn);
@@ -32,14 +32,12 @@ pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !bool 
         try queries.plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
     }
 
-    std.log.info("registering plugin \"{s}\"…", .{name});
+    std.log.info("registering plugin: {s}", .{name});
 
     var rt = try self.runtime(name);
     defer rt.deinit();
 
     if (!try rt.main()) return error.PluginMainFailed;
-
-    return true;
 }
 
 /// Remember to deinit after use.
