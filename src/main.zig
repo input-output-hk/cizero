@@ -26,6 +26,7 @@ pub fn main() !void {
     cizero = try Cizero.init(allocator, .{
         .path = db_path,
         .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
+        .size = 1, // XXX figure out whether it is possible to avoid busy errors with actual multi-threading
     });
     defer cizero.deinit();
 
