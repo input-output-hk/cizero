@@ -79,28 +79,38 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         return;
     };
 
-    const SelectCallback = sql.queries.http_callback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data });
-    var callback_row = blk: {
+    var callback_row: struct {
+        id: i64,
+        plugin: []const u8,
+    } = undefined;
+
+    var callback: components.CallbackUnmanaged = undefined;
+
+    {
+        const SelectCallback = sql.queries.http_callback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data });
+
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{plugin_name}) orelse {
+        const row = try SelectCallback.row(conn, .{plugin_name}) orelse {
             res.status = 404;
             return;
         };
-    };
-    errdefer callback_row.deinit();
+
+        try sql.structFromRow(res.arena, &callback_row, row, SelectCallback.column, .{
+            .id = .id,
+            .plugin = .plugin,
+        });
+
+        try sql.structFromRow(res.arena, &callback, row, SelectCallback.column, .{
+            .func_name = .function,
+            .user_data = .user_data,
+        });
+    }
 
     res.status = 204;
 
-    var callback: components.CallbackUnmanaged = undefined;
-    try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
-    });
-    defer callback.deinit(self.allocator);
-
-    var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
+    var runtime = try self.registry.runtime(callback_row.plugin);
     defer runtime.deinit();
 
     const linear = try runtime.linearMemoryAllocator();
@@ -128,15 +138,11 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
 
     if (Callback.webhook.done().check(success, &outputs)) {
-        const callback_id = SelectCallback.column(callback_row, .id);
-
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{callback_id});
+        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
     }
-
-    try callback_row.deinitErr();
 
     res.status = res_status.*;
 
