@@ -49,7 +49,7 @@ pub fn deinit(self: *@This()) void {
 
 pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
 
-pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} || Components.InitError)!*@This() {
+pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbInitError} || zqlite.Error || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
 
     var http = try components.Http.init(allocator, &self.registry, &self.wait_group);
@@ -63,9 +63,8 @@ pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} |
             .path = db_config.path,
             .flags = db_config.flags,
             .size = db_config.size,
-            .on_first_connection = initDb,
             .on_connection = initDbConn,
-        }) catch return error.DbError,
+        }) catch return error.DbInitError,
         .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
         .components = .{
             .http = http,
@@ -76,13 +75,16 @@ pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbError} |
     };
     errdefer self.deinit();
 
+    {
+        const conn = self.db_pool.acquire();
+        defer self.db_pool.release(conn);
+
+        try sql.migrate(conn);
+    }
+
     try self.components.register(&self.registry);
 
     return self;
-}
-
-fn initDb(conn: zqlite.Conn) !void {
-    try sql.migrate(conn);
 }
 
 fn initDbConn(conn: zqlite.Conn) !void {
