@@ -278,7 +278,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
             defer self.registry.db_pool.release(conn);
 
             break :rows try sql.queries.NixBuildCallback.Select(&.{.installable})
-                .queryLeaky(arena.allocator(), conn, .{});
+                .query(arena.allocator(), conn, .{});
         };
 
         for (rows) |row| {
@@ -298,7 +298,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
             defer self.registry.db_pool.release(conn);
 
             break :rows try sql.queries.NixEvalCallback.Select(&.{ .expr, .format })
-                .queryLeaky(arena.allocator(), conn, .{});
+                .query(arena.allocator(), conn, .{});
         };
 
         for (rows) |row| {
@@ -464,7 +464,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
         defer self.registry.db_pool.release(conn);
 
         break :rows try sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{job.installable});
+            .query(arena_allocator, conn, .{job.installable});
     };
     if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 
@@ -520,7 +520,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
         defer self.registry.db_pool.release(conn);
 
         break :rows try sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{ job.expr, @intFromEnum(job.output_format) });
+            .query(arena_allocator, conn, .{ job.expr, @intFromEnum(job.output_format) });
     };
     if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 

@@ -75,7 +75,7 @@ fn loop(self: *@This()) !void {
             defer self.registry.db_pool.release(conn);
 
             break :row if (try sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data })
-                .queryLeaky(arena_allocator, conn, .{})) |row| row else {
+                .query(arena_allocator, conn, .{})) |row| row else {
                 self.loop_wait.wait();
                 continue;
             };

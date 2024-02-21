@@ -111,7 +111,7 @@ test "timeout_on_timestamp" {
         defer self.cizero.registry.db_pool.release(conn);
 
         break :row try Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{}) orelse return testing.expect(false);
+            .query(arena_allocator, conn, .{}) orelse return testing.expect(false);
     };
 
     try testing.expectEqualStrings(pluginName(), callback_row.@"callback.plugin");
@@ -170,7 +170,7 @@ test "timeout_on_cron" {
         defer self.cizero.registry.db_pool.release(conn);
 
         break :row try Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{}) orelse return testing.expect(false);
+            .query(arena_allocator, conn, .{}) orelse return testing.expect(false);
     };
 
     const callback = Cizero.components.CallbackUnmanaged{
@@ -303,7 +303,7 @@ test "http_on_webhook" {
         defer self.cizero.registry.db_pool.release(conn);
 
         break :row try Cizero.sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{pluginName()}) orelse
+            .query(arena_allocator, conn, .{pluginName()}) orelse
             return testing.expect(false);
     };
 
@@ -403,7 +403,7 @@ test "nix_on_build" {
         defer self.cizero.registry.db_pool.release(conn);
 
         const rows = try Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{installable});
+            .query(arena_allocator, conn, .{installable});
 
         try testing.expectEqual(1, rows.len);
 
@@ -492,7 +492,7 @@ test "nix_on_eval" {
         defer self.cizero.registry.db_pool.release(conn);
 
         const rows = try Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data })
-            .queryLeaky(arena_allocator, conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
+            .query(arena_allocator, conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
 
         try testing.expectEqual(1, rows.len);
 

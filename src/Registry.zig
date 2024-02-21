@@ -49,7 +49,7 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
     defer arena.deinit();
 
     const plugin = try queries.Plugin.SelectByName(&.{.wasm})
-        .queryLeaky(arena.allocator(), conn, .{plugin_name}) orelse
+        .query(arena.allocator(), conn, .{plugin_name}) orelse
         return error.NoSuchPlugin;
 
     var host_functions = try self.hostFunctions(self.allocator);

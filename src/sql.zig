@@ -170,15 +170,15 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 }
             };
 
-            pub fn queryLeakyIterator(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !RowsLeaky {
+            pub fn queryIterator(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !RowsLeaky {
                 return .{
                     .zqlite_rows = try rows(conn, values),
                     .allocator = allocator,
                 };
             }
 
-            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) ![]Row {
-                var iter = try queryLeakyIterator(allocator, conn, values);
+            pub fn query(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) ![]Row {
+                var iter = try queryIterator(allocator, conn, values);
                 return iter.toOwnedSlice();
             }
         } else struct {
@@ -186,7 +186,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 return logErr(conn, .row, .{ sql, values });
             }
 
-            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !?Row {
+            pub fn query(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !?Row {
                 const zqlite_row = try row(conn, values) orelse return null;
                 errdefer zqlite_row.deinit();
 
@@ -237,13 +237,13 @@ test Query {
     {
         const Row = struct {};
         const Q = Query("", false, Row, struct {});
-        try std.testing.expectEqualDeep(@typeInfo(@typeInfo(@typeInfo(@TypeOf(Q.queryLeaky)).Fn.return_type.?).ErrorUnion.payload), @typeInfo(?Row));
+        try std.testing.expectEqualDeep(@typeInfo(@typeInfo(@typeInfo(@TypeOf(Q.query)).Fn.return_type.?).ErrorUnion.payload), @typeInfo(?Row));
     }
 
     {
         const Row = struct {};
         const Q = Query("", true, Row, struct {});
-        try std.testing.expectEqualDeep(@typeInfo(std.meta.Elem(@typeInfo(@typeInfo(@TypeOf(Q.queryLeaky)).Fn.return_type.?).ErrorUnion.payload)), @typeInfo(Row));
+        try std.testing.expectEqualDeep(@typeInfo(std.meta.Elem(@typeInfo(@typeInfo(@TypeOf(Q.query)).Fn.return_type.?).ErrorUnion.payload)), @typeInfo(Row));
     }
 }
 

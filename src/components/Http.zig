@@ -84,7 +84,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         defer self.registry.db_pool.release(conn);
 
         break :row try sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data })
-            .queryLeaky(res.arena, conn, .{plugin_name}) orelse {
+            .query(res.arena, conn, .{plugin_name}) orelse {
             res.status = 404;
             return;
         };
