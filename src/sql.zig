@@ -742,13 +742,13 @@ fn structFromRow(
                 const slice = try allocator.dupe(u8, value);
                 allocated_mem[allocated] = slice;
                 allocated += 1;
-                break :blk slice;
+                break :blk .{ .value = slice };
             },
             ?zqlite.Blob => if (value) |v| blk: {
                 const slice = try allocator.dupe(u8, v);
                 allocated_mem[allocated] = slice;
                 allocated += 1;
-                break :blk slice;
+                break :blk .{ .value = slice };
             } else null,
 
             else => value,
