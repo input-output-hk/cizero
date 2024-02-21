@@ -44,8 +44,6 @@ jobs_thread_pool: std.Thread.Pool = undefined,
 /// Only purpose is to reject new jobs during shutdown.
 running: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 
-db_busy_mutex: std.Thread.Mutex = .{},
-
 mock_start_job: if (builtin.is_test) ?meta.Closure(
     fn (
         allocator: std.mem.Allocator,
@@ -273,12 +271,11 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
 
     {
         const SelectPending = sql.queries.nix_build_callback.Select(&.{.installable});
-        var rows = blk: {
-            const conn = self.registry.db_pool.acquire();
-            defer self.registry.db_pool.release(conn);
 
-            break :blk try SelectPending.rows(conn, .{});
-        };
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
+
+        var rows = try SelectPending.rows(conn, .{});
         errdefer rows.deinit();
         while (rows.next()) |row| {
             const installable = try self.allocator.dupe(u8, SelectPending.column(row, .installable));
@@ -296,12 +293,11 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
 
     {
         const SelectPending = sql.queries.nix_eval_callback.Select(&.{ .expr, .format });
-        var rows = blk: {
-            const conn = self.registry.db_pool.acquire();
-            defer self.registry.db_pool.release(conn);
 
-            break :blk try SelectPending.rows(conn, .{});
-        };
+        const conn = self.registry.db_pool.acquire();
+        defer self.registry.db_pool.release(conn);
+
+        var rows = try SelectPending.rows(conn, .{});
         errdefer rows.deinit();
         while (rows.next()) |row| {
             const expr = try self.allocator.dupe(u8, SelectPending.column(row, .expr));
@@ -460,27 +456,47 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
 }
 
 fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result) !void {
-    const SelectCallback = sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
-    var callback_rows = blk: {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    var callback_rows = std.ArrayListUnmanaged(struct {
+        id: i64,
+        plugin: []const u8,
+        function: [:0]const u8,
+        user_data: ?[]const u8,
+    }){};
+    defer callback_rows.deinit(self.allocator);
+
+    {
+        const SelectCallback = sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
+
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{job.installable});
-    };
-    errdefer callback_rows.deinit();
+        var rows = try SelectCallback.rows(conn, .{job.installable});
+        errdefer rows.deinit();
 
-    var found_callback: bool = false;
-    while (callback_rows.next()) |callback_row| {
-        found_callback = true;
+        const arena_allocator = arena.allocator();
 
-        var callback: components.CallbackUnmanaged = undefined;
-        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
-            .func_name = .function,
+        while (rows.next()) |row| try sql.structFromRow(arena_allocator, try callback_rows.addOne(self.allocator), row, SelectCallback.column, .{
+            .id = .id,
+            .plugin = .plugin,
+            .function = .function,
             .user_data = .user_data,
         });
-        defer callback.deinit(self.allocator);
 
-        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
+        if (callback_rows.items.len == 0) log.err("no callbacks found for job {}", .{job});
+
+        try rows.deinitErr();
+    }
+
+    for (callback_rows.items) |callback_row| {
+        const callback = components.CallbackUnmanaged{
+            .func_name = callback_row.function,
+            .user_data = callback_row.user_data,
+        };
+
+        var runtime = try self.registry.runtime(callback_row.plugin);
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
@@ -508,42 +524,55 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
             } },
         }, &.{});
 
-        self.db_busy_mutex.lock();
-        defer self.db_busy_mutex.unlock();
-
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
     }
-
-    if (!found_callback) log.err("no callbacks found for job {}", .{job});
-
-    try callback_rows.deinitErr();
 }
 
 fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !void {
-    const SelectCallback = sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
-    var callback_rows = blk: {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    var callback_rows = std.ArrayListUnmanaged(struct {
+        id: i64,
+        plugin: []const u8,
+        function: [:0]const u8,
+        user_data: ?[]const u8,
+    }){};
+    defer callback_rows.deinit(self.allocator);
+
+    {
+        const SelectCallback = sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
+
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{ job.expr, @intFromEnum(job.output_format) });
-    };
-    errdefer callback_rows.deinit();
+        var rows = try SelectCallback.rows(conn, .{ job.expr, @intFromEnum(job.output_format) });
+        errdefer rows.deinit();
 
-    var found_callback: bool = false;
-    while (callback_rows.next()) |callback_row| {
-        found_callback = true;
+        const arena_allocator = arena.allocator();
 
-        var callback: components.CallbackUnmanaged = undefined;
-        try sql.structFromRow(self.allocator, &callback, callback_row, SelectCallback.column, .{
-            .func_name = .function,
+        while (rows.next()) |row| try sql.structFromRow(arena_allocator, try callback_rows.addOne(self.allocator), row, SelectCallback.column, .{
+            .id = .id,
+            .plugin = .plugin,
+            .function = .function,
             .user_data = .user_data,
         });
-        defer callback.deinit(self.allocator);
 
-        var runtime = try self.registry.runtime(SelectCallback.column(callback_row, .plugin));
+        if (callback_rows.items.len == 0) log.err("no callbacks found for job {}", .{job});
+
+        try rows.deinitErr();
+    }
+
+    for (callback_rows.items) |callback_row| {
+        const callback = components.CallbackUnmanaged{
+            .func_name = callback_row.function,
+            .user_data = callback_row.user_data,
+        };
+
+        var runtime = try self.registry.runtime(callback_row.plugin);
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
@@ -569,18 +598,11 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
             } },
         }, &.{});
 
-        self.db_busy_mutex.lock();
-        defer self.db_busy_mutex.unlock();
-
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{SelectCallback.column(callback_row, .id)});
+        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
     }
-
-    if (!found_callback) log.err("no callbacks found for job {}", .{job});
-
-    try callback_rows.deinitErr();
 }
 
 pub const EvalFormat = enum { nix, json, raw };
