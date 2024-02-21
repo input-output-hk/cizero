@@ -84,9 +84,9 @@ fn logErr(conn: zqlite.Conn, comptime func_name: std.meta.DeclEnum(zqlite.Conn),
     };
 }
 
-fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type, comptime Values_: type) type {
+fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, comptime Values_: type) type {
     return struct {
-        pub const Column = std.meta.FieldEnum(Columns);
+        pub const Column = std.meta.FieldEnum(Row);
         pub const Values = Values_;
 
         fn GetterResult(comptime Result: type) type {
@@ -122,9 +122,9 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
             };
         }
 
-        pub fn column(result: zqlite.Row, comptime col: Column) GetterResult(std.meta.fieldInfo(Columns, col).type) {
-            const info = std.meta.fieldInfo(Columns, col);
-            const index = std.meta.fieldIndex(Columns, info.name).?;
+        pub fn column(result: zqlite.Row, comptime col: Column) GetterResult(std.meta.fieldInfo(Row, col).type) {
+            const info = std.meta.fieldInfo(Row, col);
+            const index = std.meta.fieldIndex(Row, info.name).?;
             return getter(info.type)(result, index);
         }
 
