@@ -270,48 +270,46 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     self.running.store(true, .Monotonic);
 
     {
-        const SelectPending = sql.queries.NixBuildCallback.Select(&.{.installable});
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
 
-        const conn = self.registry.db_pool.acquire();
-        defer self.registry.db_pool.release(conn);
+        const rows = rows: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
 
-        var rows = try SelectPending.rows(conn, .{});
-        errdefer rows.deinit();
-        while (rows.next()) |row| {
-            const installable = try self.allocator.dupe(u8, SelectPending.column(row, .installable));
-            errdefer self.allocator.free(installable);
+            break :rows try sql.queries.NixBuildCallback.Select(&.{.installable})
+                .queryLeaky(arena.allocator(), conn, .{});
+        };
 
-            const job = Job{ .build = .{
-                .installable = installable,
-            } };
+        for (rows) |row| {
+            const job = Job{ .build = .{ .installable = row.installable } };
 
             const started = try self.startJob(job);
             if (!started) job.deinit(self.allocator);
         }
-        try rows.deinitErr();
     }
 
     {
-        const SelectPending = sql.queries.NixEvalCallback.Select(&.{ .expr, .format });
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
 
-        const conn = self.registry.db_pool.acquire();
-        defer self.registry.db_pool.release(conn);
+        const rows = rows: {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
 
-        var rows = try SelectPending.rows(conn, .{});
-        errdefer rows.deinit();
-        while (rows.next()) |row| {
-            const expr = try self.allocator.dupe(u8, SelectPending.column(row, .expr));
-            errdefer self.allocator.free(expr);
+            break :rows try sql.queries.NixEvalCallback.Select(&.{ .expr, .format })
+                .queryLeaky(arena.allocator(), conn, .{});
+        };
 
+        for (rows) |row| {
             const job = Job{ .eval = .{
-                .expr = expr,
-                .output_format = @enumFromInt(SelectPending.column(row, .format)),
+                .expr = row.expr,
+                .output_format = @enumFromInt(row.format),
             } };
 
             const started = try self.startJob(job);
             if (!started) job.deinit(self.allocator);
         }
-        try rows.deinitErr();
     }
 }
 
@@ -459,41 +457,21 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
 
-    var callback_rows = std.ArrayListUnmanaged(struct {
-        id: i64,
-        plugin: []const u8,
-        function: [:0]const u8,
-        user_data: ?[]const u8,
-    }){};
-    defer callback_rows.deinit(self.allocator);
+    const arena_allocator = arena.allocator();
 
-    {
-        const SelectCallback = sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
-
+    const callback_rows = rows: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        var rows = try SelectCallback.rows(conn, .{job.installable});
-        errdefer rows.deinit();
+        break :rows try sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{job.installable});
+    };
+    if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 
-        const arena_allocator = arena.allocator();
-
-        while (rows.next()) |row| try sql.structFromRow(arena_allocator, try callback_rows.addOne(self.allocator), row, SelectCallback.column, .{
-            .id = .id,
-            .plugin = .plugin,
-            .function = .function,
-            .user_data = .user_data,
-        });
-
-        if (callback_rows.items.len == 0) log.err("no callbacks found for job {}", .{job});
-
-        try rows.deinitErr();
-    }
-
-    for (callback_rows.items) |callback_row| {
+    for (callback_rows) |callback_row| {
         const callback = components.CallbackUnmanaged{
-            .func_name = callback_row.function,
-            .user_data = callback_row.user_data,
+            .func_name = try arena_allocator.dupeZ(u8, callback_row.function),
+            .user_data = if (callback_row.user_data) |ud| ud.value else null,
         };
 
         var runtime = try self.registry.runtime(callback_row.plugin);
@@ -535,41 +513,21 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
 
-    var callback_rows = std.ArrayListUnmanaged(struct {
-        id: i64,
-        plugin: []const u8,
-        function: [:0]const u8,
-        user_data: ?[]const u8,
-    }){};
-    defer callback_rows.deinit(self.allocator);
+    const arena_allocator = arena.allocator();
 
-    {
-        const SelectCallback = sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
-
+    const callback_rows = rows: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        var rows = try SelectCallback.rows(conn, .{ job.expr, @intFromEnum(job.output_format) });
-        errdefer rows.deinit();
+        break :rows try sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{ job.expr, @intFromEnum(job.output_format) });
+    };
+    if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 
-        const arena_allocator = arena.allocator();
-
-        while (rows.next()) |row| try sql.structFromRow(arena_allocator, try callback_rows.addOne(self.allocator), row, SelectCallback.column, .{
-            .id = .id,
-            .plugin = .plugin,
-            .function = .function,
-            .user_data = .user_data,
-        });
-
-        if (callback_rows.items.len == 0) log.err("no callbacks found for job {}", .{job});
-
-        try rows.deinitErr();
-    }
-
-    for (callback_rows.items) |callback_row| {
+    for (callback_rows) |callback_row| {
         const callback = components.CallbackUnmanaged{
-            .func_name = callback_row.function,
-            .user_data = callback_row.user_data,
+            .func_name = try arena_allocator.dupeZ(u8, callback_row.function),
+            .user_data = if (callback_row.user_data) |ud| ud.value else null,
         };
 
         var runtime = try self.registry.runtime(callback_row.plugin);

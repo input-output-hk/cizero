@@ -122,19 +122,48 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
             };
         }
 
-        pub fn column(result: zqlite.Row, comptime col: Column) GetterResult(std.meta.fieldInfo(Row, col).type) {
+        fn column(result: zqlite.Row, comptime col: Column) GetterResult(std.meta.fieldInfo(Row, col).type) {
             const info = std.meta.fieldInfo(Row, col);
             const index = std.meta.fieldIndex(Row, info.name).?;
             return getter(info.type)(result, index);
         }
 
         pub usingnamespace if (multi) struct {
-            pub fn rows(conn: zqlite.Conn, values: Values) !zqlite.Rows {
+            fn rows(conn: zqlite.Conn, values: Values) !zqlite.Rows {
                 return logErr(conn, .rows, .{ sql, values });
             }
+
+            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) ![]Row {
+                var zqlite_rows = try rows(conn, values);
+                errdefer zqlite_rows.deinit();
+
+                var typed_rows = std.ArrayListUnmanaged(Row){};
+                errdefer typed_rows.deinit(allocator);
+
+                while (zqlite_rows.next()) |zqlite_row| {
+                    const typed_row = try typed_rows.addOne(allocator);
+                    try structFromRow(allocator, typed_row, zqlite_row, column);
+                }
+
+                try zqlite_rows.deinitErr();
+
+                return typed_rows.toOwnedSlice(allocator);
+            }
         } else struct {
-            pub fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
+            fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
                 return logErr(conn, .row, .{ sql, values });
+            }
+
+            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !?Row {
+                const zqlite_row = try row(conn, values) orelse return null;
+                errdefer zqlite_row.deinit();
+
+                var typed_row: Row = undefined;
+                try structFromRow(allocator, &typed_row, zqlite_row, column);
+
+                try zqlite_row.deinitErr();
+
+                return typed_row;
             }
         };
     };
@@ -174,15 +203,15 @@ test Query {
     }
 
     {
-        const Q = Query("", false, struct {}, struct {});
-        try std.testing.expect(std.meta.hasFn(Q, "row"));
-        try std.testing.expect(!std.meta.hasFn(Q, "rows"));
+        const Row = struct {};
+        const Q = Query("", false, Row, struct {});
+        try std.testing.expectEqualDeep(@typeInfo(@typeInfo(@typeInfo(@TypeOf(Q.queryLeaky)).Fn.return_type.?).ErrorUnion.payload), @typeInfo(?Row));
     }
 
     {
-        const Q = Query("", true, struct {}, struct {});
-        try std.testing.expect(std.meta.hasFn(Q, "rows"));
-        try std.testing.expect(!std.meta.hasFn(Q, "row"));
+        const Row = struct {};
+        const Q = Query("", true, Row, struct {});
+        try std.testing.expectEqualDeep(@typeInfo(std.meta.Elem(@typeInfo(@typeInfo(@TypeOf(Q.queryLeaky)).Fn.return_type.?).ErrorUnion.payload)), @typeInfo(Row));
     }
 }
 
@@ -615,32 +644,30 @@ pub const queries = struct {
     };
 };
 
-pub fn structFromRow(
+fn structFromRow(
     allocator: std.mem.Allocator,
     target_ptr: anytype,
     row: zqlite.Row,
     column_fn: anytype,
-    comptime mapping: anytype,
 ) !void {
     const Target = std.meta.Child(@TypeOf(target_ptr));
     const target: *Target = @ptrCast(target_ptr);
 
-    const mapping_fields = @typeInfo(@TypeOf(mapping)).Struct.fields;
+    const fields = comptime std.enums.values(std.meta.FieldEnum(Target));
 
-    var allocated_mem: [mapping_fields.len][]const u8 = undefined;
+    var allocated_mem: [fields.len][]const u8 = undefined;
     var allocated: usize = 0;
-    var allocated_mem_z: [mapping_fields.len][:0]const u8 = undefined;
+    var allocated_mem_z: [fields.len][:0]const u8 = undefined;
     var allocated_z: usize = 0;
     errdefer {
         for (allocated_mem[0..allocated]) |slice| allocator.free(slice);
         for (allocated_mem_z[0..allocated_z]) |slice_z| allocator.free(slice_z);
     }
 
-    inline for (mapping_fields) |field| {
-        const column = comptime @field(mapping, field.name);
-        const value = column_fn(row, column);
+    inline for (fields) |field| {
+        const value = column_fn(row, field);
 
-        const target_field = &@field(target, field.name);
+        const target_field = &@field(target, @tagName(field));
 
         target_field.* = switch (@TypeOf(target_field.*)) {
             []u8,

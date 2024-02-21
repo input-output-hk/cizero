@@ -68,45 +68,18 @@ fn loop(self: *@This()) !void {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
-        var callback_row: struct {
-            timestamp: i64,
-            cron: ?[]const u8,
+        const arena_allocator = arena.allocator();
 
-            id: i64,
-            plugin: []const u8,
-        } = undefined;
-
-        var callback: components.CallbackUnmanaged = undefined;
-
-        {
+        const callback_row = row: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            const SelectNext = sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
-
-            const row = if (try SelectNext.row(conn, .{})) |row| row else {
+            break :row if (try sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data })
+                .queryLeaky(arena_allocator, conn, .{})) |row| row else {
                 self.loop_wait.wait();
                 continue;
             };
-            errdefer row.deinit();
-
-            const arena_allocator = arena.allocator();
-
-            try sql.structFromRow(arena_allocator, &callback_row, row, SelectNext.column, .{
-                .timestamp = .timestamp,
-                .cron = .cron,
-
-                .id = .@"callback.id",
-                .plugin = .@"callback.plugin",
-            });
-
-            try sql.structFromRow(arena_allocator, &callback, row, SelectNext.column, .{
-                .func_name = .@"callback.function",
-                .user_data = .@"callback.user_data",
-            });
-
-            try row.deinitErr();
-        }
+        };
 
         {
             const now_ms = self.milliTimestamp();
@@ -120,6 +93,11 @@ fn loop(self: *@This()) !void {
             }
         }
 
+        const callback = components.CallbackUnmanaged{
+            .func_name = try arena_allocator.dupeZ(u8, callback_row.@"callback.function"),
+            .user_data = if (callback_row.@"callback.user_data") |ud| ud.value else null,
+        };
+
         const callback_kind: Callback = if (callback_row.cron != null) .cron else .timestamp;
 
         // No need to heap-allocate here.
@@ -130,7 +108,7 @@ fn loop(self: *@This()) !void {
             .cron => 1,
         }];
 
-        var runtime = try self.registry.runtime(callback_row.plugin);
+        var runtime = try self.registry.runtime(callback_row.@"callback.plugin");
         defer runtime.deinit();
 
         const success = try callback.run(self.allocator, runtime, &.{}, outputs);
@@ -140,7 +118,7 @@ fn loop(self: *@This()) !void {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
+            try sql.queries.Callback.deleteById.exec(conn, .{callback_row.@"callback.id"});
         } else switch (callback_kind) {
             .timestamp => {},
             .cron => {
@@ -153,7 +131,7 @@ fn loop(self: *@This()) !void {
                 const conn = self.registry.db_pool.acquire();
                 defer self.registry.db_pool.release(conn);
 
-                try sql.queries.TimeoutCallback.updateTimestamp.exec(conn, .{ callback_row.id, next_timestamp });
+                try sql.queries.TimeoutCallback.updateTimestamp.exec(conn, .{ callback_row.@"callback.id", next_timestamp });
             },
         }
     }

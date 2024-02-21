@@ -15,24 +15,6 @@ pub const CallbackUnmanaged = struct {
     func_name: [:0]const u8,
     user_data: ?[]const u8,
 
-    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
-        if (self.user_data) |user_data| allocator.free(user_data);
-        allocator.free(self.func_name);
-    }
-
-    pub fn init(allocator: std.mem.Allocator, func_name: []const u8, user_data: ?[]const u8) !@This() {
-        const func_name_z = try allocator.dupeZ(u8, func_name);
-        errdefer allocator.free(func_name_z);
-
-        const user_data_dupe = if (user_data) |ud| try allocator.dupe(u8, ud) else null;
-        errdefer if (user_data_dupe) |ud_dupe| allocator.free(ud_dupe);
-
-        return .{
-            .func_name = func_name_z,
-            .user_data = user_data_dupe,
-        };
-    }
-
     pub fn run(self: @This(), allocator: std.mem.Allocator, runtime: Runtime, inputs: []const wasm.Value, outputs: []wasm.Value) !bool {
         const linear = try runtime.linearMemoryAllocator();
         const linear_allocator = linear.allocator();

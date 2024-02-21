@@ -101,23 +101,25 @@ test "timeout_on_timestamp" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
-    const callback_row = blk: {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    const callback_row = row: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectNext.row(conn, .{}) orelse return testing.expect(false);
+        break :row try Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{}) orelse return testing.expect(false);
     };
-    errdefer callback_row.deinit();
 
-    try testing.expectEqualStrings(pluginName(), SelectNext.column(callback_row, .@"callback.plugin"));
+    try testing.expectEqualStrings(pluginName(), callback_row.@"callback.plugin");
 
-    var callback: Cizero.components.CallbackUnmanaged = undefined;
-    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
-        .func_name = .@"callback.function",
-        .user_data = .@"callback.user_data",
-    });
-    defer callback.deinit(testing.allocator);
+    const callback = Cizero.components.CallbackUnmanaged{
+        .func_name = try arena_allocator.dupeZ(u8, callback_row.@"callback.function"),
+        .user_data = if (callback_row.@"callback.user_data") |ud| ud.value else null,
+    };
 
     {
         const user_data: [@sizeOf(i64)]u8 = @bitCast(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
@@ -126,11 +128,9 @@ test "timeout_on_timestamp" {
         try testing.expect(callback.user_data != null);
         try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
 
-        try testing.expectEqualDeep(3 * std.time.ms_per_s, SelectNext.column(callback_row, .timestamp));
-        try testing.expect(SelectNext.column(callback_row, .cron) == null);
+        try testing.expectEqualDeep(3 * std.time.ms_per_s, callback_row.timestamp);
+        try testing.expect(callback_row.cron == null);
     }
-
-    try callback_row.deinitErr();
 
     try self.expectEqualStdio("",
         \\pdk_test_timeout_on_timestamp_callback
@@ -160,31 +160,31 @@ test "timeout_on_cron" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
-    const callback_row = blk: {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    const callback_row = row: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectNext.row(conn, .{}) orelse return testing.expect(false);
+        break :row try Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{}) orelse return testing.expect(false);
     };
-    errdefer callback_row.deinit();
 
-    var callback: Cizero.components.CallbackUnmanaged = undefined;
-    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectNext.column, .{
-        .func_name = .@"callback.function",
-        .user_data = .@"callback.user_data",
-    });
-    defer callback.deinit(testing.allocator);
+    const callback = Cizero.components.CallbackUnmanaged{
+        .func_name = try arena_allocator.dupeZ(u8, callback_row.@"callback.function"),
+        .user_data = if (callback_row.@"callback.user_data") |ud| ud.value else null,
+    };
 
     try testing.expectEqualStrings("pdk_test_timeout_on_cron_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
 
-    try testing.expectEqualDeep(std.time.ms_per_min, SelectNext.column(callback_row, .timestamp));
-    try testing.expect(SelectNext.column(callback_row, .cron) != null);
-    try testing.expectEqualSlices(u8, "* * * * *", SelectNext.column(callback_row, .cron).?);
-
-    try callback_row.deinitErr();
+    try testing.expectEqualDeep(std.time.ms_per_min, callback_row.timestamp);
+    try testing.expect(callback_row.cron != null);
+    try testing.expectEqualSlices(u8, "* * * * *", callback_row.cron.?);
 
     try self.expectEqualStdio("",
         \\pdk_test_timeout_on_cron_callback
@@ -293,27 +293,28 @@ test "http_on_webhook" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data });
-    const callback_row = blk: {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    const callback_row = row: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{pluginName()}) orelse return testing.expect(false);
+        break :row try Cizero.sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{pluginName()}) orelse
+            return testing.expect(false);
     };
-    errdefer callback_row.deinit();
 
-    var callback: Cizero.components.CallbackUnmanaged = undefined;
-    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
-    });
-    defer callback.deinit(testing.allocator);
+    const callback = Cizero.components.CallbackUnmanaged{
+        .func_name = try arena_allocator.dupeZ(u8, callback_row.function),
+        .user_data = if (callback_row.user_data) |ud| ud.value else null,
+    };
 
     try testing.expectEqualStrings("pdk_test_http_on_webhook_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
     try testing.expectEqualSlices(u8, &[_]u8{ 25, 116, 1 }, callback.user_data.?);
-
-    try callback_row.deinitErr();
 
     {
         const req_body = "request body";
@@ -392,28 +393,30 @@ test "nix_on_build" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data });
-    var callback_rows = blk: {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    const callback_row = row: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{installable});
+        const rows = try Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{installable});
+
+        try testing.expectEqual(1, rows.len);
+
+        break :row rows[0];
     };
-    errdefer callback_rows.deinit();
 
-    const callback_row = callback_rows.next() orelse return testing.expect(false);
-
-    var callback: Cizero.components.CallbackUnmanaged = undefined;
-    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
-    });
-    defer callback.deinit(testing.allocator);
+    const callback = Cizero.components.CallbackUnmanaged{
+        .func_name = try arena_allocator.dupeZ(u8, callback_row.function),
+        .user_data = if (callback_row.user_data) |ud| ud.value else null,
+    };
 
     try testing.expectEqualStrings("pdk_test_nix_on_build_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
-
-    try callback_rows.deinitErr();
 
     try self.expectEqualStdio("",
         \\pdk_test_nix_on_build_callback
@@ -479,28 +482,30 @@ test "nix_on_eval" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data });
-    var callback_rows = blk: {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    const callback_row = row: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.rows(conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
+        const rows = try Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data })
+            .queryLeaky(arena_allocator, conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
+
+        try testing.expectEqual(1, rows.len);
+
+        break :row rows[0];
     };
-    errdefer callback_rows.deinit();
 
-    const callback_row = callback_rows.next() orelse return testing.expect(false);
-
-    var callback: Cizero.components.CallbackUnmanaged = undefined;
-    try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
-        .func_name = .function,
-        .user_data = .user_data,
-    });
-    defer callback.deinit(testing.allocator);
+    const callback = Cizero.components.CallbackUnmanaged{
+        .func_name = try arena_allocator.dupeZ(u8, callback_row.function),
+        .user_data = if (callback_row.user_data) |ud| ud.value else null,
+    };
 
     try testing.expectEqualStrings("pdk_test_nix_on_eval_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
-
-    try callback_rows.deinitErr();
 
     const result = "A program that produces a familiar, friendly greeting";
 

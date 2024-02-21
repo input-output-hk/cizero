@@ -79,36 +79,23 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         return;
     };
 
-    var callback_row: struct {
-        id: i64,
-        plugin: []const u8,
-    } = undefined;
-
-    var callback: components.CallbackUnmanaged = undefined;
-
-    {
-        const SelectCallback = sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data });
-
+    const callback_row = row: {
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        const row = try SelectCallback.row(conn, .{plugin_name}) orelse {
+        break :row try sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data })
+            .queryLeaky(res.arena, conn, .{plugin_name}) orelse {
             res.status = 404;
             return;
         };
-
-        try sql.structFromRow(res.arena, &callback_row, row, SelectCallback.column, .{
-            .id = .id,
-            .plugin = .plugin,
-        });
-
-        try sql.structFromRow(res.arena, &callback, row, SelectCallback.column, .{
-            .func_name = .function,
-            .user_data = .user_data,
-        });
-    }
+    };
 
     res.status = 204;
+
+    const callback = components.CallbackUnmanaged{
+        .func_name = try res.arena.dupeZ(u8, callback_row.function),
+        .user_data = if (callback_row.user_data) |ud| ud.value else null,
+    };
 
     var runtime = try self.registry.runtime(callback_row.plugin);
     defer runtime.deinit();

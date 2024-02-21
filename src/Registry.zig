@@ -45,9 +45,12 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
     const conn = self.db_pool.acquire();
     defer self.db_pool.release(conn);
 
-    const SelectWasm = queries.Plugin.SelectByName(&.{.wasm});
-    const row = try SelectWasm.row(conn, .{plugin_name}) orelse return error.NoSuchPlugin;
-    errdefer row.deinit();
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    const plugin = try queries.Plugin.SelectByName(&.{.wasm})
+        .queryLeaky(arena.allocator(), conn, .{plugin_name}) orelse
+        return error.NoSuchPlugin;
 
     var host_functions = try self.hostFunctions(self.allocator);
     defer host_functions.deinit(self.allocator);
@@ -55,13 +58,11 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
     var rt = try Runtime.init(
         self.allocator,
         plugin_name,
-        SelectWasm.column(row, .wasm),
+        plugin.wasm.value,
         host_functions,
     );
     errdefer rt.deinit();
     rt.wasi_config = &self.wasi_config;
-
-    try row.deinitErr();
 
     return rt;
 }
