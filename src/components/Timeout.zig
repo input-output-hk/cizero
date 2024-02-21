@@ -65,77 +65,97 @@ fn loop(self: *@This()) !void {
     defer self.wait_group.finish();
 
     while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
-        const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
-        const next_callback_row = blk: {
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        var callback_row: struct {
+            timestamp: i64,
+            cron: ?[]const u8,
+
+            id: i64,
+            plugin: []const u8,
+        } = undefined;
+
+        var callback: components.CallbackUnmanaged = undefined;
+
+        {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            break :blk try SelectNext.row(conn, .{});
-        };
+            const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
 
-        if (next_callback_row) |callback_row| {
-            errdefer callback_row.deinit();
+            const row = if (try SelectNext.row(conn, .{})) |row| row else {
+                self.loop_wait.wait();
+                continue;
+            };
+            errdefer row.deinit();
 
-            {
-                const now_ms = self.milliTimestamp();
-                const next_timestamp = SelectNext.column(callback_row, .timestamp);
-                if (now_ms < next_timestamp) {
-                    const timeout_ns: u64 = @intCast((next_timestamp - now_ms) * std.time.ns_per_ms);
-                    if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
-                        // `timedWait()` did not time out so `loop_wait` was `set()`.
-                        // This could have been done by `stop()`. If so, we don't want to run the callback.
-                        if (!self.loop_run.load(.Monotonic)) break;
-                    }
-                }
-            }
+            const arena_allocator = arena.allocator();
 
-            var callback: components.CallbackUnmanaged = undefined;
-            try sql.structFromRow(self.allocator, &callback, callback_row, SelectNext.column, .{
+            try sql.structFromRow(arena_allocator, &callback_row, row, SelectNext.column, .{
+                .timestamp = .timestamp,
+                .cron = .cron,
+
+                .id = .@"callback.id",
+                .plugin = .@"callback.plugin",
+            });
+
+            try sql.structFromRow(arena_allocator, &callback, row, SelectNext.column, .{
                 .func_name = .@"callback.function",
                 .user_data = .@"callback.user_data",
             });
-            defer callback.deinit(self.allocator);
 
-            const callback_id = SelectNext.column(callback_row, .@"callback.id");
-            const callback_kind: Callback = if (SelectNext.column(callback_row, .cron) != null) .cron else .timestamp;
+            try row.deinitErr();
+        }
 
-            // No need to heap-allocate here.
-            // Just stack-allocate sufficient memory for all cases.
-            var outputs_memory: [1]wasm.Value = undefined;
-            const outputs = outputs_memory[0..switch (callback_kind) {
-                .timestamp => 0,
-                .cron => 1,
-            }];
+        {
+            const now_ms = self.milliTimestamp();
+            if (now_ms < callback_row.timestamp) {
+                const timeout_ns: u64 = @intCast((callback_row.timestamp - now_ms) * std.time.ns_per_ms);
+                if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
+                    // `timedWait()` did not time out so `loop_wait` was `set()`.
+                    // This could have been done by `stop()`. If so, we don't want to run the callback.
+                    if (!self.loop_run.load(.Monotonic)) break;
+                }
+            }
+        }
 
-            var runtime = try self.registry.runtime(SelectNext.column(callback_row, .@"callback.plugin"));
-            defer runtime.deinit();
+        const callback_kind: Callback = if (callback_row.cron != null) .cron else .timestamp;
 
-            const success = try callback.run(self.allocator, runtime, &.{}, outputs);
-            const done = callback_kind.done().check(success, outputs);
+        // No need to heap-allocate here.
+        // Just stack-allocate sufficient memory for all cases.
+        var outputs_memory: [1]wasm.Value = undefined;
+        const outputs = outputs_memory[0..switch (callback_kind) {
+            .timestamp => 0,
+            .cron => 1,
+        }];
 
-            if (done) {
+        var runtime = try self.registry.runtime(callback_row.plugin);
+        defer runtime.deinit();
+
+        const success = try callback.run(self.allocator, runtime, &.{}, outputs);
+        const done = callback_kind.done().check(success, outputs);
+
+        if (done) {
+            const conn = self.registry.db_pool.acquire();
+            defer self.registry.db_pool.release(conn);
+
+            try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
+        } else switch (callback_kind) {
+            .timestamp => {},
+            .cron => {
+                var cron = Cron.init();
+                try cron.parse(callback_row.cron.?);
+
+                const now_ms = self.milliTimestamp();
+                const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
+
                 const conn = self.registry.db_pool.acquire();
                 defer self.registry.db_pool.release(conn);
 
-                try sql.queries.callback.deleteById.exec(conn, .{callback_id});
-            } else switch (callback_kind) {
-                .timestamp => {},
-                .cron => {
-                    var cron = Cron.init();
-                    try cron.parse(SelectNext.column(callback_row, .cron).?);
-
-                    const now_ms = self.milliTimestamp();
-                    const next_timestamp: i64 = @intCast((try cron.next(Datetime.fromTimestamp(now_ms))).toTimestamp());
-
-                    const conn = self.registry.db_pool.acquire();
-                    defer self.registry.db_pool.release(conn);
-
-                    try sql.queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_id, next_timestamp });
-                },
-            }
-
-            try callback_row.deinitErr();
-        } else self.loop_wait.wait();
+                try sql.queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_row.id, next_timestamp });
+            },
+        }
     }
 }
 

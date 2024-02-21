@@ -388,6 +388,7 @@ pub const queries = struct {
     pub const timeout_callback = struct {
         const table = "timeout_callback";
 
+        // XXX make these structs instead of unions so we can use them directly with `structFromRow()`
         pub const Column = union(enum) {
             callback: i64,
             timestamp: i64,
