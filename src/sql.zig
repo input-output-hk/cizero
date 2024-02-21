@@ -252,49 +252,43 @@ test comptimeJoin {
     , comptimeJoin(&.{"a"}, ", "));
 }
 
-fn MergedColumns(
-    comptime table_a: ?[]const u8,
-    comptime ColumnA: type,
-    comptime table_b: ?[]const u8,
-    comptime ColumnB: type,
+fn MergedTables(
+    comptime a_qualification: ?[]const u8,
+    comptime A: type,
+    comptime b_qualification: ?[]const u8,
+    comptime B: type,
 ) type {
     const mapFn = struct {
-        fn mapFn(comptime table: ?[]const u8, comptime T: type) fn (meta.FieldInfo(T)) meta.FieldInfo(T) {
-            const fns = struct {
+        fn mapFn(comptime table: []const u8, comptime T: type) fn (meta.FieldInfo(T)) meta.FieldInfo(T) {
+            return struct {
                 fn map(field: meta.FieldInfo(T)) meta.FieldInfo(T) {
                     var f = field;
-                    f.name = table.? ++ "." ++ f.name;
+                    f.name = table ++ "." ++ f.name;
                     return f;
                 }
-
-                fn id(field: meta.FieldInfo(T)) meta.FieldInfo(T) {
-                    return field;
-                }
-            };
-            return if (table != null) fns.map else fns.id;
+            }.map;
         }
     }.mapFn;
 
-    return meta.MergedUnions(
-        meta.MapTaggedUnionFields(ColumnA, mapFn(table_a, ColumnA), mapFn(table_a, @typeInfo(ColumnA).Union.tag_type.?)),
-        meta.MapTaggedUnionFields(ColumnB, mapFn(table_b, ColumnB), mapFn(table_b, @typeInfo(ColumnB).Union.tag_type.?)),
-        true,
+    return meta.MergedStructs(
+        if (a_qualification) |qualification| meta.MapFields(A, mapFn(qualification, A)) else A,
+        if (b_qualification) |qualification| meta.MapFields(B, mapFn(qualification, B)) else B,
     );
 }
 
-test MergedColumns {
-    const ColumnA = union(enum) {
+test MergedTables {
+    const TableA = struct {
         foo: []const u8,
         bar: zqlite.Blob,
     };
-    const ColumnB = union(enum) {
+    const TableB = struct {
         foo: []const u8,
         baz: zqlite.Blob,
     };
 
     {
-        const ColumnMerged = MergedColumns("a", ColumnA, "b", ColumnB);
-        const column_names = std.meta.tags(std.meta.Tag(ColumnMerged));
+        const TableMerged = MergedTables("a", TableA, "b", TableB);
+        const column_names = std.meta.tags(std.meta.FieldEnum(TableMerged));
 
         try std.testing.expectEqual(4, column_names.len);
         try std.testing.expectEqual(.@"a.foo", column_names[0]);
@@ -304,8 +298,8 @@ test MergedColumns {
     }
 
     {
-        const ColumnMerged = MergedColumns(null, ColumnA, "b", ColumnB);
-        const column_names = std.meta.tags(std.meta.Tag(ColumnMerged));
+        const TableMerged = MergedTables(null, TableA, "b", TableB);
+        const column_names = std.meta.tags(std.meta.FieldEnum(TableMerged));
 
         try std.testing.expectEqual(4, column_names.len);
         try std.testing.expectEqual(.foo, column_names[0]);
@@ -316,18 +310,17 @@ test MergedColumns {
 }
 
 pub const queries = struct {
-    pub const plugin = struct {
+    pub const Plugin = struct {
+        name: []const u8,
+        wasm: zqlite.Blob,
+
         const table = "plugin";
 
-        pub const Column = union(enum) {
-            name: []const u8,
-            wasm: zqlite.Blob,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, Column);
+        pub const insert = SimpleInsert(table, @This());
 
-        pub fn SelectByName(comptime columns: []const ColumnName) type {
+        pub fn SelectByName(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(table, columns) ++
@@ -336,30 +329,29 @@ pub const queries = struct {
                 ++ table ++
                     \\"
                     \\WHERE "
-                ++ @tagName(ColumnName.name) ++
+                ++ @tagName(Column.name) ++
                     \\" = ?
             ,
                 false,
-                meta.SubUnion(Column, columns),
+                meta.SubStruct(@This(), columns),
                 struct { []const u8 },
             );
         }
     };
 
-    pub const callback = struct {
+    pub const Callback = struct {
+        id: i64,
+        plugin: []const u8,
+        function: []const u8,
+        user_data: ?zqlite.Blob,
+
         const table = "callback";
 
-        pub const Column = union(enum) {
-            id: i64,
-            plugin: []const u8,
-            function: []const u8,
-            user_data: ?zqlite.Blob,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, meta.SubUnion(Column, &.{ .plugin, .function, .user_data }));
+        pub const insert = SimpleInsert(table, meta.SubStruct(@This(), &.{ .plugin, .function, .user_data }));
 
-        pub fn SelectById(comptime columns: []const ColumnName) type {
+        pub fn SelectById(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(table, columns) ++
@@ -370,7 +362,7 @@ pub const queries = struct {
                     \\WHERE "rowid" = ?
             ,
                 false,
-                meta.SubUnion(Column, columns),
+                meta.SubStruct(@This(), columns),
                 struct { i64 },
             );
         }
@@ -380,57 +372,55 @@ pub const queries = struct {
         ++ table ++
             \\"
             \\WHERE "
-        ++ @tagName(ColumnName.id) ++
+        ++ @tagName(Column.id) ++
             \\" = ?
         , struct { i64 });
     };
 
-    pub const timeout_callback = struct {
+    pub const TimeoutCallback = struct {
+        callback: i64,
+        timestamp: i64,
+        cron: ?[]const u8,
+
         const table = "timeout_callback";
 
-        // XXX make these structs instead of unions so we can use them directly with `structFromRow()`
-        pub const Column = union(enum) {
-            callback: i64,
-            timestamp: i64,
-            cron: ?[]const u8,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, Column);
+        pub const insert = SimpleInsert(table, @This());
 
-        pub fn SelectNext(comptime columns: []const ColumnName, comptime callback_columns: []const callback.ColumnName) type {
+        pub fn SelectNext(comptime columns: []const Column, comptime callback_columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ comptimeJoin(&.{
                     columnList(table, columns),
-                    columnList(callback.table, callback_columns),
+                    columnList(Callback.table, callback_columns),
                 }, ", ") ++
                     \\
                     \\FROM "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"
                     \\INNER JOIN "
                 ++ table ++
                     \\" ON "
                 ++ table ++
                     \\"."
-                ++ @tagName(ColumnName.callback) ++
+                ++ @tagName(Column.callback) ++
                     \\" = "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"."
-                ++ @tagName(callback.ColumnName.id) ++
+                ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\ORDER BY "
-                ++ @tagName(ColumnName.timestamp) ++
+                ++ @tagName(Column.timestamp) ++
                     \\" ASC
                     \\LIMIT 1
             ,
                 false,
-                MergedColumns(
+                MergedTables(
                     null,
-                    meta.SubUnion(Column, columns),
-                    callback.table,
-                    meta.SubUnion(callback.Column, callback_columns),
+                    meta.SubStruct(@This(), columns),
+                    Callback.table,
+                    meta.SubStruct(Callback, callback_columns),
                 ),
                 @TypeOf(.{}),
             );
@@ -441,69 +431,67 @@ pub const queries = struct {
         ++ table ++
             \\" SET
             \\  "
-        ++ @tagName(ColumnName.timestamp) ++
+        ++ @tagName(Column.timestamp) ++
             \\" = ?2
             \\WHERE "
-        ++ @tagName(ColumnName.callback) ++
+        ++ @tagName(Column.callback) ++
             \\" = ?1
         , struct { i64, i64 });
     };
 
-    pub const http_callback = struct {
+    pub const HttpCallback = struct {
+        callback: i64,
+        plugin: []const u8,
+
         const table = "http_callback";
 
-        pub const Column = union(enum) {
-            callback: i64,
-            plugin: []const u8,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, Column);
+        pub const insert = SimpleInsert(table, @This());
 
-        pub fn SelectCallbackByPlugin(comptime columns: []const callback.ColumnName) type {
+        pub fn SelectCallbackByPlugin(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(callback.table, columns) ++
+                ++ " " ++ columnList(Callback.table, columns) ++
                     \\
                     \\FROM "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"
                     \\INNER JOIN "
                 ++ table ++
                     \\" ON "
                 ++ table ++
                     \\"."
-                ++ @tagName(ColumnName.callback) ++
+                ++ @tagName(Column.callback) ++
                     \\" = "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"."
-                ++ @tagName(callback.ColumnName.id) ++
+                ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\WHERE "
                 ++ table ++
                     \\"."
-                ++ @tagName(ColumnName.plugin) ++
+                ++ @tagName(Column.plugin) ++
                     \\" = ?
             ,
                 false,
-                meta.SubUnion(callback.Column, columns),
+                meta.SubStruct(Callback, columns),
                 struct { []const u8 },
             );
         }
     };
 
-    pub const nix_build_callback = struct {
+    pub const NixBuildCallback = struct {
+        callback: i64,
+        installable: []const u8,
+
         const table = "nix_build_callback";
 
-        pub const Column = union(enum) {
-            callback: i64,
-            installable: []const u8,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, Column);
+        pub const insert = SimpleInsert(table, @This());
 
-        pub fn Select(comptime columns: []const ColumnName) type {
+        pub fn Select(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(table, columns) ++
@@ -513,54 +501,53 @@ pub const queries = struct {
                     \\"
             ,
                 true,
-                meta.SubUnion(Column, columns),
+                meta.SubStruct(@This(), columns),
                 @TypeOf(.{}),
             );
         }
 
-        pub fn SelectCallbackByInstallable(comptime columns: []const callback.ColumnName) type {
+        pub fn SelectCallbackByInstallable(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(callback.table, columns) ++
+                ++ " " ++ columnList(Callback.table, columns) ++
                     \\
                     \\FROM "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"
                     \\INNER JOIN "
                 ++ table ++
                     \\" ON "
                 ++ table ++
                     \\"."
-                ++ @tagName(ColumnName.callback) ++
+                ++ @tagName(Column.callback) ++
                     \\" = "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"."
-                ++ @tagName(callback.ColumnName.id) ++
+                ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\WHERE "
-                ++ @tagName(ColumnName.installable) ++
+                ++ @tagName(Column.installable) ++
                     \\" = ?
             ,
                 true,
-                meta.SubUnion(callback.Column, columns),
+                meta.SubStruct(Callback, columns),
                 struct { []const u8 },
             );
         }
     };
 
-    pub const nix_eval_callback = struct {
+    pub const NixEvalCallback = struct {
+        callback: i64,
+        expr: []const u8,
+        format: i64,
+
         const table = "nix_eval_callback";
 
-        pub const Column = union(enum) {
-            callback: i64,
-            expr: []const u8,
-            format: i64,
-        };
-        pub const ColumnName = std.meta.Tag(Column);
+        pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, Column);
+        pub const insert = SimpleInsert(table, @This());
 
-        pub fn Select(comptime columns: []const ColumnName) type {
+        pub fn Select(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(table, columns) ++
@@ -570,38 +557,38 @@ pub const queries = struct {
                     \\"
             ,
                 true,
-                meta.SubUnion(Column, columns),
+                meta.SubStruct(@This(), columns),
                 @TypeOf(.{}),
             );
         }
 
-        pub fn SelectCallbackByExprAndFormat(comptime columns: []const callback.ColumnName) type {
+        pub fn SelectCallbackByExprAndFormat(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(callback.table, columns) ++
+                ++ " " ++ columnList(Callback.table, columns) ++
                     \\
                     \\FROM "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"
                     \\INNER JOIN "
                 ++ table ++
                     \\" ON "
                 ++ table ++
                     \\"."
-                ++ @tagName(ColumnName.callback) ++
+                ++ @tagName(Column.callback) ++
                     \\" = "
-                ++ callback.table ++
+                ++ Callback.table ++
                     \\"."
-                ++ @tagName(callback.ColumnName.id) ++
+                ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\WHERE "
-                ++ @tagName(ColumnName.expr) ++
+                ++ @tagName(Column.expr) ++
                     \\" = ? AND "
-                ++ @tagName(ColumnName.format) ++
+                ++ @tagName(Column.format) ++
                     \\" = ?
             ,
                 true,
-                meta.SubUnion(callback.Column, columns),
+                meta.SubStruct(Callback, columns),
                 struct { []const u8, i64 },
             );
         }

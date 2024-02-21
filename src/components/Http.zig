@@ -87,7 +87,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     var callback: components.CallbackUnmanaged = undefined;
 
     {
-        const SelectCallback = sql.queries.http_callback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data });
+        const SelectCallback = sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data });
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -141,7 +141,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
+        try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
     }
 
     res.status = res_status.*;
@@ -185,12 +185,12 @@ fn onWebhook(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.A
     try conn.transaction();
     errdefer conn.rollback();
 
-    try sql.queries.callback.insert.exec(conn, .{
+    try sql.queries.Callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try sql.queries.http_callback.insert.exec(conn, .{
+    try sql.queries.HttpCallback.insert.exec(conn, .{
         conn.lastInsertedRowId(),
         plugin_name,
     });

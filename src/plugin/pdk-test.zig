@@ -101,7 +101,7 @@ test "timeout_on_timestamp" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
+    const SelectNext = Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -160,7 +160,7 @@ test "timeout_on_cron" {
         }
     }.call);
 
-    const SelectNext = Cizero.sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
+    const SelectNext = Cizero.sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -293,7 +293,7 @@ test "http_on_webhook" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.http_callback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -392,7 +392,7 @@ test "nix_on_build" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
@@ -477,7 +477,7 @@ test "nix_on_eval" {
         }
     }.call);
 
-    const SelectCallback = Cizero.sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data });
+    const SelectCallback = Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data });
     const callback_row = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);

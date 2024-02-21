@@ -31,7 +31,7 @@ pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !void 
         const conn = self.db_pool.acquire();
         defer self.db_pool.release(conn);
 
-        try queries.plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
+        try queries.Plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
     }
 
     var rt = try self.runtime(name);
@@ -45,7 +45,7 @@ pub fn runtime(self: *const @This(), plugin_name: []const u8) !Runtime {
     const conn = self.db_pool.acquire();
     defer self.db_pool.release(conn);
 
-    const SelectWasm = queries.plugin.SelectByName(&.{.wasm});
+    const SelectWasm = queries.Plugin.SelectByName(&.{.wasm});
     const row = try SelectWasm.row(conn, .{plugin_name}) orelse return error.NoSuchPlugin;
     errdefer row.deinit();
 

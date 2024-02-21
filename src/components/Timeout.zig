@@ -82,7 +82,7 @@ fn loop(self: *@This()) !void {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            const SelectNext = sql.queries.timeout_callback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
+            const SelectNext = sql.queries.TimeoutCallback.SelectNext(&.{ .timestamp, .cron }, &.{ .id, .plugin, .function, .user_data });
 
             const row = if (try SelectNext.row(conn, .{})) |row| row else {
                 self.loop_wait.wait();
@@ -140,7 +140,7 @@ fn loop(self: *@This()) !void {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
+            try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
         } else switch (callback_kind) {
             .timestamp => {},
             .cron => {
@@ -153,7 +153,7 @@ fn loop(self: *@This()) !void {
                 const conn = self.registry.db_pool.acquire();
                 defer self.registry.db_pool.release(conn);
 
-                try sql.queries.timeout_callback.updateTimestamp.exec(conn, .{ callback_row.id, next_timestamp });
+                try sql.queries.TimeoutCallback.updateTimestamp.exec(conn, .{ callback_row.id, next_timestamp });
             },
         }
     }
@@ -199,12 +199,12 @@ fn onTimestamp(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem
     try conn.transaction();
     errdefer conn.rollback();
 
-    try sql.queries.callback.insert.exec(conn, .{
+    try sql.queries.Callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try sql.queries.timeout_callback.insert.exec(conn, .{
+    try sql.queries.TimeoutCallback.insert.exec(conn, .{
         conn.lastInsertedRowId(),
         params.timestamp,
         null,
@@ -245,12 +245,12 @@ fn onCron(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allo
     try conn.transaction();
     errdefer conn.rollback();
 
-    try sql.queries.callback.insert.exec(conn, .{
+    try sql.queries.Callback.insert.exec(conn, .{
         plugin_name,
         params.func_name,
         if (user_data) |ud| .{ .value = ud } else null,
     });
-    try sql.queries.timeout_callback.insert.exec(conn, .{
+    try sql.queries.TimeoutCallback.insert.exec(conn, .{
         conn.lastInsertedRowId(),
         outputs[0].i64,
         params.cron,

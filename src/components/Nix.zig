@@ -250,15 +250,15 @@ fn insertCallback(
     try conn.transaction();
     errdefer conn.rollback();
 
-    try sql.queries.callback.insert.exec(conn, .{
+    try sql.queries.Callback.insert.exec(conn, .{
         plugin_name,
         func_name,
         if (user_data_len != 0) .{ .value = user_data_ptr[0..user_data_len] } else null,
     });
 
     switch (job) {
-        .build => |build_job| try sql.queries.nix_build_callback.insert.exec(conn, .{ conn.lastInsertedRowId(), build_job.installable }),
-        .eval => |eval_job| try sql.queries.nix_eval_callback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.expr, @intFromEnum(eval_job.output_format) }),
+        .build => |build_job| try sql.queries.NixBuildCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), build_job.installable }),
+        .eval => |eval_job| try sql.queries.NixEvalCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.expr, @intFromEnum(eval_job.output_format) }),
     }
 
     try conn.commit();
@@ -270,7 +270,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     self.running.store(true, .Monotonic);
 
     {
-        const SelectPending = sql.queries.nix_build_callback.Select(&.{.installable});
+        const SelectPending = sql.queries.NixBuildCallback.Select(&.{.installable});
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -292,7 +292,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     }
 
     {
-        const SelectPending = sql.queries.nix_eval_callback.Select(&.{ .expr, .format });
+        const SelectPending = sql.queries.NixEvalCallback.Select(&.{ .expr, .format });
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -468,7 +468,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
     defer callback_rows.deinit(self.allocator);
 
     {
-        const SelectCallback = sql.queries.nix_build_callback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
+        const SelectCallback = sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data });
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -527,7 +527,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
+        try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
     }
 }
 
@@ -544,7 +544,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
     defer callback_rows.deinit(self.allocator);
 
     {
-        const SelectCallback = sql.queries.nix_eval_callback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
+        const SelectCallback = sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data });
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -601,7 +601,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        try sql.queries.callback.deleteById.exec(conn, .{callback_row.id});
+        try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
     }
 }
 
