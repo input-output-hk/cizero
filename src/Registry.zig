@@ -25,14 +25,14 @@ pub fn registerComponent(self: *@This(), component_impl: anytype) !void {
 
 /// Runs the plugin's main function if it is a new version.
 pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !void {
+    std.log.info("registering plugin: {s}", .{name});
+
     {
         const conn = self.db_pool.acquire();
         defer self.db_pool.release(conn);
 
         try queries.plugin.insert.exec(conn, .{ name, .{ .value = wasm } });
     }
-
-    std.log.info("registering plugin: {s}", .{name});
 
     var rt = try self.runtime(name);
     defer rt.deinit();
