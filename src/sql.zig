@@ -128,51 +128,62 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
             return getter(info.type)(result, index);
         }
 
-        pub fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
-            return logErr(conn, .row, .{ sql, values });
-        }
-
         pub usingnamespace if (multi) struct {
             pub fn rows(conn: zqlite.Conn, values: Values) !zqlite.Rows {
                 return logErr(conn, .rows, .{ sql, values });
             }
-        } else struct {};
+        } else struct {
+            pub fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
+                return logErr(conn, .row, .{ sql, values });
+            }
+        };
     };
 }
 
 test Query {
-    const Q = Query("SELECT a, b, c, d, e, f, g, h, i, j, k, l, m FROM foo", false, struct {
-        a: bool,
-        b: ?bool,
-        c: i64,
-        d: ?i64,
-        e: f64,
-        f: ?f64,
-        g: []const u8,
-        h: ?[]const u8,
-        i: [*:0]const u8,
-        j: ?[*:0]const u8,
-        k: usize,
-        l: zqlite.Blob,
-        m: ?zqlite.Blob,
-    }, struct {});
+    {
+        const Q = Query("SELECT a, b, c, d, e, f, g, h, i, j, k, l, m FROM foo", false, struct {
+            a: bool,
+            b: ?bool,
+            c: i64,
+            d: ?i64,
+            e: f64,
+            f: ?f64,
+            g: []const u8,
+            h: ?[]const u8,
+            i: [*:0]const u8,
+            j: ?[*:0]const u8,
+            k: usize,
+            l: zqlite.Blob,
+            m: ?zqlite.Blob,
+        }, struct {});
 
-    try std.testing.expectEqual(bool, @TypeOf(Q.column(undefined, .a)));
-    try std.testing.expectEqual(?bool, @TypeOf(Q.column(undefined, .b)));
-    try std.testing.expectEqual(i64, @TypeOf(Q.column(undefined, .c)));
-    try std.testing.expectEqual(?i64, @TypeOf(Q.column(undefined, .d)));
-    try std.testing.expectEqual(f64, @TypeOf(Q.column(undefined, .e)));
-    try std.testing.expectEqual(?f64, @TypeOf(Q.column(undefined, .f)));
-    try std.testing.expectEqual([]const u8, @TypeOf(Q.column(undefined, .g)));
-    try std.testing.expectEqual(?[]const u8, @TypeOf(Q.column(undefined, .h)));
-    try std.testing.expectEqual([*:0]const u8, @TypeOf(Q.column(undefined, .i)));
-    try std.testing.expectEqual(?[*:0]const u8, @TypeOf(Q.column(undefined, .j)));
-    try std.testing.expectEqual(usize, @TypeOf(Q.column(undefined, .k)));
-    try std.testing.expectEqual([]const u8, @TypeOf(Q.column(undefined, .l)));
-    try std.testing.expectEqual(?[]const u8, @TypeOf(Q.column(undefined, .m)));
+        try std.testing.expectEqual(bool, @TypeOf(Q.column(undefined, .a)));
+        try std.testing.expectEqual(?bool, @TypeOf(Q.column(undefined, .b)));
+        try std.testing.expectEqual(i64, @TypeOf(Q.column(undefined, .c)));
+        try std.testing.expectEqual(?i64, @TypeOf(Q.column(undefined, .d)));
+        try std.testing.expectEqual(f64, @TypeOf(Q.column(undefined, .e)));
+        try std.testing.expectEqual(?f64, @TypeOf(Q.column(undefined, .f)));
+        try std.testing.expectEqual([]const u8, @TypeOf(Q.column(undefined, .g)));
+        try std.testing.expectEqual(?[]const u8, @TypeOf(Q.column(undefined, .h)));
+        try std.testing.expectEqual([*:0]const u8, @TypeOf(Q.column(undefined, .i)));
+        try std.testing.expectEqual(?[*:0]const u8, @TypeOf(Q.column(undefined, .j)));
+        try std.testing.expectEqual(usize, @TypeOf(Q.column(undefined, .k)));
+        try std.testing.expectEqual([]const u8, @TypeOf(Q.column(undefined, .l)));
+        try std.testing.expectEqual(?[]const u8, @TypeOf(Q.column(undefined, .m)));
+    }
 
-    try std.testing.expect(!std.meta.hasFn(Q, "rows"));
-    try std.testing.expect(std.meta.hasFn(Query("", true, struct {}, struct {}), "rows"));
+    {
+        const Q = Query("", false, struct {}, struct {});
+        try std.testing.expect(std.meta.hasFn(Q, "row"));
+        try std.testing.expect(!std.meta.hasFn(Q, "rows"));
+    }
+
+    {
+        const Q = Query("", true, struct {}, struct {});
+        try std.testing.expect(std.meta.hasFn(Q, "rows"));
+        try std.testing.expect(!std.meta.hasFn(Q, "row"));
+    }
 }
 
 pub fn Exec(comptime sql: []const u8, comptime Values_: type) type {
@@ -181,21 +192,30 @@ pub fn Exec(comptime sql: []const u8, comptime Values_: type) type {
     return struct {
         pub const Values = Q.Values;
 
-        pub fn exec(conn: zqlite.Conn, values: Values) !void {
-            return logErr(conn, .exec, .{ sql, values });
-        }
-
         pub usingnamespace if (@typeInfo(Values).Struct.fields.len == 0) struct {
             pub fn execNoArgs(conn: zqlite.Conn) !void {
                 return logErr(conn, .execNoArgs, .{sql});
             }
-        } else struct {};
+        } else struct {
+            pub fn exec(conn: zqlite.Conn, values: Values) !void {
+                return logErr(conn, .exec, .{ sql, values });
+            }
+        };
     };
 }
 
 test Exec {
-    try std.testing.expect(!std.meta.hasFn(Exec("", struct { a: u0 }), "execNoArgs"));
-    try std.testing.expect(std.meta.hasFn(Exec("", struct {}), "execNoArgs"));
+    {
+        const E = Exec("", struct { a: u0 });
+        try std.testing.expect(std.meta.hasFn(E, "exec"));
+        try std.testing.expect(!std.meta.hasFn(E, "execNoArgs"));
+    }
+
+    {
+        const E = Exec("", struct {});
+        try std.testing.expect(std.meta.hasFn(E, "execNoArgs"));
+        try std.testing.expect(!std.meta.hasFn(E, "exec"));
+    }
 }
 
 fn SimpleInsert(comptime table: []const u8, comptime Column: type) type {

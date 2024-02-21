@@ -393,13 +393,15 @@ test "nix_on_build" {
     }.call);
 
     const SelectCallback = Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data });
-    const callback_row = blk: {
+    var callback_rows = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{installable}) orelse return testing.expect(false);
+        break :blk try SelectCallback.rows(conn, .{installable});
     };
-    errdefer callback_row.deinit();
+    errdefer callback_rows.deinit();
+
+    const callback_row = callback_rows.next() orelse return testing.expect(false);
 
     var callback: Cizero.components.CallbackUnmanaged = undefined;
     try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
@@ -411,7 +413,7 @@ test "nix_on_build" {
     try testing.expectEqualStrings("pdk_test_nix_on_build_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
 
-    try callback_row.deinitErr();
+    try callback_rows.deinitErr();
 
     try self.expectEqualStdio("",
         \\pdk_test_nix_on_build_callback
@@ -478,13 +480,15 @@ test "nix_on_eval" {
     }.call);
 
     const SelectCallback = Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data });
-    const callback_row = blk: {
+    var callback_rows = blk: {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        break :blk try SelectCallback.row(conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) }) orelse return testing.expect(false);
+        break :blk try SelectCallback.rows(conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
     };
-    errdefer callback_row.deinit();
+    errdefer callback_rows.deinit();
+
+    const callback_row = callback_rows.next() orelse return testing.expect(false);
 
     var callback: Cizero.components.CallbackUnmanaged = undefined;
     try Cizero.sql.structFromRow(testing.allocator, &callback, callback_row, SelectCallback.column, .{
@@ -496,7 +500,7 @@ test "nix_on_eval" {
     try testing.expectEqualStrings("pdk_test_nix_on_eval_callback", callback.func_name);
     try testing.expect(callback.user_data == null);
 
-    try callback_row.deinitErr();
+    try callback_rows.deinitErr();
 
     const result = "A program that produces a familiar, friendly greeting";
 
