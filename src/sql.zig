@@ -133,21 +133,53 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 return logErr(conn, .rows, .{ sql, values });
             }
 
-            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) ![]Row {
-                var zqlite_rows = try rows(conn, values);
-                errdefer zqlite_rows.deinit();
+            pub const RowsLeaky = struct {
+                zqlite_rows: zqlite.Rows,
+                allocator: std.mem.Allocator,
 
-                var typed_rows = std.ArrayListUnmanaged(Row){};
-                errdefer typed_rows.deinit(allocator);
-
-                while (zqlite_rows.next()) |zqlite_row| {
-                    const typed_row = try typed_rows.addOne(allocator);
-                    try structFromRow(allocator, typed_row, zqlite_row, column);
+                pub fn deinit(self: @This()) void {
+                    self.zqlite_rows.deinit();
                 }
 
-                try zqlite_rows.deinitErr();
+                pub fn deinitErr(self: @This()) !void {
+                    try self.zqlite_rows.deinitErr();
+                }
 
-                return typed_rows.toOwnedSlice(allocator);
+                pub fn next(self: *@This()) !?Row {
+                    if (self.zqlite_rows.next()) |zqlite_row| {
+                        var typed_row: Row = undefined;
+                        try structFromRow(self.allocator, &typed_row, zqlite_row, column);
+                        return typed_row;
+                    }
+                    return null;
+                }
+
+                /// Consumes this so `deinit()` or `deinitErr()` no longer have to be called.
+                pub fn toOwnedSlice(self: *@This()) ![]Row {
+                    errdefer self.deinit();
+
+                    var typed_rows = std.ArrayListUnmanaged(Row){};
+                    errdefer typed_rows.deinit(self.allocator);
+
+                    while (try self.next()) |typed_row|
+                        (try typed_rows.addOne(self.allocator)).* = typed_row;
+
+                    try self.deinitErr();
+
+                    return typed_rows.toOwnedSlice(self.allocator);
+                }
+            };
+
+            pub fn queryLeakyIterator(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !RowsLeaky {
+                return .{
+                    .zqlite_rows = try rows(conn, values),
+                    .allocator = allocator,
+                };
+            }
+
+            pub fn queryLeaky(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) ![]Row {
+                var iter = try queryLeakyIterator(allocator, conn, values);
+                return iter.toOwnedSlice();
             }
         } else struct {
             fn row(conn: zqlite.Conn, values: Values) !?zqlite.Row {
