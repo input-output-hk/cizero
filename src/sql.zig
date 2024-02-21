@@ -89,7 +89,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
         pub const Column = std.meta.FieldEnum(Columns);
         pub const Values = Values_;
 
-        fn getterResult(comptime Result: type) type {
+        fn GetterResult(comptime Result: type) type {
             return switch (Result) {
                 zqlite.Blob => []const u8,
                 ?zqlite.Blob => ?[]const u8,
@@ -97,7 +97,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
             };
         }
 
-        fn getter(comptime Result: type) fn (zqlite.Row, usize) getterResult(Result) {
+        fn getter(comptime Result: type) fn (zqlite.Row, usize) GetterResult(Result) {
             return switch (Result) {
                 bool => zqlite.Row.boolean,
                 ?bool => zqlite.Row.nullableBoolean,
@@ -122,7 +122,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Columns: type,
             };
         }
 
-        pub fn column(result: zqlite.Row, comptime col: Column) getterResult(std.meta.fieldInfo(Columns, col).type) {
+        pub fn column(result: zqlite.Row, comptime col: Column) GetterResult(std.meta.fieldInfo(Columns, col).type) {
             const info = std.meta.fieldInfo(Columns, col);
             const index = std.meta.fieldIndex(Columns, info.name).?;
             return getter(info.type)(result, index);
