@@ -133,7 +133,7 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 return logErr(conn, .rows, .{ sql, values });
             }
 
-            pub const RowsLeaky = struct {
+            pub const Rows = struct {
                 zqlite_rows: zqlite.Rows,
                 allocator: std.mem.Allocator,
 
@@ -147,8 +147,12 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
 
                 pub fn next(self: *@This()) !?Row {
                     if (self.zqlite_rows.next()) |zqlite_row| {
+                        var arena = std.heap.ArenaAllocator.init(self.allocator);
+                        errdefer arena.deinit();
+
                         var typed_row: Row = undefined;
-                        try structFromRow(self.allocator, &typed_row, zqlite_row, column);
+                        try structFromRow(arena.allocator(), &typed_row, zqlite_row, column);
+
                         return typed_row;
                     }
                     return null;
@@ -156,21 +160,28 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
 
                 /// Consumes this so `deinit()` or `deinitErr()` no longer have to be called.
                 pub fn toOwnedSlice(self: *@This()) ![]Row {
-                    errdefer self.deinit();
+                    var arena = std.heap.ArenaAllocator.init(self.allocator);
+                    errdefer arena.deinit();
+
+                    var this = @This(){
+                       .zqlite_rows = self.zqlite_rows,
+                       .allocator = arena.allocator(),
+                    };
+                    errdefer this.deinit();
 
                     var typed_rows = std.ArrayListUnmanaged(Row){};
-                    errdefer typed_rows.deinit(self.allocator);
+                    errdefer typed_rows.deinit(this.allocator);
 
-                    while (try self.next()) |typed_row|
-                        (try typed_rows.addOne(self.allocator)).* = typed_row;
+                    while (try this.next()) |typed_row|
+                        (try typed_rows.addOne(this.allocator)).* = typed_row;
 
-                    try self.deinitErr();
+                    try this.deinitErr();
 
-                    return typed_rows.toOwnedSlice(self.allocator);
+                    return typed_rows.toOwnedSlice(this.allocator);
                 }
             };
 
-            pub fn queryIterator(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !RowsLeaky {
+            pub fn queryIterator(allocator: std.mem.Allocator, conn: zqlite.Conn, values: Values) !Rows {
                 return .{
                     .zqlite_rows = try rows(conn, values),
                     .allocator = allocator,
@@ -190,8 +201,11 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 const zqlite_row = try row(conn, values) orelse return null;
                 errdefer zqlite_row.deinit();
 
+                var arena = std.heap.ArenaAllocator.init(allocator);
+                errdefer arena.deinit();
+
                 var typed_row: Row = undefined;
-                try structFromRow(allocator, &typed_row, zqlite_row, column);
+                try structFromRow(arena.allocator(), &typed_row, zqlite_row, column);
 
                 try zqlite_row.deinitErr();
 
