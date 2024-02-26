@@ -25,7 +25,9 @@ wait_group: *std.Thread.WaitGroup,
 
 build_hook: []const u8,
 
-// could store this in the database but memory is easier for now
+build_jobs_mutex: std.Thread.Mutex = .{},
+build_jobs: std.StringHashMapUnmanaged(void) = .{},
+
 eval_jobs_mutex: std.Thread.Mutex = .{},
 eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
     pub fn hash(_: @This(), key: Job.Eval) u64 {
@@ -123,14 +125,11 @@ pub const Job = union(enum) {
 pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
 
-    {
-        var iter = self.eval_jobs.iterator();
-        while (iter.next()) |entry| {
-            entry.key_ptr.deinit(self.allocator);
-            entry.value_ptr.deinit();
-        }
-        self.eval_jobs.deinit(self.allocator);
-    }
+    std.debug.assert(self.eval_jobs.size == 0);
+    self.eval_jobs.deinit(self.allocator);
+
+    std.debug.assert(self.build_jobs.size == 0);
+    self.build_jobs.deinit(self.allocator);
 
     self.jobs_thread_pool.deinit();
 }
@@ -325,10 +324,10 @@ fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNa
 
     if (switch (job) {
         .build => |build_job| running: {
-            _ = build_job;
+            self.build_jobs_mutex.lock();
+            defer self.build_jobs_mutex.unlock();
 
-            // TODO check if this job is already running
-            break :running false;
+            break :running try self.build_jobs.fetchPut(self.allocator, build_job.installable, {}) != null;
         },
         .eval => |eval_job| running: {
             self.eval_jobs_mutex.lock();
@@ -379,6 +378,13 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
         else
             log.debug("job {} produced outputs {s}", .{ job, outputs }),
         .dep_failed => |drv| log.debug("dependency {s} of job {} failed", .{ drv, job }),
+    }
+
+    {
+        self.build_jobs_mutex.lock();
+        defer self.build_jobs_mutex.unlock();
+
+        std.debug.assert(self.build_jobs.fetchRemove(job.installable) != null);
     }
 
     try self.runBuildJobCallbacks(job, result);
