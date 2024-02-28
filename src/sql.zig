@@ -164,8 +164,8 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                     errdefer arena.deinit();
 
                     var this = @This(){
-                       .zqlite_rows = self.zqlite_rows,
-                       .allocator = arena.allocator(),
+                        .zqlite_rows = self.zqlite_rows,
+                        .allocator = arena.allocator(),
                     };
                     errdefer this.deinit();
 
