@@ -419,7 +419,14 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                     // XXX build all IFDs in parallel
                     var iter = ifds.iterator();
                     while (iter.next()) |ifd| {
-                        const build_result = try build(self.allocator, ifd.*);
+                        std.debug.assert(std.mem.endsWith(u8, ifd.*, ".drv"));
+
+                        const build_result = result: {
+                            const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
+                            defer self.allocator.free(installable);
+
+                            break :result try build(self.allocator, installable);
+                        };
                         errdefer build_result.deinit(self.allocator);
 
                         switch (build_result) {
