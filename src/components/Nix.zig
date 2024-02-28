@@ -106,6 +106,8 @@ pub const Job = union(enum) {
                 /// dependency derivation that failed
                 drv: []const u8,
             },
+            /// max eval attempts exceeded
+            ifd_too_deep,
         };
     };
 
@@ -463,7 +465,7 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
             }
         } else {
             log.warn("max eval attempts exceeded for job {}", .{job});
-            return error.MaxEvalAttemptsExceeded;
+            break :eval .ifd_too_deep;
         }
     };
 
