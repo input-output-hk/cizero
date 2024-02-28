@@ -588,46 +588,39 @@ fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
     const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
     defer ifds_tmp.deinit(self.allocator);
 
-    {
-        const args = try std.mem.concat(self.allocator, []const u8, &.{
-            &.{
-                "nix",
-                "eval",
-                "--restrict-eval",
-                "--allow-import-from-derivation",
-                "--build-hook",
-                self.build_hook,
-                "--max-jobs",
-                "0",
-                "--builders",
-                ifds_tmp.path,
-            },
-            switch (format) {
-                .nix => &.{},
-                .json => &.{"--json"},
-                .raw => &.{"--raw"},
-            },
-            &.{
-                "--quiet",
-                "--expr",
-                expression,
-            },
-        });
-        defer self.allocator.free(args);
+    const args = try std.mem.concat(self.allocator, []const u8, &.{
+        &.{
+            "nix",
+            "eval",
+            "--restrict-eval",
+            "--allow-import-from-derivation",
+            "--build-hook",
+            self.build_hook,
+            "--max-jobs",
+            "0",
+            "--builders",
+            ifds_tmp.path,
+        },
+        switch (format) {
+            .nix => &.{},
+            .json => &.{"--json"},
+            .raw => &.{"--raw"},
+        },
+        &.{
+            "--quiet",
+            "--expr",
+            expression,
+        },
+    });
+    defer self.allocator.free(args);
 
-        const result = try std.process.Child.run(.{
-            .allocator = self.allocator,
-            .argv = args,
-        });
-        defer self.allocator.free(result.stderr);
-
-        if (result.term == .Exited and result.term.Exited == 0) {
-            defer self.allocator.free(result.stderr);
-            return .{ .ok = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stdout) };
-        } else log.debug("command {s} terminated with {}", .{ args, result.term });
-
-        // TODO catch eval failure
-        // return .{ .failed = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stderr) };
+    const result = try std.process.Child.run(.{
+        .allocator = self.allocator,
+        .argv = args,
+    });
+    errdefer {
+        self.allocator.free(result.stdout);
+        self.allocator.free(result.stderr);
     }
 
     var ifds = std.BufSet.init(self.allocator);
@@ -641,8 +634,10 @@ fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
 
         const ifd_writer = ifd.writer(self.allocator);
 
-        while (ifds_tmp_reader.streamUntilDelimiter(ifd_writer, '\n', null) != error.EndOfStream) : (ifd.clearRetainingCapacity())
+        while (ifds_tmp_reader.streamUntilDelimiter(ifd_writer, '\n', null)) {
             try ifds.insert(ifd.items);
+            ifd.clearRetainingCapacity();
+        } else |err| if (err != error.EndOfStream) return err;
     }
 
     if (comptime std.log.logEnabled(.debug, log_scope)) {
@@ -650,7 +645,19 @@ fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
         while (iter.next()) |ifd| log.debug("found IFD: {s}", .{ifd.*});
     }
 
-    return .{ .ifds = ifds };
+    if (ifds.count() != 0) {
+        self.allocator.free(result.stdout);
+        self.allocator.free(result.stderr);
+        return .{ .ifds = ifds };
+    } else ifds.deinit();
+
+    if (result.term == .Exited and result.term.Exited == 0) {
+        self.allocator.free(result.stderr);
+        return .{ .ok = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stdout) };
+    } else log.debug("command {s} terminated with {}", .{ args, result.term });
+
+    self.allocator.free(result.stdout);
+    return .{ .failure = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stderr) };
 }
 
 pub const BuildResult = union(enum) {
