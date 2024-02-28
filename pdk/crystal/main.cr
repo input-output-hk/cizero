@@ -48,12 +48,6 @@ lib LibCizero
     term_tag : Int8*,
     term_code : Int32*
   ) : Int8
-
-  fun on_webhook(
-    callback_name : UInt8*,
-    user_data : UInt8*,
-    user_data_size : Int32
-  )
 end
 
 # This function is never actually called, it works by magic!

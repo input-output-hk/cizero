@@ -132,15 +132,26 @@ fun pdk_test_http_on_webhook_callback(
   user_data : UInt8*,
   user_data_len : Int32,
   req_body_ptr : UInt8*,
-  res_status : UInt16*,
-  res_body_ptr : UInt8*
-)
+  res_status : UInt32*,
+  res_body_ptr : UInt64*
+) : Int32
+  a = user_data[0]
+  b_bytes = Slice(UInt8).new(2)
+  b_bytes[0] = user_data[1]
+  b_bytes[1] = user_data[2]
+  b = b_bytes.unsafe_slice_of(UInt16)[0]
+
   STDERR.puts "pdk_test_http_on_webhook_callback",
-    user_data_len
+    ".{ #{a}, #{b} }",
+    String.new(req_body_ptr)
+
+  res_status.value = 200
+  res_body_ptr.value = "response body".to_unsafe.address
+
+  0
 end
 
 lib LibCizero
-  @[Packed]
   struct HttpOnWebhookUserData
     a : UInt8
     b : UInt16
