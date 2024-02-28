@@ -754,13 +754,76 @@ fn build(allocator: std.mem.Allocator, installable: []const u8) !BuildResult {
         outputs.deinit(allocator);
     }
 
-    if (result.term == .Exited and result.term.Exited == 0) {
-        var iter = std.mem.tokenizeScalar(u8, result.stdout, '\n');
-        while (iter.next()) |output|
-            try outputs.append(allocator, try allocator.dupe(u8, output));
-    } else log.debug("build of {s} failed: {s}", .{ installable, result.stderr });
+    switch (result.term) {
+        .Exited => |exited| switch (exited) {
+            0 => {
+                var iter = std.mem.tokenizeScalar(u8, result.stdout, '\n');
+                while (iter.next()) |output|
+                    try outputs.append(allocator, try allocator.dupe(u8, output));
+            },
+            // XXX parse properly using a library like mecha or get rid of the `deps_failed` variant entirely
+            1 => deps_failed: {
+                var iter = std.mem.splitBackwardsScalar(u8, result.stderr, '\n');
 
-    // TODO discover BuildResult.deps_failed
+                const num_deps = num_deps: while (iter.next()) |line| {
+                    if (line.len == 0) continue;
+
+                    const parts = [_][]const u8{
+                        "error: ",
+                        // <num_deps>
+                        " dependencies of derivation '",
+                        // <drv>
+                        "' failed to build",
+                    };
+
+                    if (!std.mem.startsWith(u8, line, parts[0])) break :deps_failed;
+
+                    const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :deps_failed;
+
+                    const num_deps_str = line[parts[0].len..part2_index];
+                    const num_deps = std.fmt.parseUnsigned(usize, num_deps_str, 10) catch break :deps_failed;
+
+                    if (!std.mem.endsWith(u8, line, parts[2])) break :deps_failed;
+
+                    break :num_deps num_deps;
+                } else break :deps_failed;
+
+                std.debug.assert(num_deps != 0);
+
+                const drvs = try allocator.alloc([]const u8, num_deps);
+                var free_drvs = true;
+                defer if (free_drvs) {
+                    for (drvs) |drv| allocator.free(drv);
+                    allocator.free(drvs);
+                };
+
+                for (drvs) |*drv| {
+                    const line = iter.next() orelse break :deps_failed;
+
+                    const parts = [_][]const u8{
+                        "error: builder for '",
+                        // <drv>
+                        "' failed",
+                    };
+
+                    if (!std.mem.startsWith(u8, line, parts[0])) break :deps_failed;
+
+                    const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :deps_failed;
+
+                    drv.* = try allocator.dupe(u8, line[parts[0].len..part2_index]);
+                }
+
+                log.debug("dependencies {s} of build {s} failed", .{ drvs, installable });
+
+                free_drvs = false;
+                return .{ .deps_failed = drvs };
+            },
+            else => log.debug("build of {s} exited with {d}", .{ installable, exited }),
+        },
+        else => |term| log.debug("build of {s} terminated with {}", .{ installable, term }),
+    }
+
+    if (outputs.items.len == 0) log.debug("build of {s} failed: {s}", .{ installable, result.stderr });
 
     return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }
