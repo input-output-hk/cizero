@@ -369,25 +369,34 @@ fn runJob(self: *@This(), job: Job) void {
 }
 
 fn runBuildJob(self: *@This(), job: Job.Build) !void {
-    const result = try build(self.allocator, job.installable);
+    const result = result: {
+        errdefer self.removeBuildJob(job);
+
+        const result = try build(self.allocator, job.installable);
+        errdefer result.deinit(self.allocator);
+
+        switch (result) {
+            .outputs => |outputs| if (outputs.len == 0)
+                log.debug("job {} failed", .{job})
+            else
+                log.debug("job {} produced outputs {s}", .{ job, outputs }),
+            .dep_failed => |drv| log.debug("dependency {s} of job {} failed", .{ drv, job }),
+        }
+
+        break :result result;
+    };
     defer result.deinit(self.allocator);
 
-    switch (result) {
-        .outputs => |outputs| if (outputs.len == 0)
-            log.debug("job {} failed", .{job})
-        else
-            log.debug("job {} produced outputs {s}", .{ job, outputs }),
-        .dep_failed => |drv| log.debug("dependency {s} of job {} failed", .{ drv, job }),
-    }
-
-    {
-        self.build_jobs_mutex.lock();
-        defer self.build_jobs_mutex.unlock();
-
-        std.debug.assert(self.build_jobs.fetchRemove(job.installable) != null);
-    }
+    self.removeBuildJob(job);
 
     try self.runBuildJobCallbacks(job, result);
+}
+
+fn removeBuildJob(self: *@This(), job: Job.Build) void {
+    self.build_jobs_mutex.lock();
+    defer self.build_jobs_mutex.unlock();
+
+    std.debug.assert(self.build_jobs.fetchRemove(job.installable) != null);
 }
 
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
@@ -396,6 +405,11 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
     defer if (ifd_build_result) |build_result| build_result.deinit(self.allocator);
 
     const result: Job.Eval.Result = eval: {
+        errdefer {
+            var eval_state = self.removeEvalJob(job);
+            eval_state.deinit();
+        }
+
         const max_eval_attempts = 10;
         var eval_attempts: usize = 0;
         while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
@@ -453,17 +467,19 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
         }
     };
 
-    var kv = blk: {
-        self.eval_jobs_mutex.lock();
-        defer self.eval_jobs_mutex.unlock();
+    var eval_state = self.removeEvalJob(job);
 
-        break :blk self.eval_jobs.fetchRemove(job).?;
-    };
-
-    // same as `eval_state`, owns memory referenced by `result`
-    defer kv.value.deinit();
+    // same as last `eval_state` from loop above, owns memory referenced by `result`
+    defer eval_state.deinit();
 
     try self.runEvalJobCallbacks(job, result);
+}
+
+fn removeEvalJob(self: *@This(), job: Job.Eval) EvalState {
+    self.eval_jobs_mutex.lock();
+    defer self.eval_jobs_mutex.unlock();
+
+    return self.eval_jobs.fetchRemove(job).?.value;
 }
 
 fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result) !void {
