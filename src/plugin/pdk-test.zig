@@ -425,7 +425,7 @@ test "nix_on_build" {
         \\{
     ++ " " ++ installable_output ++
         \\ }
-        \\null
+        \\{  }
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -442,6 +442,7 @@ test "nix_on_build" {
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },
                 .{ .i32 = @intCast(store_drv_outputs_wasm.len) },
+                .{ .i32 = 0 },
                 .{ .i32 = 0 },
             }, &.{}));
         }
@@ -518,7 +519,7 @@ test "nix_on_eval" {
         \\
         \\null
         \\null
-        \\null
+        \\{  }
         \\
     , callback, struct {
         fn call(cb: Cizero.components.CallbackUnmanaged, rt: Cizero.Runtime) anyerror!void {
@@ -530,6 +531,7 @@ test "nix_on_eval" {
 
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
                 .{ .i32 = @intCast(linear.memory.offset(result_wasm.ptr)) },
+                .{ .i32 = 0 },
                 .{ .i32 = 0 },
                 .{ .i32 = 0 },
                 .{ .i32 = 0 },

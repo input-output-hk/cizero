@@ -67,7 +67,8 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         user_data_len: usize,
         outputs_ptr: [*]const [*:0]const u8,
         outputs_len: usize,
-        failed_dep: ?[*:0]const u8,
+        failed_deps_ptr: [*]const [*:0]const u8,
+        failed_deps_len: usize,
     ) void {
         std.debug.assert(user_data == null);
         std.debug.assert(user_data_len == 0);
@@ -75,7 +76,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         std.debug.print("{s}\nnull\n0\n{s}\n{?s}\n", .{
             @src().fn_name,
             outputs_ptr[0..outputs_len],
-            failed_dep,
+            failed_deps_ptr[0..failed_deps_len],
         });
     }
 
@@ -89,7 +90,8 @@ usingnamespace if (builtin.is_test) struct {} else struct {
         result: ?[*:0]const u8,
         err_msg: ?[*:0]const u8,
         failed_ifd: ?[*:0]const u8,
-        failed_ifd_dep: ?[*:0]const u8,
+        failed_ifd_deps_ptr: [*]const [*:0]const u8,
+        failed_ifd_deps_len: usize,
     ) void {
         std.debug.assert(user_data == null);
         std.debug.assert(user_data_len == 0);
@@ -99,7 +101,7 @@ usingnamespace if (builtin.is_test) struct {} else struct {
             result,
             err_msg,
             failed_ifd,
-            failed_ifd_dep,
+            failed_ifd_deps_ptr[0..failed_ifd_deps_len],
         });
     }
 };

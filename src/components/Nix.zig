@@ -100,11 +100,11 @@ pub const Job = union(enum) {
             failed: []const u8,
             /// IFD derivation that failed
             ifd_failed: []const u8,
-            ifd_dep_failed: struct {
+            ifd_deps_failed: struct {
                 /// IFD derivation
                 ifd: []const u8,
-                /// dependency derivation that failed
-                drv: []const u8,
+                /// dependency derivations that failed
+                drvs: []const []const u8,
             },
             /// max eval attempts exceeded
             ifd_too_deep,
@@ -382,7 +382,7 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
                 log.debug("job {} failed", .{job})
             else
                 log.debug("job {} produced outputs {s}", .{ job, outputs }),
-            .dep_failed => |drv| log.debug("dependency {s} of job {} failed", .{ drv, job }),
+            .deps_failed => |drvs| log.debug("dependencies {s} of job {} failed", .{ drvs, job }),
         }
 
         break :result result;
@@ -454,10 +454,10 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                                 log.debug("built IFD {s} producing {s} for job {}", .{ ifd.*, outputs, job });
                                 build_result.deinit(self.allocator);
                             },
-                            .dep_failed => |drv| {
-                                log.debug("could not build dependency {s} of IFD {s} for job {}", .{ drv, ifd.*, job });
+                            .deps_failed => |drvs| {
+                                log.debug("could not build dependencies {s} of IFD {s} for job {}", .{ drvs, ifd.*, job });
                                 ifd_build_result = build_result;
-                                break :eval .{ .ifd_dep_failed = .{ .drv = drv, .ifd = ifd.* } };
+                                break :eval .{ .ifd_deps_failed = .{ .ifd = ifd.*, .drvs = drvs } };
                             },
                         }
                     }
@@ -521,15 +521,26 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
                     }
                     break :addrs @intCast(linear.memory.offset(addrs.ptr));
                 },
-                .dep_failed => 0,
+                .deps_failed => 0,
             } },
             .{ .i32 = switch (result) {
                 .outputs => |outputs| @intCast(outputs.len),
-                .dep_failed => 0,
+                .deps_failed => 0,
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .dep_failed => |drv| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, drv)).ptr)),
+                .deps_failed => |deps_failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, deps_failed.len);
+                    for (deps_failed, addrs) |dep_failed, *addr| {
+                        const dep_failed_wasm = try linear_allocator.dupeZ(u8, dep_failed);
+                        addr.* = linear.memory.offset(dep_failed_wasm.ptr);
+                    }
+                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
+                },
+            } },
+            .{ .i32 = switch (result) {
+                .outputs => 0,
+                .deps_failed => |deps_failed| @intCast(deps_failed.len),
             } },
         }, &.{});
 
@@ -578,11 +589,22 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
             } },
             .{ .i32 = switch (result) {
                 .ifd_failed => |drv| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, drv)).ptr)),
-                .ifd_dep_failed => |ifd_dep_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_dep_failed.ifd)).ptr)),
+                .ifd_deps_failed => |ifd_deps_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_deps_failed.ifd)).ptr)),
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_dep_failed => |ifd_dep_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_dep_failed.drv)).ptr)),
+                .ifd_deps_failed => |ifd_deps_failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_deps_failed.drvs.len);
+                    for (ifd_deps_failed.drvs, addrs) |drv, *addr| {
+                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
+                        addr.* = linear.memory.offset(drv_wasm.ptr);
+                    }
+                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
+                },
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .ifd_deps_failed => |ifd_deps_failed| @intCast(ifd_deps_failed.drvs.len),
                 else => 0,
             } },
         }, &.{});
@@ -689,8 +711,8 @@ pub const BuildResult = union(enum) {
     /// Output paths produced.
     /// If empty, the build failed.
     outputs: []const []const u8,
-    /// dependency derivation that failed
-    dep_failed: []const u8,
+    /// dependency derivations that failed
+    deps_failed: []const []const u8,
 
     pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
         switch (self) {
@@ -698,7 +720,10 @@ pub const BuildResult = union(enum) {
                 for (outputs) |output| allocator.free(output);
                 allocator.free(outputs);
             },
-            .dep_failed => |drv| allocator.free(drv),
+            .deps_failed => |drvs| {
+                for (drvs) |drv| allocator.free(drv);
+                allocator.free(drvs);
+            },
         }
     }
 };
@@ -735,7 +760,7 @@ fn build(allocator: std.mem.Allocator, installable: []const u8) !BuildResult {
             try outputs.append(allocator, try allocator.dupe(u8, output));
     } else log.debug("build of {s} failed: {s}", .{ installable, result.stderr });
 
-    // TODO discover BuildResult.dep_failed
+    // TODO discover BuildResult.deps_failed
 
     return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }
