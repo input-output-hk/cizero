@@ -143,6 +143,44 @@ export fn @"pdk.nix.onEval.callback"(
         .call(OnEvalCallback, .{eval_result});
 }
 
+pub fn OnEvalBuildCallback(comptime UserData: type) type {
+    return fn (abi.CallbackData.UserDataPtr(UserData), OnEvalBuildResult) void;
+}
+
+pub const OnEvalBuildResult = union(enum) {
+    eval: OnEvalResult,
+    build: OnBuildResult,
+};
+
+pub fn onEvalBuild(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnEvalBuildCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+    expression: [:0]const u8,
+) std.mem.Allocator.Error!void {
+    const evalCallback = struct {
+        fn evalCallback(ud: abi.CallbackData.UserDataPtr(UserData), result: OnEvalResult) void {
+            callback(ud, .{ .eval = result });
+
+            if (result == .ok) {
+                const alloc = std.heap.wasm_allocator;
+
+                const installable_z = alloc.dupeZ(u8, result.ok) catch @panic("OOM");
+                defer alloc.free(installable_z);
+
+                onBuild(UserData, alloc, buildCallback, ud, installable_z) catch @panic("OOM");
+            }
+        }
+
+        fn buildCallback(ud: abi.CallbackData.UserDataPtr(UserData), result: OnBuildResult) void {
+            callback(ud, .{ .build = result });
+        }
+    }.evalCallback;
+
+    try onEval(UserData, allocator, evalCallback, user_data, expression, .raw);
+}
+
 /// Output of `nix flake metadata --json`.
 pub const FlakeMetadata = struct {
     description: ?[]const u8 = null,

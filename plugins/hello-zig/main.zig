@@ -207,6 +207,22 @@ const tests = struct {
 
         try std.testing.expectEqualStrings("github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e", flake_locked);
     }
+
+    pub fn @"nix.onEvalBuild"() !void {
+        const callback = struct {
+            fn callback(_: *const void, result: cizero.nix.OnEvalBuildResult) void {
+                std.debug.print("{}\n", .{result});
+            }
+        }.callback;
+
+        try cizero.nix.onEvalBuild(
+            void,
+            allocator,
+            callback,
+            &{},
+            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello",
+        );
+    }
 };
 
 fn FnErrorUnionPayload(comptime Fn: type) type {
