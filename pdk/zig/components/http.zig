@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const lib = @import("lib");
 const mem = lib.mem;
 
@@ -11,7 +13,48 @@ const externs = struct {
     ) void;
 };
 
-pub fn onWebhook(callback_func_name: [:0]const u8, user_data: anytype) void {
-    const user_data_bytes = abi.fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data));
-    externs.http_on_webhook(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len);
+pub fn OnWebhookCallback(comptime UserData: type) type {
+    return fn (
+        abi.CallbackData.UserDataPtr(UserData),
+        body: []const u8,
+    ) OnWebhookCallbackResponse;
+}
+
+pub const OnWebhookCallbackResponse = struct {
+    done: bool = false,
+
+    status: u16 = 204,
+    body: [:0]const u8 = "",
+};
+
+pub fn onWebhook(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnWebhookCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+) !void {
+    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    defer allocator.free(callback_data);
+
+    externs.http_on_webhook("pdk.http.onWebhook.callback", callback_data.ptr, callback_data.len);
+}
+
+export fn @"pdk.http.onWebhook.callback"(
+    callback_data_ptr: [*]const u8,
+    callback_data_len: usize,
+    req_body_ptr: [*:0]const u8,
+    res_status: *u16,
+    res_body_ptr: *?[*:0]const u8,
+    // TODO res_body_len: *usize,
+) bool {
+    std.debug.assert(res_status.* == 204);
+
+    const res = abi.CallbackData
+        .deserialize(callback_data_ptr[0..callback_data_len])
+        .call(OnWebhookCallback, .{std.mem.span(req_body_ptr)});
+
+    res_status.* = res.status;
+    res_body_ptr.* = res.body.ptr;
+
+    return res.done;
 }

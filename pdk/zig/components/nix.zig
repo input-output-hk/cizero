@@ -1,6 +1,9 @@
 const std = @import("std");
 
+const cizero = @import("cizero");
+
 const lib = @import("lib");
+const enums = lib.enums;
 const mem = lib.mem;
 const meta = lib.meta;
 
@@ -19,27 +22,125 @@ const externs = struct {
         installable: [*:0]const u8,
     ) void;
 
-    const NixEvalFormat = enum(u8) { nix, json, raw };
+    // only powers of two >= 8 are compatible with the ABI
+    const EvalFormat = enums.EnsurePowTag(cizero.components.Nix.EvalFormat, 8);
 
     extern "cizero" fn nix_on_eval(
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
         expression: [*:0]const u8,
-        format: NixEvalFormat,
+        format: @This().EvalFormat,
     ) void;
 };
 
-pub fn onBuild(callback_func_name: [:0]const u8, user_data: anytype, installable: [:0]const u8) !void {
-    const user_data_bytes = abi.fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data));
-    externs.nix_on_build(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, installable);
+pub fn OnBuildCallback(comptime UserData: type) type {
+    return fn (abi.CallbackData.UserDataPtr(UserData), OnBuildResult) void;
 }
 
-pub const EvalFormat = externs.NixEvalFormat;
+pub const OnBuildResult = cizero.components.Nix.Job.Build.Result;
 
-pub fn onEval(callback_func_name: [:0]const u8, user_data: anytype, expression: [:0]const u8, format: externs.NixEvalFormat) !void {
-    const user_data_bytes = abi.fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data));
-    externs.nix_on_eval(callback_func_name, user_data_bytes.ptr, user_data_bytes.len, expression, format);
+pub fn onBuild(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnBuildCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+    installable: [:0]const u8,
+) !void {
+    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    defer allocator.free(callback_data);
+
+    externs.nix_on_build("pdk.nix.onBuild.callback", callback_data.ptr, callback_data.len, installable);
+}
+
+export fn @"pdk.nix.onBuild.callback"(
+    callback_data_ptr: [*]const u8,
+    callback_data_len: usize,
+    outputs_ptr: [*]const [*:0]const u8,
+    outputs_len: usize,
+    failed_deps_ptr: [*]const [*:0]const u8,
+    failed_deps_len: usize,
+) void {
+    const allocator = std.heap.wasm_allocator;
+
+    var build_result: OnBuildResult = if (failed_deps_len == 0) blk: {
+        const outputs = allocator.alloc([]const u8, outputs_len) catch @panic("OOM");
+        for (outputs, outputs_ptr[0..outputs_len]) |*output, output_ptr|
+            output.* = std.mem.span(output_ptr);
+        break :blk .{ .outputs = outputs };
+    } else blk: {
+        const deps_failed = allocator.alloc([]const u8, failed_deps_len) catch @panic("OOM");
+        for (deps_failed, failed_deps_ptr[0..failed_deps_len]) |*dep_failed, dep_failed_ptr|
+            dep_failed.* = std.mem.span(dep_failed_ptr);
+        break :blk .{ .deps_failed = deps_failed };
+    };
+    defer build_result.deinit(allocator);
+
+    abi.CallbackData
+        .deserialize(callback_data_ptr[0..callback_data_len])
+        .call(OnBuildCallback, .{build_result});
+}
+
+pub fn OnEvalCallback(comptime UserData: type) type {
+    return fn (abi.CallbackData.UserDataPtr(UserData), OnEvalResult) void;
+}
+
+pub const OnEvalResult = cizero.components.Nix.Job.Eval.Result;
+
+pub const EvalFormat = externs.EvalFormat;
+
+pub fn onEval(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnEvalCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+    expression: [:0]const u8,
+    format: externs.EvalFormat,
+) !void {
+    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    defer allocator.free(callback_data);
+
+    externs.nix_on_eval("pdk.nix.onEval.callback", callback_data.ptr, callback_data.len, expression, format);
+}
+
+export fn @"pdk.nix.onEval.callback"(
+    callback_data_ptr: [*]const u8,
+    callback_data_len: usize,
+    result: ?[*:0]const u8,
+    err_msg: ?[*:0]const u8,
+    failed_ifd: ?[*:0]const u8,
+    failed_ifd_deps_ptr: ?[*]const [*:0]const u8,
+    failed_ifd_deps_len: usize,
+) void {
+    std.debug.assert((failed_ifd_deps_ptr == null) == (failed_ifd_deps_len == 0));
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const eval_result: OnEvalResult = if (result) |r|
+        .{ .ok = std.mem.span(r) }
+    else if (err_msg) |em|
+        .{ .failed = std.mem.span(em) }
+    else if (failed_ifd_deps_ptr) |fidp|
+        .{ .ifd_deps_failed = .{
+            .ifd = std.mem.span(failed_ifd.?),
+            .drvs = drvs: {
+                const drvs = allocator.alloc([]const u8, failed_ifd_deps_len) catch @panic("OOM");
+                for (drvs, fidp[0..failed_ifd_deps_len]) |*drv, dep|
+                    drv.* = std.mem.span(dep);
+                break :drvs drvs;
+            },
+        } }
+    else if (failed_ifd) |fi|
+        .{ .ifd_failed = std.mem.span(fi) }
+    else
+        .ifd_too_deep;
+
+    abi.CallbackData
+        .deserialize(callback_data_ptr[0..callback_data_len])
+        .call(OnEvalCallback, .{eval_result});
 }
 
 /// Output of `nix flake metadata --json`.

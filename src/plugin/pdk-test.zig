@@ -91,7 +91,6 @@ test "timeout_on_timestamp" {
 
     try self.expectEqualStdio("",
         \\cizero.timeout_on_timestamp
-        \\pdk_test_timeout_on_timestamp_callback
         \\1000
         \\3000
         \\
@@ -121,19 +120,12 @@ test "timeout_on_timestamp" {
         .user_data = if (callback_row.@"callback.user_data") |ud| ud.value else null,
     };
 
-    {
-        const user_data: [@sizeOf(i64)]u8 = @bitCast(self.cizero.components.timeout.mock_milli_timestamp.?.call(.{}));
+    try testing.expect(callback.user_data != null);
 
-        try testing.expectEqualStrings("pdk_test_timeout_on_timestamp_callback", callback.func_name);
-        try testing.expect(callback.user_data != null);
-        try testing.expectEqualSlices(u8, &user_data, callback.user_data.?);
-
-        try testing.expectEqualDeep(3 * std.time.ms_per_s, callback_row.timestamp);
-        try testing.expect(callback_row.cron == null);
-    }
+    try testing.expectEqualDeep(3 * std.time.ms_per_s, callback_row.timestamp);
+    try testing.expect(callback_row.cron == null);
 
     try self.expectEqualStdio("",
-        \\pdk_test_timeout_on_timestamp_callback
         \\1000
         \\
     , callback, struct {
@@ -149,7 +141,6 @@ test "timeout_on_cron" {
 
     try self.expectEqualStdio("",
         \\cizero.timeout_on_cron
-        \\pdk_test_timeout_on_cron_callback
         \\* * * * *
         \\* * * * *
         \\60000
@@ -178,16 +169,13 @@ test "timeout_on_cron" {
         .user_data = if (callback_row.@"callback.user_data") |ud| ud.value else null,
     };
 
-    try testing.expectEqualStrings("pdk_test_timeout_on_cron_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
-    try testing.expectEqualSlices(u8, "* * * * *", callback.user_data.?);
 
     try testing.expectEqualDeep(std.time.ms_per_min, callback_row.timestamp);
     try testing.expect(callback_row.cron != null);
     try testing.expectEqualSlices(u8, "* * * * *", callback_row.cron.?);
 
     try self.expectEqualStdio("",
-        \\pdk_test_timeout_on_cron_callback
         \\* * * * *
         \\
     , callback, struct {
@@ -284,7 +272,6 @@ test "http_on_webhook" {
 
     try self.expectEqualStdio("",
         \\cizero.http_on_webhook
-        \\pdk_test_http_on_webhook_callback
         \\.{ 25, 372 }
         \\
     , {}, struct {
@@ -312,15 +299,12 @@ test "http_on_webhook" {
         .user_data = if (callback_row.user_data) |ud| ud.value else null,
     };
 
-    try testing.expectEqualStrings("pdk_test_http_on_webhook_callback", callback.func_name);
     try testing.expect(callback.user_data != null);
-    try testing.expectEqualSlices(u8, &[_]u8{ 25, 116, 1 }, callback.user_data.?);
 
     {
         const req_body = "request body";
 
         try self.expectEqualStdio("",
-            \\pdk_test_http_on_webhook_callback
             \\.{ 25, 372 }
             \\
         ++ req_body ++
@@ -381,8 +365,7 @@ test "nix_on_build" {
 
     try self.expectEqualStdio("",
         \\cizero.nix_on_build
-        \\pdk_test_nix_on_build_callback
-        \\null
+        \\void
         \\
     ++ installable ++
         \\
@@ -415,13 +398,8 @@ test "nix_on_build" {
         .user_data = if (callback_row.user_data) |ud| ud.value else null,
     };
 
-    try testing.expectEqualStrings("pdk_test_nix_on_build_callback", callback.func_name);
-    try testing.expect(callback.user_data == null);
-
     try self.expectEqualStdio("",
-        \\pdk_test_nix_on_build_callback
-        \\null
-        \\0
+        \\void
         \\{
     ++ " " ++ installable_output ++
         \\ }
@@ -470,12 +448,11 @@ test "nix_on_eval" {
 
     try self.expectEqualStdio("",
         \\cizero.nix_on_eval
-        \\pdk_test_nix_on_eval_callback
-        \\null
+        \\void
         \\
     ++ expr ++
         \\
-        \\.raw
+        \\raw
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -505,15 +482,10 @@ test "nix_on_eval" {
         .user_data = if (callback_row.user_data) |ud| ud.value else null,
     };
 
-    try testing.expectEqualStrings("pdk_test_nix_on_eval_callback", callback.func_name);
-    try testing.expect(callback.user_data == null);
-
     const result = "A program that produces a familiar, friendly greeting";
 
     try self.expectEqualStdio("",
-        \\pdk_test_nix_on_eval_callback
-        \\null
-        \\0
+        \\void
         \\
     ++ result ++
         \\

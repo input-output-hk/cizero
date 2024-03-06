@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const lib = @import("lib");
 const mem = lib.mem;
 
@@ -19,12 +21,48 @@ const externs = struct {
     ) void;
 };
 
-pub fn onCron(callback_func_name: [:0]const u8, user_data: anytype, cron_expr: [:0]const u8) i64 {
-    const user_data_bytes = abi.fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data));
-    return externs.timeout_on_cron(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, cron_expr.ptr);
+pub fn OnCronCallback(comptime UserData: type) type {
+    return fn (abi.CallbackData.UserDataPtr(UserData)) bool;
 }
 
-pub fn onTimestamp(callback_func_name: [:0]const u8, user_data: anytype, timestamp_ms: i64) void {
-    const user_data_bytes = abi.fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data));
-    externs.timeout_on_timestamp(callback_func_name.ptr, user_data_bytes.ptr, user_data_bytes.len, timestamp_ms);
+pub fn onCron(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnCronCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+    cron_expr: [:0]const u8,
+) !i64 {
+    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    defer allocator.free(callback_data);
+
+    return externs.timeout_on_cron("pdk.timeout.onCron.callback", callback_data.ptr, callback_data.len, cron_expr.ptr);
+}
+
+export fn @"pdk.timeout.onCron.callback"(callback_data_ptr: [*]const u8, callback_data_len: usize) bool {
+    return abi.CallbackData
+        .deserialize(callback_data_ptr[0..callback_data_len])
+        .call(OnCronCallback, .{});
+}
+
+pub fn OnTimestampCallback(comptime UserData: type) type {
+    return fn (abi.CallbackData.UserDataPtr(UserData)) void;
+}
+
+pub fn onTimestamp(
+    comptime UserData: type,
+    allocator: std.mem.Allocator,
+    callback: OnTimestampCallback(UserData),
+    user_data: abi.CallbackData.UserDataPtr(UserData),
+    timestamp_ms: i64,
+) !void {
+    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    defer allocator.free(callback_data);
+
+    externs.timeout_on_timestamp("pdk.timeout.onTimestamp.callback", callback_data.ptr, callback_data.len, timestamp_ms);
+}
+
+export fn @"pdk.timeout.onTimestamp.callback"(callback_data_ptr: [*]const u8, callback_data_len: usize) void {
+    abi.CallbackData
+        .deserialize(callback_data_ptr[0..callback_data_len])
+        .call(OnTimestampCallback, .{});
 }

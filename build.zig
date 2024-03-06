@@ -21,7 +21,7 @@ pub fn build(b: *Build) !void {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    configureModule(b, cizero_mod, true, opts);
+    configureModule(b, cizero_mod, false, opts);
     cizero_mod.addImport("lib", lib_mod);
 
     const cizero_exe = b.addExecutable(.{
@@ -30,7 +30,7 @@ pub fn build(b: *Build) !void {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    configureModule(b, &cizero_exe.root_module, false, opts);
+    configureModule(b, &cizero_exe.root_module, true, opts);
     cizero_exe.root_module.addImport("cizero", cizero_mod);
     b.installArtifact(cizero_exe);
 
@@ -106,7 +106,7 @@ pub fn build(b: *Build) !void {
             .target = opts.target,
             .optimize = opts.optimize,
         });
-        configureModule(b, &pdk_test.root_module, false, opts);
+        configureModule(b, &pdk_test.root_module, true, opts);
         pdk_test.root_module.addOptions("build_options", build_options);
         pdk_test.root_module.addImport("lib", lib_mod);
         pdk_test.root_module.addImport("cizero", cizero_mod);

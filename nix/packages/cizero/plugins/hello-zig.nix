@@ -10,8 +10,7 @@
         ../../../../pdk/zig
         ../../../../build.zig
         ../../../../build.zig.zon
-        ../../../../src/lib.zig
-        ../../../../src/lib
+        ../../../../src
       ];
 
       buildZigZon = "plugins/hello-zig/build.zig.zon";

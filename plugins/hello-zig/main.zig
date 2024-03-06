@@ -10,24 +10,11 @@ const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
     pub export fn pdk_test_timeout_on_timestamp() void {
-        pdk_tests.@"timeout.onTimestamp"();
-    }
-
-    export fn pdk_test_timeout_on_timestamp_callback(user_data: *const i64, user_data_len: usize) void {
-        std.debug.assert(user_data_len == lib.mem.sizeOfUnpad(i64));
-        std.debug.print("{s}\n{d}\n", .{ @src().fn_name, user_data.* });
+        tryFn(pdk_tests.@"timeout.onTimestamp", .{}, {});
     }
 
     pub export fn pdk_test_timeout_on_cron() void {
-        pdk_tests.@"timeout.onCron"();
-    }
-
-    export fn pdk_test_timeout_on_cron_callback(user_data_ptr: [*]const u8, user_data_len: usize) bool {
-        std.debug.assert(user_data_len == "* * * * *".len);
-        const user_data = user_data_ptr[0..user_data_len];
-
-        std.debug.print("{s}\n{s}\n", .{ @src().fn_name, user_data });
-        return false;
+        tryFn(pdk_tests.@"timeout.onCron", .{}, {});
     }
 
     pub export fn pdk_test_process_exec() void {
@@ -35,74 +22,15 @@ usingnamespace if (builtin.is_test) struct {} else struct {
     }
 
     pub export fn pdk_test_http_on_webhook() void {
-        pdk_tests.@"http.onWebhook"();
-    }
-
-    export fn pdk_test_http_on_webhook_callback(
-        user_data: ?*const root.pdk_tests.HttpOnWebhookUserData,
-        user_data_len: usize,
-        req_body_ptr: [*:0]const u8,
-        res_status: *u16,
-        res_body_ptr: *?[*:0]const u8,
-    ) bool {
-        std.debug.assert(user_data_len == lib.mem.sizeOfUnpad(root.pdk_tests.HttpOnWebhookUserData));
-        std.debug.assert(res_status.* == 204);
-
-        const req_body = std.mem.span(req_body_ptr);
-
-        std.debug.print("{s}\n.{{ {d}, {d} }}\n{s}\n", .{ @src().fn_name, user_data.?.a, user_data.?.b, req_body });
-
-        res_status.* = 200;
-        res_body_ptr.* = "response body";
-
-        return false;
+        tryFn(pdk_tests.@"http.onWebhook", .{}, {});
     }
 
     pub export fn pdk_test_nix_on_build() void {
         tryFn(pdk_tests.@"nix.onBuild", .{}, {});
     }
 
-    export fn pdk_test_nix_on_build_callback(
-        user_data: ?*const anyopaque,
-        user_data_len: usize,
-        outputs_ptr: [*]const [*:0]const u8,
-        outputs_len: usize,
-        failed_deps_ptr: [*]const [*:0]const u8,
-        failed_deps_len: usize,
-    ) void {
-        std.debug.assert(user_data == null);
-        std.debug.assert(user_data_len == 0);
-
-        std.debug.print("{s}\nnull\n0\n{s}\n{?s}\n", .{
-            @src().fn_name,
-            outputs_ptr[0..outputs_len],
-            failed_deps_ptr[0..failed_deps_len],
-        });
-    }
-
     pub export fn pdk_test_nix_on_eval() void {
         tryFn(pdk_tests.@"nix.onEval", .{}, {});
-    }
-
-    export fn pdk_test_nix_on_eval_callback(
-        user_data: ?*const anyopaque,
-        user_data_len: usize,
-        result: ?[*:0]const u8,
-        err_msg: ?[*:0]const u8,
-        failed_ifd: ?[*:0]const u8,
-        failed_ifd_deps_ptr: [*]const [*:0]const u8,
-        failed_ifd_deps_len: usize,
-    ) void {
-        std.debug.assert(user_data == null);
-        std.debug.assert(user_data_len == 0);
-
-        std.debug.print("{s}\nnull\n0\n{?s}\n{?s}\n{?s}\n{?s}\n", .{
-            @src().fn_name,
-            result,
-            err_msg,
-            failed_ifd,
-            failed_ifd_deps_ptr[0..failed_ifd_deps_len],
-        });
     }
 };
 
@@ -110,18 +38,34 @@ usingnamespace if (builtin.is_test) struct {} else struct {
 /// These are invoked by the PDK tests
 /// to test communication over the ABI.
 const pdk_tests = struct {
-    pub fn @"timeout.onTimestamp"() void {
-        const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
+    pub fn @"timeout.onTimestamp"() !void {
+        const callback = struct {
+            fn callback(user_data: *const i64) void {
+                std.debug.print("{d}\n", .{user_data.*});
+            }
+        }.callback;
 
-        std.debug.print("cizero.timeout_on_timestamp\n{s}\n{d}\n{d}\n", .{ "pdk_test_timeout_on_timestamp_callback", now_ms, now_ms + 2 * std.time.ms_per_s });
-        cizero.timeout.onTimestamp("pdk_test_timeout_on_timestamp_callback", &now_ms, now_ms + 2 * std.time.ms_per_s);
+        const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
+        const timestamp = now_ms + 2 * std.time.ms_per_s;
+
+        std.debug.print("cizero.timeout_on_timestamp\n{d}\n{d}\n", .{ now_ms, timestamp });
+        try cizero.timeout.onTimestamp(i64, allocator, callback, &now_ms, timestamp);
     }
 
-    pub fn @"timeout.onCron"() void {
+    pub fn @"timeout.onCron"() !void {
         const cron = "* * * * *";
-        const args = .{ "pdk_test_timeout_on_cron_callback", @as([]const u8, cron), cron };
-        const result = @call(.auto, cizero.timeout.onCron, args);
-        std.debug.print("cizero.timeout_on_cron\n{s}\n{s}\n{s}\n{d}\n", args ++ .{result});
+
+        const callback = struct {
+            fn callback(user_data: []const u8) bool {
+                std.debug.assert(std.mem.eql(u8, user_data, cron));
+
+                std.debug.print("{s}\n", .{user_data});
+                return false;
+            }
+        }.callback;
+
+        const result = try cizero.timeout.onCron([]const u8, allocator, callback, cron, cron);
+        std.debug.print("cizero.timeout_on_cron\n{s}\n{s}\n{d}\n", .{ cron, cron, result });
     }
 
     pub fn @"process.exec"() !void {
@@ -158,39 +102,99 @@ const pdk_tests = struct {
         }, result.stdout, result.stderr });
     }
 
-    const HttpOnWebhookUserData = packed struct {
-        a: u8,
-        b: u16,
-    };
+    pub fn @"http.onWebhook"() !void {
+        const UserData = packed struct {
+            a: u8,
+            b: u16,
 
-    pub fn @"http.onWebhook"() void {
-        const user_data = HttpOnWebhookUserData{
+            pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+                try writer.print(".{{ {d}, {d} }}", .{ self.a, self.b });
+            }
+        };
+
+        const callback = struct {
+            fn callback(
+                user_data: *const UserData,
+                body: []const u8,
+            ) cizero.http.OnWebhookCallbackResponse {
+                std.debug.print("{}\n{s}\n", .{ user_data, body });
+
+                return .{
+                    .status = 200,
+                    .body = "response body",
+                };
+            }
+        }.callback;
+
+        const user_data = UserData{
             .a = 25,
             .b = 372,
         };
-        std.debug.print("cizero.http_on_webhook\n{s}\n.{{ {d}, {d} }}\n", .{ "pdk_test_http_on_webhook_callback", user_data.a, user_data.b });
-        cizero.http.onWebhook("pdk_test_http_on_webhook_callback", &user_data);
+
+        std.debug.print("cizero.http_on_webhook\n{}\n", .{user_data});
+        try cizero.http.onWebhook(UserData, allocator, callback, &user_data);
     }
 
     pub fn @"nix.onBuild"() !void {
-        const args = .{
-            "pdk_test_nix_on_build_callback",
-            null,
-            "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*",
-        };
-        std.debug.print("cizero.nix_on_build\n{s}\n{}\n{s}\n", args);
-        try @call(.auto, cizero.nix.onBuild, args);
+        const callback = struct {
+            fn callback(
+                user_data: *const void,
+                build_result: cizero.nix.OnBuildResult,
+            ) void {
+                std.debug.print("{}\n{s}\n{s}\n", .{
+                    user_data.*,
+                    switch (build_result) {
+                        .outputs => |outputs| outputs,
+                        else => &[_][]const u8{},
+                    },
+                    switch (build_result) {
+                        .deps_failed => |deps_failed| deps_failed,
+                        else => &[_][]const u8{},
+                    },
+                });
+            }
+        }.callback;
+
+        const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
+
+        std.debug.print("cizero.nix_on_build\n{}\n{s}\n", .{ {}, installable });
+        try cizero.nix.onBuild(void, allocator, callback, &{}, installable);
     }
 
     pub fn @"nix.onEval"() !void {
-        const args = .{
-            "pdk_test_nix_on_eval_callback",
-            null,
-            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description",
-            .raw,
-        };
-        std.debug.print("cizero.nix_on_eval\n{s}\n{}\n{s}\n{}\n", args);
-        try @call(.auto, cizero.nix.onEval, args);
+        const callback = struct {
+            fn callback(
+                user_data: *const void,
+                eval_result: cizero.nix.OnEvalResult,
+            ) void {
+                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{s}\n", .{
+                    user_data.*,
+                    switch (eval_result) {
+                        .ok => |result| result,
+                        else => null,
+                    },
+                    switch (eval_result) {
+                        .failed => |err_msg| err_msg,
+                        else => null,
+                    },
+                    switch (eval_result) {
+                        .ifd_failed => |drv| drv,
+                        .ifd_deps_failed => |ifd_deps_failed| ifd_deps_failed.ifd,
+                        else => null,
+                    },
+                    switch (eval_result) {
+                        .ifd_deps_failed => |ifd_deps_failed| ifd_deps_failed.drvs,
+                        else => &[_][]const u8{},
+                    },
+                });
+            }
+        }.callback;
+
+        const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
+        const format = cizero.nix.EvalFormat.raw;
+
+        std.debug.print("cizero.nix_on_eval\n{}\n{s}\n{s}\n", .{ {}, expr, @tagName(format) });
+        try cizero.nix.onEval(void, allocator, callback, &{}, expr, format);
     }
 };
 
