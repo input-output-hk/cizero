@@ -5,7 +5,6 @@ fun pdk_test_timeout_on_timestamp
   ms = now + 2.seconds
 
   STDERR.puts "cizero.timeout_on_timestamp",
-    "pdk_test_timeout_on_timestamp_callback",
     now.to_unix_ms,
     ms.to_unix_ms
 
@@ -18,14 +17,12 @@ end
 
 fun pdk_test_timeout_on_timestamp_callback(user_data : Int64*, user_data_len : Int32)
   raise "Expected Int64" unless user_data_len == sizeof(Int64)
-  STDERR.puts "pdk_test_timeout_on_timestamp_callback",
-    user_data.value
+  STDERR.puts user_data.value
 end
 
 fun pdk_test_timeout_on_cron
   spec = "* * * * *"
   STDERR.puts "cizero.timeout_on_cron",
-    "pdk_test_timeout_on_cron_callback",
     spec,
     spec
 
@@ -34,8 +31,7 @@ fun pdk_test_timeout_on_cron
 end
 
 fun pdk_test_timeout_on_cron_callback(user_data : UInt8*, user_data_len : Int32) : Int32
-  STDERR.puts "pdk_test_timeout_on_cron_callback",
-    String.new(user_data, user_data_len)
+  STDERR.puts String.new(user_data, user_data_len)
   0
 end
 
@@ -43,10 +39,9 @@ fun pdk_test_nix_on_eval
   expression = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description"
   format = Cizero::NixEvalFormat::Raw
   STDERR.puts "cizero.nix_on_eval",
-    "pdk_test_nix_on_eval_callback",
-    "null",
+    "void",
     expression,
-    ".#{format.to_s.downcase}"
+    format.to_s.downcase
 
   Cizero.nix_on_eval(
     callback: "pdk_test_nix_on_eval_callback",
@@ -62,15 +57,16 @@ fun pdk_test_nix_on_eval_callback(
   result : UInt8*,
   err_msg : UInt8*,
   failed_ifd : UInt8*,
-  failed_ifd_dep : UInt8*
+  failed_ifd_deps_ptr : UInt8**,
+  failed_ifd_deps_len : Int32
 )
-  STDERR.puts "pdk_test_nix_on_eval_callback",
-    user_data.as_s(user_data_len),
-    user_data_len,
+  failed_ifd_deps = (0...failed_ifd_deps_len).map { |n| String.new(failed_ifd_deps_ptr[n]) }
+
+  STDERR.puts user_data ? user_data.as_s(user_data_len) : "void",
     result.as_s,
     err_msg.as_s,
     failed_ifd.as_s,
-    failed_ifd_dep.as_s
+    "{ #{failed_ifd_deps.join(", ")} }"
 end
 
 fun pdk_test_process_exec
@@ -91,8 +87,7 @@ fun pdk_test_nix_on_build
   callback = "pdk_test_nix_on_build_callback"
   installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*"
   STDERR.puts "cizero.nix_on_build",
-    callback,
-    "null",
+    "void",
     "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*"
   Cizero.nix_on_build(callback, installable, nil)
 end
@@ -102,15 +97,15 @@ fun pdk_test_nix_on_build_callback(
   user_data_len : Int32,
   outputs_ptr : UInt8**,
   outputs_len : Int32,
-  failed_dep : UInt8*
+  failed_deps_ptr : UInt8**,
+  failed_deps_len : Int32,
 )
   outputs = (0...outputs_len).map { |n| String.new(outputs_ptr[n]) }
+  failed_deps = (0...failed_deps_len).map { |n| String.new(failed_deps_ptr[n]) }
 
-  STDERR.puts "pdk_test_nix_on_build_callback",
-    user_data.as_s,
-    user_data_len,
+  STDERR.puts user_data ? user_data.as_s(user_data_len) : "void",
     "{ #{outputs.join(", ")} }",
-    failed_dep.as_s
+    "{ #{failed_deps.join(", ")} }"
 end
 
 fun pdk_test_http_on_webhook
@@ -123,7 +118,6 @@ fun pdk_test_http_on_webhook
   # user_data.a = 25
   # user_data.b = 372
   STDERR.puts "cizero.http_on_webhook",
-    callback,
     ".{ 25, 372 }"
   Cizero.http_on_webhook(callback, user_data)
 end
@@ -141,8 +135,7 @@ fun pdk_test_http_on_webhook_callback(
   b_bytes[1] = user_data[2]
   b = b_bytes.unsafe_slice_of(UInt16)[0]
 
-  STDERR.puts "pdk_test_http_on_webhook_callback",
-    ".{ #{a}, #{b} }",
+  STDERR.puts ".{ #{a}, #{b} }",
     String.new(req_body_ptr)
 
   res_status.value = 200
