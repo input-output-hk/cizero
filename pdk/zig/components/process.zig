@@ -46,11 +46,11 @@ pub fn exec(args: struct {
     var term_code: usize = undefined;
 
     const err_code = externs.process_exec(
-        abi.fixZeroLenSlice([*:0]const u8, argv.c).ptr,
-        abi.fixZeroLenSlice([*:0]const u8, argv.c).len,
+        abi.fixZeroLenSlice(argv.c).ptr,
+        abi.fixZeroLenSlice(argv.c).len,
         args.expand_arg0 == .expand,
-        if (env_map) |env| @ptrCast(abi.fixZeroLenSlice([*:0]const u8, env.c).ptr) else null,
-        if (env_map) |env| abi.fixZeroLenSlice([*:0]const u8, env.c).len else 0,
+        if (env_map) |env| @ptrCast(abi.fixZeroLenSlice(env.c).ptr) else null,
+        if (env_map) |env| abi.fixZeroLenSlice(env.c).len else 0,
         args.max_output_bytes,
         output.ptr,
         &stdout_len,

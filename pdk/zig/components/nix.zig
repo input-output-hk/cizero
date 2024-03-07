@@ -44,17 +44,17 @@ pub fn onBuild(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnBuildCallback(UserData),
-    user_data: abi.CallbackData.UserDataPtr(UserData),
+    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
     installable: [:0]const u8,
 ) std.mem.Allocator.Error!void {
-    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    const callback_data = try (abi.CallbackDataConst.init(UserData, callback, user_data)).serialize(allocator);
     defer allocator.free(callback_data);
 
     externs.nix_on_build("pdk.nix.onBuild.callback", callback_data.ptr, callback_data.len, installable);
 }
 
 export fn @"pdk.nix.onBuild.callback"(
-    callback_data_ptr: [*]const u8,
+    callback_data_ptr: [*]u8,
     callback_data_len: usize,
     outputs_ptr: [*]const [*:0]const u8,
     outputs_len: usize,
@@ -93,18 +93,18 @@ pub fn onEval(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnEvalCallback(UserData),
-    user_data: abi.CallbackData.UserDataPtr(UserData),
+    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
     expression: [:0]const u8,
     format: externs.EvalFormat,
 ) std.mem.Allocator.Error!void {
-    const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
+    const callback_data = try (abi.CallbackDataConst.init(UserData, callback, user_data)).serialize(allocator);
     defer allocator.free(callback_data);
 
     externs.nix_on_eval("pdk.nix.onEval.callback", callback_data.ptr, callback_data.len, expression, format);
 }
 
 export fn @"pdk.nix.onEval.callback"(
-    callback_data_ptr: [*]const u8,
+    callback_data_ptr: [*]u8,
     callback_data_len: usize,
     result: ?[*:0]const u8,
     err_msg: ?[*:0]const u8,
@@ -156,7 +156,7 @@ pub fn onEvalBuild(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnEvalBuildCallback(UserData),
-    user_data: abi.CallbackData.UserDataPtr(UserData),
+    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
     expression: [:0]const u8,
 ) std.mem.Allocator.Error!void {
     const evalCallback = struct {

@@ -4,66 +4,86 @@ const trait = @import("trait");
 const lib = @import("lib");
 const mem = lib.mem;
 
-pub const CallbackData = struct {
-    /// type-erased function pointer
-    /// (function pointers always have the same size)
-    callback: *const anyopaque,
-    user_data_is_slice: bool,
-    user_data: []const u8,
+pub const CallbackData = CallbackDataInternal(false);
+pub const CallbackDataConst = CallbackDataInternal(true);
 
-    pub fn init(comptime UserData: type, callback: *const anyopaque, user_data: UserDataPtr(UserData)) @This() {
-        return .{
-            .callback = callback,
-            .user_data_is_slice = comptime trait.ptrOfSize(.Slice)(@TypeOf(user_data)),
-            .user_data = fixZeroLenSlice(u8, mem.anyAsBytesUnpad(user_data)),
-        };
-    }
+fn CallbackDataInternal(comptime constant: bool) type {
+    return struct {
+        /// type-erased function pointer
+        /// (function pointers always have the same size)
+        callback: *const anyopaque,
+        user_data_is_slice: bool,
+        user_data: UserDataSlice,
 
-    pub fn serialize(self: @This(), allocator: std.mem.Allocator) std.mem.Allocator.Error![]const u8 {
-        const callback_bytes = std.mem.asBytes(&self.callback);
-        const user_data_is_slice_bytes = std.mem.asBytes(&self.user_data_is_slice);
-
-        const serialized = try allocator.alloc(u8, callback_bytes.len + user_data_is_slice_bytes.len + self.user_data.len);
-        errdefer allocator.free(serialized);
-
-        @memcpy(serialized[0..callback_bytes.len], callback_bytes);
-        @memcpy(serialized[callback_bytes.len .. callback_bytes.len + user_data_is_slice_bytes.len], user_data_is_slice_bytes);
-        @memcpy(serialized[callback_bytes.len + user_data_is_slice_bytes.len ..], self.user_data);
-
-        return serialized;
-    }
-
-    pub fn deserialize(serialized: []const u8) @This() {
-        const callback_size = @sizeOf(std.meta.fieldInfo(@This(), .callback).type);
-
-        const user_data_is_slice_size = @sizeOf(std.meta.fieldInfo(@This(), .user_data_is_slice).type);
-        std.debug.assert(user_data_is_slice_size == 1);
-
-        return .{
-            .callback = @ptrFromInt(@as(usize, @bitCast(serialized[0..callback_size].*))),
-            .user_data_is_slice = serialized[callback_size] == 1,
-            .user_data = serialized[callback_size + user_data_is_slice_size ..],
-        };
-    }
-
-    pub fn call(self: @This(), T: fn (type) type, args: anytype) @typeInfo(T(void)).Fn.return_type.? {
-        if (self.user_data_is_slice) {
-            const callback: *const T([]const u8) = @ptrCast(self.callback);
-            return @call(.auto, callback, .{self.user_data} ++ args);
-        } else {
-            const callback: *const T(anyopaque) = @ptrCast(self.callback);
-            return @call(.auto, callback, .{@as(*const anyopaque, @ptrCast(self.user_data.ptr))} ++ args);
+        pub fn init(comptime UserData: type, callback: *const anyopaque, user_data: UserDataPtr(UserData)) @This() {
+            return .{
+                .callback = callback,
+                .user_data_is_slice = comptime trait.ptrOfSize(.Slice)(@TypeOf(user_data)),
+                .user_data = fixZeroLenSlice(mem.anyAsBytesUnpad(user_data)),
+            };
         }
-    }
 
-    pub fn UserDataPtr(comptime UserData: type) type {
-        return switch (@typeInfo(UserData)) {
-            .Null => @compileError("null is awkward as user data type, use void instead"),
-            .Pointer => |pointer| if (pointer.size == .Slice) UserData else @compileError(@tagName(pointer.size) ++ " pointers are not supported"),
-            else => *const UserData,
-        };
-    }
-};
+        pub fn serialize(self: @This(), allocator: std.mem.Allocator) std.mem.Allocator.Error!UserDataSlice {
+            const callback_bytes = std.mem.asBytes(&self.callback);
+            const user_data_is_slice_bytes = std.mem.asBytes(&self.user_data_is_slice);
+
+            const serialized = try allocator.alloc(u8, callback_bytes.len + user_data_is_slice_bytes.len + self.user_data.len);
+            errdefer allocator.free(serialized);
+
+            @memcpy(serialized[0..callback_bytes.len], callback_bytes);
+            @memcpy(serialized[callback_bytes.len .. callback_bytes.len + user_data_is_slice_bytes.len], user_data_is_slice_bytes);
+            @memcpy(serialized[callback_bytes.len + user_data_is_slice_bytes.len ..], self.user_data);
+
+            return serialized;
+        }
+
+        pub fn deserialize(serialized: UserDataSlice) @This() {
+            const callback_size = @sizeOf(std.meta.fieldInfo(@This(), .callback).type);
+
+            const user_data_is_slice_size = @sizeOf(std.meta.fieldInfo(@This(), .user_data_is_slice).type);
+            std.debug.assert(user_data_is_slice_size == 1);
+
+            return .{
+                .callback = @ptrFromInt(@as(usize, @bitCast(serialized[0..callback_size].*))),
+                .user_data_is_slice = serialized[callback_size] == 1,
+                .user_data = serialized[callback_size + user_data_is_slice_size ..],
+            };
+        }
+
+        pub fn call(self: @This(), T: fn (type) type, args: anytype) @typeInfo(T(void)).Fn.return_type.? {
+            if (self.user_data_is_slice) {
+                const callback: *const T(UserDataSlice) = @ptrCast(self.callback);
+                return @call(.auto, callback, .{self.user_data} ++ args);
+            } else {
+                const callback: *const T(anyopaque) = @ptrCast(self.callback);
+                return @call(.auto, callback, .{@as(UserDataPtr(anyopaque), @ptrCast(self.user_data.ptr))} ++ args);
+            }
+        }
+
+        pub const UserDataSlice = if (constant) []const u8 else []u8;
+
+        pub fn UserDataPtr(comptime UserData: type) type {
+            const Ptr = switch (@typeInfo(UserData)) {
+                .Null => @compileError("null is awkward as user data type, use void instead"),
+                .Pointer => |pointer| if (pointer.size == .Slice)
+                    UserData
+                else
+                    @compileError(@tagName(pointer.size) ++ " pointers are not supported"),
+                .Optional => |optional| if (comptime trait.ptrOfSize(.Slice)(optional.child))
+                    @compileError("optional slices are not supported")
+                else
+                    *UserData,
+                else => *UserData,
+            };
+
+            return if (constant) blk: {
+                var info = @typeInfo(Ptr);
+                info.Pointer.is_const = true;
+                break :blk @Type(info);
+            } else Ptr;
+        }
+    };
+}
 
 pub const CStringArray = struct {
     allocator: std.mem.Allocator,
@@ -126,9 +146,10 @@ pub const CStringArray = struct {
 
 // For some reason the pointer of a slice of a zero-length array
 // becomes negative when received by cizero.
-pub fn fixZeroLenSlice(comptime T: type, slice: []const T) []const T {
+pub fn fixZeroLenSlice(slice: anytype) @TypeOf(slice) {
+    const Slice = @TypeOf(slice);
     return if (slice.len == 0)
-        @as([1]T, undefined)[0..0]
+        @as([1]std.meta.Elem(Slice), undefined)[0..0]
     else
         slice;
 }
