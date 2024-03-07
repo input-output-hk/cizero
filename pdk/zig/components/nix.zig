@@ -46,7 +46,7 @@ pub fn onBuild(
     callback: OnBuildCallback(UserData),
     user_data: abi.CallbackData.UserDataPtr(UserData),
     installable: [:0]const u8,
-) !void {
+) std.mem.Allocator.Error!void {
     const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
     defer allocator.free(callback_data);
 
@@ -96,7 +96,7 @@ pub fn onEval(
     user_data: abi.CallbackData.UserDataPtr(UserData),
     expression: [:0]const u8,
     format: externs.EvalFormat,
-) !void {
+) std.mem.Allocator.Error!void {
     const callback_data = try (abi.CallbackData.init(UserData, callback, user_data)).serialize(allocator);
     defer allocator.free(callback_data);
 
