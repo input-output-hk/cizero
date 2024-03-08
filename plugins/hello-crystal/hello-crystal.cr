@@ -4,8 +4,7 @@ fun pdk_test_timeout_on_timestamp
   now = Time.new(seconds: 1, nanoseconds: 0, location: Time::Location.fixed(0))
   ms = now + 2.seconds
 
-  STDERR.puts "cizero.timeout_on_timestamp",
-    now.to_unix_ms,
+  STDERR.puts now.to_unix_ms,
     ms.to_unix_ms
 
   Cizero.timeout_on_timestamp(
@@ -22,8 +21,7 @@ end
 
 fun pdk_test_timeout_on_cron
   spec = "* * * * *"
-  STDERR.puts "cizero.timeout_on_cron",
-    spec,
+  STDERR.puts spec,
     spec
 
   result = Cizero.timeout_on_cron("pdk_test_timeout_on_cron_callback", spec, spec)
@@ -38,8 +36,7 @@ end
 fun pdk_test_nix_on_eval
   expression = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description"
   format = Cizero::NixEvalFormat::Raw
-  STDERR.puts "cizero.nix_on_eval",
-    "void",
+  STDERR.puts "void",
     expression,
     format.to_s.downcase
 
@@ -86,8 +83,7 @@ end
 fun pdk_test_nix_on_build
   callback = "pdk_test_nix_on_build_callback"
   installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*"
-  STDERR.puts "cizero.nix_on_build",
-    "void",
+  STDERR.puts "void",
     "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*"
   Cizero.nix_on_build(callback, installable, nil)
 end
@@ -117,8 +113,7 @@ fun pdk_test_http_on_webhook
   # user_data = uninitialized LibCizero::HttpOnWebhookUserData
   # user_data.a = 25
   # user_data.b = 372
-  STDERR.puts "cizero.http_on_webhook",
-    ".{ 25, 372 }"
+  STDERR.puts ".{ #{user_data[0]}, 372 }"
   Cizero.http_on_webhook(callback, user_data)
 end
 

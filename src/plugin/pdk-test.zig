@@ -90,7 +90,6 @@ test "timeout_on_timestamp" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.timeout_on_timestamp
         \\1000
         \\3000
         \\
@@ -140,7 +139,6 @@ test "timeout_on_cron" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.timeout_on_cron
         \\* * * * *
         \\* * * * *
         \\60000
@@ -271,7 +269,6 @@ test "http_on_webhook" {
     defer self.deinit();
 
     try self.expectEqualStdio("",
-        \\cizero.http_on_webhook
         \\.{ 25, 372 }
         \\
     , {}, struct {
@@ -364,7 +361,6 @@ test "nix_on_build" {
     const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_on_build
         \\void
         \\
     ++ installable ++
@@ -447,7 +443,6 @@ test "nix_on_eval" {
     const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
 
     try self.expectEqualStdio("",
-        \\cizero.nix_on_eval
         \\void
         \\
     ++ expr ++

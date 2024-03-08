@@ -52,8 +52,7 @@ const pdk_tests = struct {
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
         const timestamp = now_ms + 2 * std.time.ms_per_s;
 
-        // XXX do not print cizero.timeout_on_timestamp etc in PDK tests
-        std.debug.print("cizero.timeout_on_timestamp\n{d}\n{d}\n", .{ now_ms, timestamp });
+        std.debug.print("{d}\n{d}\n", .{ now_ms, timestamp });
         try cizero.timeout.onTimestamp(UserData, allocator, callback, now_ms, timestamp);
     }
 
@@ -75,7 +74,7 @@ const pdk_tests = struct {
         }.callback;
 
         const result = try cizero.timeout.onCron(UserData, allocator, callback, cron, cron);
-        std.debug.print("cizero.timeout_on_cron\n{s}\n{s}\n{d}\n", .{ cron, cron, result });
+        std.debug.print("{s}\n{s}\n{d}\n", .{ cron, cron, result });
     }
 
     pub fn @"process.exec"() !void {
@@ -92,7 +91,7 @@ const pdk_tests = struct {
             },
             .env_map = &env,
         }) catch |err| {
-            std.debug.print("cizero.{s}\n{}\n", .{ @src().fn_name, err });
+            std.debug.print("{}\n", .{err});
             return err;
         };
         defer {
@@ -145,7 +144,7 @@ const pdk_tests = struct {
             .b = 372,
         };
 
-        std.debug.print("cizero.http_on_webhook\n{}\n", .{user_data});
+        std.debug.print("{}\n", .{user_data});
         try cizero.http.onWebhook(UserData, allocator, callback, user_data);
     }
 
@@ -173,7 +172,7 @@ const pdk_tests = struct {
 
         const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
 
-        std.debug.print("cizero.nix_on_build\n{}\n{s}\n", .{ {}, installable });
+        std.debug.print("{}\n{s}\n", .{ {}, installable });
         try cizero.nix.onBuild(UserData, allocator, callback, {}, installable);
     }
 
@@ -211,7 +210,7 @@ const pdk_tests = struct {
         const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
         const format = cizero.nix.EvalFormat.raw;
 
-        std.debug.print("cizero.nix_on_eval\n{}\n{s}\n{s}\n", .{ {}, expr, @tagName(format) });
+        std.debug.print("{}\n{s}\n{s}\n", .{ {}, expr, @tagName(format) });
         try cizero.nix.onEval(UserData, allocator, callback, {}, expr, format);
     }
 };
