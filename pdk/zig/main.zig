@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const user_data = @import("abi.zig").CallbackData.user_data;
+
 pub usingnamespace @import("components.zig");
 
 export fn cizero_mem_alloc(len: usize, ptr_align: u8) ?[*]u8 {

@@ -35,7 +35,7 @@ const externs = struct {
 };
 
 pub fn OnBuildCallback(comptime UserData: type) type {
-    return fn (abi.CallbackData.UserDataPtr(UserData), OnBuildResult) void;
+    return fn (UserData, OnBuildResult) void;
 }
 
 pub const OnBuildResult = cizero.components.Nix.Job.Build.Result;
@@ -44,17 +44,17 @@ pub fn onBuild(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnBuildCallback(UserData),
-    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
+    user_data: UserData.Value,
     installable: [:0]const u8,
 ) std.mem.Allocator.Error!void {
-    const callback_data = try (abi.CallbackDataConst.init(UserData, callback, user_data)).serialize(allocator);
+    const callback_data = try abi.CallbackData.serialize(UserData, allocator, callback, user_data);
     defer allocator.free(callback_data);
 
     externs.nix_on_build("pdk.nix.onBuild.callback", callback_data.ptr, callback_data.len, installable);
 }
 
 export fn @"pdk.nix.onBuild.callback"(
-    callback_data_ptr: [*]u8,
+    callback_data_ptr: [*]const u8,
     callback_data_len: usize,
     outputs_ptr: [*]const [*:0]const u8,
     outputs_len: usize,
@@ -82,7 +82,7 @@ export fn @"pdk.nix.onBuild.callback"(
 }
 
 pub fn OnEvalCallback(comptime UserData: type) type {
-    return fn (abi.CallbackData.UserDataPtr(UserData), OnEvalResult) void;
+    return fn (UserData, OnEvalResult) void;
 }
 
 pub const OnEvalResult = cizero.components.Nix.Job.Eval.Result;
@@ -93,18 +93,18 @@ pub fn onEval(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnEvalCallback(UserData),
-    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
+    user_data: UserData.Value,
     expression: [:0]const u8,
     format: externs.EvalFormat,
 ) std.mem.Allocator.Error!void {
-    const callback_data = try (abi.CallbackDataConst.init(UserData, callback, user_data)).serialize(allocator);
+    const callback_data = try abi.CallbackData.serialize(UserData, allocator, callback, user_data);
     defer allocator.free(callback_data);
 
     externs.nix_on_eval("pdk.nix.onEval.callback", callback_data.ptr, callback_data.len, expression, format);
 }
 
 export fn @"pdk.nix.onEval.callback"(
-    callback_data_ptr: [*]u8,
+    callback_data_ptr: [*]const u8,
     callback_data_len: usize,
     result: ?[*:0]const u8,
     err_msg: ?[*:0]const u8,
@@ -114,10 +114,12 @@ export fn @"pdk.nix.onEval.callback"(
 ) void {
     std.debug.assert((failed_ifd_deps_ptr == null) == (failed_ifd_deps_len == 0));
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
+    const allocator = std.heap.wasm_allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const allocator = arena.allocator();
+    const arena_allocator = arena.allocator();
 
     const eval_result: OnEvalResult = if (result) |r|
         .{ .ok = std.mem.span(r) }
@@ -127,7 +129,7 @@ export fn @"pdk.nix.onEval.callback"(
         .{ .ifd_deps_failed = .{
             .ifd = std.mem.span(failed_ifd.?),
             .drvs = drvs: {
-                const drvs = allocator.alloc([]const u8, failed_ifd_deps_len) catch @panic("OOM");
+                const drvs = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch @panic("OOM");
                 for (drvs, fidp[0..failed_ifd_deps_len]) |*drv, dep|
                     drv.* = std.mem.span(dep);
                 break :drvs drvs;
@@ -143,38 +145,33 @@ export fn @"pdk.nix.onEval.callback"(
         .call(OnEvalCallback, .{eval_result});
 }
 
-pub fn OnEvalBuildCallback(comptime UserData: type) type {
-    return fn (abi.CallbackData.UserDataPtr(UserData), OnEvalBuildResult) void;
-}
-
-pub const OnEvalBuildResult = union(enum) {
-    eval: OnEvalResult,
-    build: OnBuildResult,
-};
-
 pub fn onEvalBuild(
     comptime UserData: type,
     allocator: std.mem.Allocator,
-    callback: OnEvalBuildCallback(UserData),
-    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
+    eval_callback: fn (UserData, std.mem.Allocator, OnEvalResult) UserData.Value,
+    build_callback: OnBuildCallback(UserData),
+    user_data: UserData.Value,
     expression: [:0]const u8,
 ) std.mem.Allocator.Error!void {
     const evalCallback = struct {
-        fn evalCallback(ud: abi.CallbackData.UserDataPtr(UserData), result: OnEvalResult) void {
-            callback(ud, .{ .eval = result });
+        fn evalCallback(ud: UserData, result: OnEvalResult) void {
+            var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
+            defer arena.deinit();
+
+            const ud_value = eval_callback(ud, arena.allocator(), result);
 
             if (result == .ok) {
                 const alloc = std.heap.wasm_allocator;
 
-                const installable_z = alloc.dupeZ(u8, result.ok) catch @panic("OOM");
+                const installable_z = std.mem.concatWithSentinel(alloc, u8, &.{ result.ok, "^*" }, 0) catch @panic("OOM");
                 defer alloc.free(installable_z);
 
-                onBuild(UserData, alloc, buildCallback, ud, installable_z) catch @panic("OOM");
+                onBuild(UserData, alloc, buildCallback, ud_value, installable_z) catch @panic("OOM");
             }
         }
 
-        fn buildCallback(ud: abi.CallbackData.UserDataPtr(UserData), result: OnBuildResult) void {
-            callback(ud, .{ .build = result });
+        fn buildCallback(ud: UserData, result: OnBuildResult) void {
+            build_callback(ud, result);
         }
     }.evalCallback;
 

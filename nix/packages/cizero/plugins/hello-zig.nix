@@ -15,7 +15,7 @@
 
       buildZigZon = "plugins/hello-zig/build.zig.zon";
 
-      zigDepsHash = "sha256-pml8GuVxHFFYNoryiuWU24N7ftEs33G74L/hGu3JQEU=";
+      zigDepsHash = "sha256-BLc8+ENOUVr1wTNeh3iW1x0FwsC+DlEKe2kFMopo9YM=";
 
       nativeCheckInputs = with pkgs; [
         wasmtime

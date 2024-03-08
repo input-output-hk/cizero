@@ -45,4 +45,8 @@ fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void
     module.addImport("cizero", cizero_pkg.module("cizero"));
 
     module.addImport("trait", lib_mod.import_table.get("trait").?);
+    module.addImport("s2s", b.dependency("s2s", .{
+        .target = opts.target,
+        .optimize = opts.optimize,
+    }).module("s2s"));
 }

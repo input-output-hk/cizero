@@ -15,7 +15,7 @@ const externs = struct {
 
 pub fn OnWebhookCallback(comptime UserData: type) type {
     return fn (
-        abi.CallbackData.UserDataPtr(UserData),
+        UserData,
         body: []const u8,
     ) OnWebhookCallbackResponse;
 }
@@ -31,16 +31,16 @@ pub fn onWebhook(
     comptime UserData: type,
     allocator: std.mem.Allocator,
     callback: OnWebhookCallback(UserData),
-    user_data: abi.CallbackDataConst.UserDataPtr(UserData),
+    user_data: UserData.Value,
 ) !void {
-    const callback_data = try (abi.CallbackDataConst.init(UserData, callback, user_data)).serialize(allocator);
+    const callback_data = try abi.CallbackData.serialize(UserData, allocator, callback, user_data);
     defer allocator.free(callback_data);
 
     externs.http_on_webhook("pdk.http.onWebhook.callback", callback_data.ptr, callback_data.len);
 }
 
 export fn @"pdk.http.onWebhook.callback"(
-    callback_data_ptr: [*]u8,
+    callback_data_ptr: [*]const u8,
     callback_data_len: usize,
     req_body_ptr: [*:0]const u8,
     res_status: *u16,

@@ -1,89 +1,124 @@
 const std = @import("std");
 const trait = @import("trait");
+const s2s = @import("s2s");
 
 const lib = @import("lib");
 const mem = lib.mem;
+const meta = lib.meta;
 
-pub const CallbackData = CallbackDataInternal(false);
-pub const CallbackDataConst = CallbackDataInternal(true);
+pub const CallbackData = struct {
+    /// type-erased function pointer
+    /// (function pointers always have the same size)
+    callback: *const anyopaque,
+    user_data: []const u8,
 
-fn CallbackDataInternal(comptime constant: bool) type {
-    return struct {
-        /// type-erased function pointer
-        /// (function pointers always have the same size)
+    pub fn serialize(
+        comptime UserData: type,
+        allocator: std.mem.Allocator,
         callback: *const anyopaque,
-        user_data_is_slice: bool,
-        user_data: UserDataSlice,
+        user_data_value: UserData.Value,
+    ) std.mem.Allocator.Error![]const u8 {
+        validateUserData(UserData);
 
-        pub fn init(comptime UserData: type, callback: *const anyopaque, user_data: UserDataPtr(UserData)) @This() {
-            return .{
-                .callback = callback,
-                .user_data_is_slice = comptime trait.ptrOfSize(.Slice)(@TypeOf(user_data)),
-                .user_data = fixZeroLenSlice(mem.anyAsBytesUnpad(user_data)),
+        const user_data_value_bytes = try UserData.serialize(allocator, user_data_value);
+        defer allocator.free(user_data_value_bytes);
+
+        return std.mem.concat(allocator, u8, &.{
+            std.mem.asBytes(&callback),
+            user_data_value_bytes,
+        });
+    }
+
+    pub fn deserialize(serialized: []const u8) @This() {
+        const callback_size = @sizeOf(std.meta.fieldInfo(@This(), .callback).type);
+        return .{
+            .callback = @ptrFromInt(@as(usize, @bitCast(serialized[0..callback_size].*))),
+            .user_data = serialized[callback_size..],
+        };
+    }
+
+    pub fn call(self: @This(), Callback: fn (comptime UserData: type) type, args: anytype) @typeInfo(Callback(struct { []const u8 })).Fn.return_type.? {
+        const callback: *const Callback(struct { []const u8 }) = @ptrCast(self.callback);
+        return @call(.auto, callback, .{.{self.user_data}} ++ args);
+    }
+
+    pub fn validateUserData(comptime UserData: type) void {
+        comptime {
+            if (!trait.hasFn("serialize")(UserData)) @compileError(@typeName(UserData) ++ " must have a function `serialize(Allocator, Value) ![]const u8`");
+
+            if (!@hasDecl(UserData, "Value")) @compileError(@typeName(UserData) ++ " must have a declaration `Value`");
+
+            // This is because `UserData` is supposed to be a wrapper
+            // around the serialized bytes with no additional fields.
+            // Its only purpose could be to deserialize the slice,
+            // and all type info for that is available at compile time,
+            // so it does not increase the struct size.
+            std.debug.assert(@sizeOf(struct { []const u8 }) == @sizeOf([]const u8));
+            if (@sizeOf(UserData) != @sizeOf([]const u8)) @compileError(@typeName(UserData) ++ " must be same size as a slice");
+        }
+    }
+
+    /// A collection of ready-made user data types.
+    pub const user_data = struct {
+        /// Serialization using s2s.
+        pub fn S2S(comptime V: type) type {
+            return struct {
+                serialized: []const u8,
+
+                pub const Value = V;
+
+                pub fn serialize(allocator: std.mem.Allocator, value: Value) ![]const u8 {
+                    var serialized = std.ArrayListUnmanaged(u8){};
+                    errdefer serialized.deinit(allocator);
+
+                    try s2s.serialize(serialized.writer(allocator), Value, value);
+
+                    return serialized.toOwnedSlice(allocator);
+                }
+
+                pub fn deserialize(self: @This()) !Value {
+                    var stream = std.io.fixedBufferStream(self.serialized);
+                    return s2s.deserialize(stream.reader(), Value);
+                }
+
+                pub fn deserializeAlloc(self: @This(), allocator: std.mem.Allocator) !Value {
+                    var stream = std.io.fixedBufferStream(self.serialized);
+                    return s2s.deserializeAlloc(stream.reader(), Value, allocator);
+                }
+
+                pub fn free(allocator: std.mem.Allocator, value: *Value) void {
+                    s2s.free(allocator, Value, value);
+                }
             };
         }
 
-        pub fn serialize(self: @This(), allocator: std.mem.Allocator) std.mem.Allocator.Error!UserDataSlice {
-            const callback_bytes = std.mem.asBytes(&self.callback);
-            const user_data_is_slice_bytes = std.mem.asBytes(&self.user_data_is_slice);
+        /// Shallow copy using `mem.anyAsBytesUnpad()`.
+        pub fn Shallow(comptime V: type) type {
+            return struct {
+                serialized: []const u8,
 
-            const serialized = try allocator.alloc(u8, callback_bytes.len + user_data_is_slice_bytes.len + self.user_data.len);
-            errdefer allocator.free(serialized);
+                pub const Value = V;
 
-            @memcpy(serialized[0..callback_bytes.len], callback_bytes);
-            @memcpy(serialized[callback_bytes.len .. callback_bytes.len + user_data_is_slice_bytes.len], user_data_is_slice_bytes);
-            @memcpy(serialized[callback_bytes.len + user_data_is_slice_bytes.len ..], self.user_data);
+                pub fn serialize(allocator: std.mem.Allocator, value: Value) ![]const u8 {
+                    return allocator.dupe(u8, mem.anyAsBytesUnpad(&value));
+                }
 
-            return serialized;
-        }
+                const Self = @This();
 
-        pub fn deserialize(serialized: UserDataSlice) @This() {
-            const callback_size = @sizeOf(std.meta.fieldInfo(@This(), .callback).type);
-
-            const user_data_is_slice_size = @sizeOf(std.meta.fieldInfo(@This(), .user_data_is_slice).type);
-            std.debug.assert(user_data_is_slice_size == 1);
-
-            return .{
-                .callback = @ptrFromInt(@as(usize, @bitCast(serialized[0..callback_size].*))),
-                .user_data_is_slice = serialized[callback_size] == 1,
-                .user_data = serialized[callback_size + user_data_is_slice_size ..],
+                pub usingnamespace if (@sizeOf(Value) == 0) struct {} else struct {
+                    pub fn deserialize(self: Self) Value {
+                        return std.mem.bytesToValue(Value, self.serialized);
+                    }
+                };
             };
-        }
-
-        pub fn call(self: @This(), T: fn (type) type, args: anytype) @typeInfo(T(void)).Fn.return_type.? {
-            if (self.user_data_is_slice) {
-                const callback: *const T(UserDataSlice) = @ptrCast(self.callback);
-                return @call(.auto, callback, .{self.user_data} ++ args);
-            } else {
-                const callback: *const T(anyopaque) = @ptrCast(self.callback);
-                return @call(.auto, callback, .{@as(UserDataPtr(anyopaque), @ptrCast(self.user_data.ptr))} ++ args);
-            }
-        }
-
-        pub const UserDataSlice = if (constant) []const u8 else []u8;
-
-        pub fn UserDataPtr(comptime UserData: type) type {
-            const Ptr = switch (@typeInfo(UserData)) {
-                .Null => @compileError("null is awkward as user data type, use void instead"),
-                .Pointer => |pointer| if (pointer.size == .Slice)
-                    UserData
-                else
-                    @compileError(@tagName(pointer.size) ++ " pointers are not supported"),
-                .Optional => |optional| if (comptime trait.ptrOfSize(.Slice)(optional.child))
-                    @compileError("optional slices are not supported")
-                else
-                    *UserData,
-                else => *UserData,
-            };
-
-            return if (constant) blk: {
-                var info = @typeInfo(Ptr);
-                info.Pointer.is_const = true;
-                break :blk @Type(info);
-            } else Ptr;
         }
     };
-}
+
+    test user_data {
+        for (std.meta.fieldNames(user_data)) |field_name|
+            validateUserData(@field(user_data, field_name)(void));
+    }
+};
 
 pub const CStringArray = struct {
     allocator: std.mem.Allocator,

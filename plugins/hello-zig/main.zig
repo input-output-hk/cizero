@@ -39,32 +39,42 @@ usingnamespace if (builtin.is_test) struct {} else struct {
 /// to test communication over the ABI.
 const pdk_tests = struct {
     pub fn @"timeout.onTimestamp"() !void {
+        const UserData = cizero.user_data.S2S(i64);
+
         const callback = struct {
-            fn callback(user_data: *const i64) void {
-                std.debug.print("{d}\n", .{user_data.*});
+            fn callback(user_data: UserData) void {
+                const scheduled_ms = user_data.deserialize() catch |err| @panic(@errorName(err));
+
+                std.debug.print("{d}\n", .{scheduled_ms});
             }
         }.callback;
 
         const now_ms: i64 = if (isPdkTest()) std.time.ms_per_s else std.time.milliTimestamp();
         const timestamp = now_ms + 2 * std.time.ms_per_s;
 
+        // XXX do not print cizero.timeout_on_timestamp etc in PDK tests
         std.debug.print("cizero.timeout_on_timestamp\n{d}\n{d}\n", .{ now_ms, timestamp });
-        try cizero.timeout.onTimestamp(i64, allocator, callback, &now_ms, timestamp);
+        try cizero.timeout.onTimestamp(UserData, allocator, callback, now_ms, timestamp);
     }
 
     pub fn @"timeout.onCron"() !void {
+        const UserData = cizero.user_data.S2S([]const u8);
+
         const cron = "* * * * *";
 
         const callback = struct {
-            fn callback(user_data: []const u8) bool {
-                std.debug.assert(std.mem.eql(u8, user_data, cron));
+            fn callback(user_data: UserData) bool {
+                var ud_cron = user_data.deserializeAlloc(allocator) catch |err| @panic(@errorName(err));
+                defer UserData.free(allocator, &ud_cron);
 
-                std.debug.print("{s}\n", .{user_data});
+                std.debug.assert(std.mem.eql(u8, ud_cron, cron));
+
+                std.debug.print("{s}\n", .{ud_cron});
                 return false;
             }
         }.callback;
 
-        const result = try cizero.timeout.onCron([]const u8, allocator, callback, cron, cron);
+        const result = try cizero.timeout.onCron(UserData, allocator, callback, cron, cron);
         std.debug.print("cizero.timeout_on_cron\n{s}\n{s}\n{d}\n", .{ cron, cron, result });
     }
 
@@ -103,7 +113,7 @@ const pdk_tests = struct {
     }
 
     pub fn @"http.onWebhook"() !void {
-        const UserData = packed struct {
+        const Foo = packed struct {
             a: u8,
             b: u16,
 
@@ -112,12 +122,16 @@ const pdk_tests = struct {
             }
         };
 
+        const UserData = cizero.user_data.Shallow(Foo);
+
         const callback = struct {
             fn callback(
-                user_data: *const UserData,
+                user_data: UserData,
                 body: []const u8,
             ) cizero.http.OnWebhookCallbackResponse {
-                std.debug.print("{}\n{s}\n", .{ user_data, body });
+                const foo = user_data.deserialize();
+
+                std.debug.print("{}\n{s}\n", .{ foo, body });
 
                 return .{
                     .status = 200,
@@ -126,23 +140,25 @@ const pdk_tests = struct {
             }
         }.callback;
 
-        const user_data = UserData{
+        const user_data = Foo{
             .a = 25,
             .b = 372,
         };
 
         std.debug.print("cizero.http_on_webhook\n{}\n", .{user_data});
-        try cizero.http.onWebhook(UserData, allocator, callback, &user_data);
+        try cizero.http.onWebhook(UserData, allocator, callback, user_data);
     }
 
     pub fn @"nix.onBuild"() !void {
+        const UserData = cizero.user_data.Shallow(void);
+
         const callback = struct {
             fn callback(
-                user_data: *const void,
+                _: UserData,
                 build_result: cizero.nix.OnBuildResult,
             ) void {
                 std.debug.print("{}\n{s}\n{s}\n", .{
-                    user_data.*,
+                    {},
                     switch (build_result) {
                         .outputs => |outputs| outputs,
                         else => &[_][]const u8{},
@@ -158,17 +174,19 @@ const pdk_tests = struct {
         const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
 
         std.debug.print("cizero.nix_on_build\n{}\n{s}\n", .{ {}, installable });
-        try cizero.nix.onBuild(void, allocator, callback, &{}, installable);
+        try cizero.nix.onBuild(UserData, allocator, callback, {}, installable);
     }
 
     pub fn @"nix.onEval"() !void {
+        const UserData = cizero.user_data.Shallow(void);
+
         const callback = struct {
             fn callback(
-                user_data: *const void,
+                _: UserData,
                 eval_result: cizero.nix.OnEvalResult,
             ) void {
                 std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{s}\n", .{
-                    user_data.*,
+                    {},
                     switch (eval_result) {
                         .ok => |result| result,
                         else => null,
@@ -194,7 +212,7 @@ const pdk_tests = struct {
         const format = cizero.nix.EvalFormat.raw;
 
         std.debug.print("cizero.nix_on_eval\n{}\n{s}\n{s}\n", .{ {}, expr, @tagName(format) });
-        try cizero.nix.onEval(void, allocator, callback, &{}, expr, format);
+        try cizero.nix.onEval(UserData, allocator, callback, {}, expr, format);
     }
 };
 
@@ -209,18 +227,35 @@ const tests = struct {
     }
 
     pub fn @"nix.onEvalBuild"() !void {
-        const callback = struct {
-            fn callback(_: *const void, result: cizero.nix.OnEvalBuildResult) void {
-                std.debug.print("{}\n", .{result});
+        const UserData = cizero.user_data.S2S(?[]const u8);
+
+        const fns = struct {
+            fn evalCallback(user_data: UserData, _: std.mem.Allocator, result: cizero.nix.OnEvalResult) UserData.Value {
+                var drv = user_data.deserializeAlloc(allocator) catch |err| @panic(@errorName(err));
+                defer UserData.free(allocator, &drv);
+
+                return if (result == .ok) result.ok else drv;
             }
-        }.callback;
+
+            fn buildCallback(user_data: UserData, result: cizero.nix.OnBuildResult) void {
+                var drv = user_data.deserializeAlloc(allocator) catch |err| @panic(@errorName(err));
+                defer UserData.free(allocator, &drv);
+
+                std.testing.expectEqualStrings(drv.?, "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv") catch |err| @panic(@errorName(err));
+
+                std.testing.expectEqual(std.meta.Tag(cizero.nix.OnBuildResult).outputs, std.meta.activeTag(result)) catch |err| @panic(@errorName(err));
+                std.testing.expectEqual(1, result.outputs.len) catch |err| @panic(@errorName(err));
+                std.testing.expectEqualStrings("/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1", result.outputs[0]) catch |err| @panic(@errorName(err));
+            }
+        };
 
         try cizero.nix.onEvalBuild(
-            void,
+            UserData,
             allocator,
-            callback,
-            &{},
-            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello",
+            fns.evalCallback,
+            fns.buildCallback,
+            null,
+            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.drvPath",
         );
     }
 };
