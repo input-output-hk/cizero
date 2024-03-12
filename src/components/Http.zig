@@ -19,7 +19,7 @@ const Callback = enum {
     webhook,
 
     pub fn done(_: @This()) components.CallbackDoneCondition {
-        return .{ .on = .{} };
+        return .{ .on = .{ .failure = false } };
     }
 };
 
