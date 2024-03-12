@@ -32,6 +32,15 @@ const externs = struct {
         expression: [*:0]const u8,
         format: @This().EvalFormat,
     ) void;
+
+    extern "cizero" fn nix_build_state(
+        installable: [*:0]const u8,
+    ) bool;
+
+    extern "cizero" fn nix_eval_state(
+        expression: [*:0]const u8,
+        format: @This().EvalFormat,
+    ) meta.EnsurePowBits(std.meta.Tag(std.meta.Tag(cizero.components.Nix.EvalState)), 8);
 };
 
 pub fn OnBuildCallback(comptime UserData: type) type {
@@ -143,6 +152,18 @@ export fn @"pdk.nix.onEval.callback"(
     abi.CallbackData
         .deserialize(callback_data_ptr[0..callback_data_len])
         .call(OnEvalCallback, .{eval_result});
+}
+
+pub fn buildState(installable: [:0]const u8) bool {
+    return externs.nix_build_state(installable);
+}
+
+pub fn evalState(
+    expression: [:0]const u8,
+    format: @This().EvalFormat,
+) ?std.meta.Tag(cizero.components.Nix.EvalState) {
+    const state = externs.nix_eval_state(expression.ptr, format);
+    return if (state == 0) null else @enumFromInt(state - 1);
 }
 
 pub fn onEvalBuild(

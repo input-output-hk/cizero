@@ -176,7 +176,63 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
             },
             .host_function = Runtime.HostFunction.init(onEval, self),
         },
+        .nix_build_state = Runtime.HostFunctionDef{
+            .signature = .{
+                .params = &[_]wasm.Value.Type{.i32} ** 1,
+                .returns = &.{.i32},
+            },
+            .host_function = Runtime.HostFunction.init(buildState, self),
+        },
+        .nix_eval_state = Runtime.HostFunctionDef{
+            .signature = .{
+                .params = &[_]wasm.Value.Type{.i32} ** 2,
+                .returns = &.{.i32},
+            },
+            .host_function = Runtime.HostFunction.init(evalState, self),
+        },
     });
+}
+
+fn buildState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+    std.debug.assert(inputs.len == 1);
+    std.debug.assert(outputs.len == 1);
+
+    const params = .{
+        .installable = wasm.span(memory, inputs[0]),
+    };
+
+    const building = building: {
+        self.build_jobs_mutex.lock();
+        defer self.build_jobs_mutex.unlock();
+
+        break :building self.build_jobs.contains(params.installable);
+    };
+
+    outputs[0] = .{ .i32 = @intFromBool(building) };
+}
+
+fn evalState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
+    std.debug.assert(inputs.len == 2);
+    std.debug.assert(outputs.len == 1);
+
+    const params = .{
+        .expr = wasm.span(memory, inputs[0]),
+        .output_format = @as(EvalFormat, @enumFromInt(inputs[1].i32)),
+    };
+
+    const state = state: {
+        self.eval_jobs_mutex.lock();
+        defer self.eval_jobs_mutex.unlock();
+
+        const state = self.eval_jobs.getPtr(Job.Eval{
+            .expr = params.expr,
+            .output_format = params.output_format,
+        });
+
+        break :state if (state) |s| std.meta.activeTag(s.*) else null;
+    };
+
+    outputs[0] = .{ .i32 = if (state) |s| @intFromEnum(s) + 1 else 0 };
 }
 
 fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
