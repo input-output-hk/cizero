@@ -123,6 +123,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     var outputs: [1]wasm.Value = undefined;
 
     const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
+    if (!success) res_status.* = 500;
 
     if (Callback.webhook.done().check(success, &outputs)) {
         const conn = self.registry.db_pool.acquire();
