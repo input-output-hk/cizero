@@ -1,7 +1,8 @@
 {inputs, ...}: {
   imports = [
-    ./plugins/hello-zig.nix
-    ./plugins/hello-crystal.nix
+    plugins/hello-zig.nix
+    plugins/hello-crystal.nix
+    plugins/hydra-eval-jobs.nix
   ];
 
   perSystem = {

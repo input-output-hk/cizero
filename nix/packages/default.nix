@@ -15,6 +15,7 @@
         cizero
         cizero-plugin-hello-zig
         cizero-plugin-hello-crystal
+        cizero-plugin-hydra-eval-jobs
       ];
     };
   };
