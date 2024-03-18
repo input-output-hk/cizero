@@ -45,7 +45,7 @@ fn milliTimestamp(self: @This()) i64 {
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!void {
-    self.loop_run.store(true, .Monotonic);
+    self.loop_run.store(true, .monotonic);
     self.loop_wait.reset();
 
     self.wait_group.start();
@@ -57,14 +57,14 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError)!
 }
 
 pub fn stop(self: *@This()) void {
-    self.loop_run.store(false, .Monotonic);
+    self.loop_run.store(false, .monotonic);
     self.loop_wait.set();
 }
 
 fn loop(self: *@This()) !void {
     defer self.wait_group.finish();
 
-    while (self.loop_run.load(.Monotonic)) : (self.loop_wait.reset()) {
+    while (self.loop_run.load(.monotonic)) : (self.loop_wait.reset()) {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
@@ -88,7 +88,7 @@ fn loop(self: *@This()) !void {
                 if (!std.meta.isError(self.loop_wait.timedWait(timeout_ns))) {
                     // `timedWait()` did not time out so `loop_wait` was `set()`.
                     // This could have been done by `stop()`. If so, we don't want to run the callback.
-                    if (!self.loop_run.load(.Monotonic)) break;
+                    if (!self.loop_run.load(.monotonic)) break;
                 }
             }
         }

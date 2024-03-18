@@ -324,7 +324,7 @@ fn insertCallback(
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!void {
     try self.jobs_thread_pool.init(.{ .allocator = self.allocator });
 
-    self.running.store(true, .Monotonic);
+    self.running.store(true, .monotonic);
 
     {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -371,7 +371,7 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
 }
 
 pub fn stop(self: *@This()) void {
-    self.running.store(false, .Monotonic);
+    self.running.store(false, .monotonic);
 }
 
 /// Returns whether a new job thread has been started.

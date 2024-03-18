@@ -5,18 +5,24 @@
   ];
 
   perSystem = {
+    system,
     config,
     pkgs,
+    lib,
     ...
   }: {
     packages = {
       zig =
+        # Zig built from source reliably OOMs even when building the result of `zig init`.
+        # https://github.com/Cloudef/zig2nix and https://github.com/erikarvstedt/nix-zig-build
+        # are also affected so we resort to prebuilt binaries for now.
+        /*
         (pkgs.zig.overrideAttrs (oldAttrs: rec {
           version = src.rev;
 
           src = oldAttrs.src.override {
-            rev = "993a83081a975464d1201597cf6f4cb7f6735284";
-            hash = "sha256-dNje2++gW+Uyz8twx9pAq7DQT/DGn4WupBTdc9cTBNw=";
+            rev = "26e895e3dc4ff1b7ac235414a356840bccb4fb1e";
+            hash = "sha256-LmE03OUjKZnkqRIWISyN1XXns1JyyHooGhthTeFjfv8=";
           };
 
           postPatch = ''
@@ -32,17 +38,47 @@
         .override {
           llvmPackages = pkgs.llvmPackages_17;
         };
+        */
+        let
+          zig = inputs.zig-overlay.packages.${system}.master-2024-03-17;
+          # zig-overlay does not expose a setup hook, see https://github.com/mitchellh/zig-overlay/issues/33
+          # TODO remove once https://github.com/mitchellh/zig-overlay/pull/37 is merged
+          passthru.hook = pkgs.zig.hook.override {
+            zig =
+              zig
+              // {
+                # Not accurate as this is meta from the version from nixpkgs but we need this to evaluate.
+                inherit (pkgs.zig) meta;
+              };
+          };
+        in
+          zig // passthru // {inherit passthru;};
 
       zls = config.overlayAttrs.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
           owner = "zigtools";
           repo = "zls";
-          rev = "a8a83b6ad21e382c49474e8a9ffe35a3e510de3c";
-          hash = "sha256-QR0hKolbEcEeTOsbf4CBOmj9nG7YG0fnv72kM8wkU28=";
+          rev = "fd3b5afe51ee57dbfba2db317e48a13abf741039";
+          hash = "sha256-n3fC1pem18qvRZsesjVLFxDvAzcK3W/FiWiao+pC2vQ=";
           fetchSubmodules = true;
         };
 
-        zigDepsHash = "sha256-1KBYMJ82o3IQKPcQx0sBfsoKxGOdTe5bCiGQkO6HHMA=";
+        patches = [
+          # The issue linked in the diff has been fixed so we can remove the check until upstream catches up.
+          # We need to do this to allow compilation with nightly zig.
+          (builtins.toFile "19071.diff" ''
+            diff --git a/src/config_gen/config_gen.zig b/src/config_gen/config_gen.zig
+            index 95ad1d7..6e41cca 100644
+            --- a/src/config_gen/config_gen.zig
+            +++ b/src/config_gen/config_gen.zig
+            @@ -943,3 +942,0 @@ fn httpGET(allocator: std.mem.Allocator, uri: std.Uri) !Response {
+            -    // TODO remove duplicate logic once https://github.com/ziglang/zig/issues/19071 has been fixed
+            -    comptime std.debug.assert(zig_builtin.zig_version.order(.{ .major = 0, .minor = 12, .patch = 0 }) == .lt);
+            -
+          '')
+        ];
+
+        zigDepsHash = "sha256-HYrdL9k7ITDemanT7vHVjEPWtjDDskvY6It83tdHbSk=";
 
         zigBuildFlags = [
           "-Dversion_data_path=${passthru.langref}"
@@ -51,7 +87,20 @@
 
         zigRelease = "ReleaseSafe";
 
-        passthru.langref = config.packages.zig.src + /doc/langref.html.in;
+        # We can do this the simple way again once zig build from source works, see above.
+        # passthru.langref = config.packages.zig.src + /doc/langref.html.in;
+        passthru.langref = pkgs.fetchurl {
+          url = let
+            commit = "f88a971e4ff211b78695609b4482fb886f30a1af";
+            commitPrefixFromPackage = builtins.head (builtins.match ''.*\+(.*)'' config.packages.zig.version);
+          in
+            assert lib.assertMsg (lib.hasPrefix commitPrefixFromPackage commit) ''
+              ZLS langref version does not match zig compiler version.
+              ZLS langref version:  ${commit}
+              Zig compiler version: ${commitPrefixFromPackage}
+            ''; "https://raw.githubusercontent.com/ziglang/zig/${commit}/doc/langref.html.in";
+          hash = "sha256-uFb2lRKsi5q9nemtPraBNWPTADMLB0YhH+O52lSoQDU=";
+        };
 
         inherit (pkgs.zls) meta;
       };

@@ -12,6 +12,10 @@
       url = github:input-output-hk/nix-inclusive;
       inputs.stdlib.follows = "parts/nixpkgs-lib";
     };
+    zig-overlay = {
+      url = github:mitchellh/zig-overlay;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs:

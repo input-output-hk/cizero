@@ -54,5 +54,5 @@ pub const CallbackDoneCondition = union(enum) {
 };
 
 pub fn rejectIfStopped(running: *const std.atomic.Value(bool)) error{ComponentStopped}!void {
-    if (!running.load(.Monotonic)) return error.ComponentStopped;
+    if (!running.load(.monotonic)) return error.ComponentStopped;
 }

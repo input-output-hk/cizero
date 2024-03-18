@@ -35,7 +35,7 @@ pub fn deinit(self: *@This()) void {
     self.allocator.destroy(self);
 }
 
-pub const InitError = std.mem.Allocator.Error;
+pub const InitError = std.mem.Allocator.Error || meta.FnErrorSet(@TypeOf(std.meta.fieldInfo(@This(), .server).type.init));
 
 pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!*@This() {
     var self = try allocator.create(@This());

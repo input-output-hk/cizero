@@ -6,8 +6,8 @@ const protocol = @import("protocol.zig");
 const stdin = std.io.getStdIn().reader();
 const stderr = std.io.getStdErr().writer();
 
-pub const std_options = struct {
-    pub const logFn = log.logFn;
+pub const std_options = .{
+    .logFn = log.logFn,
 };
 
 pub fn main() void {
