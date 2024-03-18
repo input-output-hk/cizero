@@ -99,15 +99,20 @@ pub const CallbackData = struct {
 
                 pub const Value = V;
 
+                const is_slice = trait.ptrOfSize(.Slice)(Value);
+
                 pub fn serialize(allocator: std.mem.Allocator, value: Value) ![]const u8 {
-                    return allocator.dupe(u8, mem.anyAsBytesUnpad(&value));
+                    return allocator.dupe(u8, mem.anyAsBytesUnpad(if (is_slice) value else &value));
                 }
 
                 const Self = @This();
 
                 pub usingnamespace if (@sizeOf(Value) == 0) struct {} else struct {
                     pub fn deserialize(self: Self) Value {
-                        return std.mem.bytesToValue(Value, self.serialized);
+                        return if (is_slice)
+                            std.mem.bytesAsSlice(std.meta.Elem(Value), self.serialized)
+                        else
+                            std.mem.bytesToValue(Value, self.serialized);
                     }
                 };
             };

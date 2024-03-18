@@ -55,3 +55,14 @@ pub fn tmpFile(allocator: std.mem.Allocator, options: struct {
 
     return error.AllTmpFilesBusy;
 }
+
+pub fn pluginDataDirPathZ(allocator: std.mem.Allocator, plugin_name: []const u8) ![:0]const u8 {
+    const known_path = try known_folders.getPath(allocator, .data) orelse return error.NoKnownDataDir;
+    defer allocator.free(known_path);
+
+    const dir_name = try allocator.alloc(u8, std.fs.base64_encoder.calcSize(plugin_name.len));
+    defer allocator.free(dir_name);
+    std.debug.assert(std.fs.base64_encoder.encode(dir_name, plugin_name).len == dir_name.len);
+
+    return std.fs.path.joinZ(allocator, &.{ known_path, "cizero", "plugins", dir_name });
+}

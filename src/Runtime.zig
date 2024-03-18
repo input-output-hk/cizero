@@ -60,6 +60,17 @@ pub const WasiConfig = struct {
     } = null,
     stdout: ?Stdio = null,
     stderr: ?Stdio = null,
+    preopens: std.ArrayHashMapUnmanaged([:0]const u8, [:0]const u8, struct {
+        const Inner = std.array_hash_map.StringContext;
+
+        pub fn hash(_: @This(), s: [:0]const u8) u32 {
+            return Inner.hash(.{}, s);
+        }
+
+        pub fn eql(_: @This(), a: [:0]const u8, b: [:0]const u8, b_index: usize) bool {
+            return Inner.eql(.{}, a, b, b_index);
+        }
+    }, true) = .{},
 
     pub const Stdio = union(enum) {
         inherit,
@@ -246,6 +257,14 @@ pub const WasiConfig = struct {
             },
         };
 
+        {
+            var iter = self.preopens.iterator();
+            while (iter.next()) |entry| {
+                try std.fs.cwd().makePath(entry.key_ptr.*);
+                if (!c.wasi_config_preopen_dir(wasi_config, entry.key_ptr.*, entry.value_ptr.*)) return error.WasiFileNotFound;
+            }
+        }
+
         return wasi_config;
     }
 };
@@ -372,19 +391,37 @@ pub fn init(
 }
 
 fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
     var new_wasi_config = wasi_config;
 
-    var args: ?[][]const u8 = null;
-    defer if (args) |a| self.allocator.free(a);
-    {
-        const default_args: []const []const u8 = &.{self.plugin_name};
-        new_wasi_config.argv = if (new_wasi_config.argv) |argv| blk: {
-            args = try self.allocator.alloc([]const u8, default_args.len + argv.len);
-            @memcpy(args.?[0..default_args.len], default_args);
-            @memcpy(args.?[default_args.len..], argv);
-            break :blk args.?;
-        } else default_args;
-    }
+    new_wasi_config.argv = argv: {
+        const default: []const []const u8 = &.{self.plugin_name};
+        if (new_wasi_config.argv) |argv| {
+            const args = try allocator.alloc([]const u8, default.len + argv.len);
+            @memcpy(args[0..default.len], default);
+            @memcpy(args[default.len..], argv);
+            break :argv args;
+        }
+        break :argv default;
+    };
+
+    new_wasi_config.preopens = preopens: {
+        var preopens = @TypeOf(new_wasi_config.preopens){};
+
+        {
+            var iter = new_wasi_config.preopens.iterator();
+            while (iter.next()) |entry|
+                try preopens.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+        }
+
+        try preopens.put(allocator, try fs.pluginDataDirPathZ(allocator, self.plugin_name), "/");
+
+        break :preopens preopens;
+    };
 
     try handleError(
         "failed to configure WASI",
