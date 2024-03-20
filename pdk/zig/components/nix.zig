@@ -73,12 +73,12 @@ export fn @"pdk.nix.onBuild.callback"(
     const allocator = std.heap.wasm_allocator;
 
     var build_result: OnBuildResult = if (failed_deps_len == 0) blk: {
-        const outputs = allocator.alloc([]const u8, outputs_len) catch @panic("OOM");
+        const outputs = allocator.alloc([]const u8, outputs_len) catch |err| @panic(@errorName(err));
         for (outputs, outputs_ptr[0..outputs_len]) |*output, output_ptr|
             output.* = std.mem.span(output_ptr);
         break :blk .{ .outputs = outputs };
     } else blk: {
-        const deps_failed = allocator.alloc([]const u8, failed_deps_len) catch @panic("OOM");
+        const deps_failed = allocator.alloc([]const u8, failed_deps_len) catch |err| @panic(@errorName(err));
         for (deps_failed, failed_deps_ptr[0..failed_deps_len]) |*dep_failed, dep_failed_ptr|
             dep_failed.* = std.mem.span(dep_failed_ptr);
         break :blk .{ .deps_failed = deps_failed };
@@ -138,7 +138,7 @@ export fn @"pdk.nix.onEval.callback"(
         .{ .ifd_deps_failed = .{
             .ifd = std.mem.span(failed_ifd.?),
             .drvs = drvs: {
-                const drvs = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch @panic("OOM");
+                const drvs = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
                 for (drvs, fidp[0..failed_ifd_deps_len]) |*drv, dep|
                     drv.* = std.mem.span(dep);
                 break :drvs drvs;
@@ -184,10 +184,10 @@ pub fn onEvalBuild(
             if (result == .ok) {
                 const alloc = std.heap.wasm_allocator;
 
-                const installable_z = std.mem.concatWithSentinel(alloc, u8, &.{ result.ok, "^*" }, 0) catch @panic("OOM");
+                const installable_z = std.mem.concatWithSentinel(alloc, u8, &.{ result.ok, "^*" }, 0) catch |err| @panic(@errorName(err));
                 defer alloc.free(installable_z);
 
-                onBuild(UserData, alloc, buildCallback, ud_value, installable_z) catch @panic("OOM");
+                onBuild(UserData, alloc, buildCallback, ud_value, installable_z) catch |err| @panic(@errorName(err));
             }
         }
 
