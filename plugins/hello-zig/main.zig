@@ -10,27 +10,27 @@ const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
     pub export fn pdk_test_timeout_on_timestamp() void {
-        tryFn(pdk_tests.@"timeout.onTimestamp", .{}, {});
+        pdk_tests.@"timeout.onTimestamp"() catch |err| @panic(@errorName(err));
     }
 
     pub export fn pdk_test_timeout_on_cron() void {
-        tryFn(pdk_tests.@"timeout.onCron", .{}, {});
+        pdk_tests.@"timeout.onCron"() catch |err| @panic(@errorName(err));
     }
 
     pub export fn pdk_test_process_exec() void {
-        tryFn(pdk_tests.@"process.exec", .{}, {});
+        pdk_tests.@"process.exec"() catch |err| @panic(@errorName(err));
     }
 
     pub export fn pdk_test_http_on_webhook() void {
-        tryFn(pdk_tests.@"http.onWebhook", .{}, {});
+        pdk_tests.@"http.onWebhook"() catch |err| @panic(@errorName(err));
     }
 
     pub export fn pdk_test_nix_on_build() void {
-        tryFn(pdk_tests.@"nix.onBuild", .{}, {});
+        pdk_tests.@"nix.onBuild"() catch |err| @panic(@errorName(err));
     }
 
     pub export fn pdk_test_nix_on_eval() void {
-        tryFn(pdk_tests.@"nix.onEval", .{}, {});
+        pdk_tests.@"nix.onEval"() catch |err| @panic(@errorName(err));
     }
 };
 
@@ -259,17 +259,6 @@ const tests = struct {
     }
 };
 
-fn FnErrorUnionPayload(comptime Fn: type) type {
-    return @typeInfo(@typeInfo(Fn).Fn.return_type.?).ErrorUnion.payload;
-}
-
-fn tryFn(func: anytype, args: anytype, default: FnErrorUnionPayload(@TypeOf(func))) FnErrorUnionPayload(@TypeOf(func)) {
-    return @call(.auto, func, args) catch |err| {
-        std.log.err("{}\n", .{err});
-        return default;
-    };
-}
-
 fn runContainerFns(comptime container: type) !void {
     inline for (@typeInfo(container).Struct.decls) |decl| {
         const func = @field(container, decl.name);
@@ -279,17 +268,13 @@ fn runContainerFns(comptime container: type) !void {
 }
 
 fn isPdkTest() bool {
-    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch std.debug.panic("OOM", .{});
+    return std.process.hasEnvVar(allocator, "CIZERO_PDK_TEST") catch |err| @panic(@errorName(err));
 }
 
 pub fn main() u8 {
-    return tryFn(mainZig, .{}, 1);
-}
-
-fn mainZig() !u8 {
     if (!isPdkTest()) {
-        try runContainerFns(pdk_tests);
-        try runContainerFns(tests);
+        runContainerFns(pdk_tests) catch |err| @panic(@errorName(err));
+        runContainerFns(tests) catch |err| @panic(@errorName(err));
     }
     return 0;
 }
