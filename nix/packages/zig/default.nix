@@ -40,7 +40,19 @@
         };
         */
         let
-          zig = inputs.zig-overlay.packages.${system}.master-2024-03-17;
+          zig = inputs.zig-overlay.packages.${system}.master-2024-03-17.overrideAttrs (oldAttrs: {
+            installPhase = ''
+              ${oldAttrs.installPhase}
+              mv $out/bin/{zig,.zig-unwrapped}
+              cat > $out/bin/zig <<EOF
+              #! ${lib.getExe pkgs.dash}
+              exec ${lib.getExe pkgs.proot} \\
+                --bind=${pkgs.coreutils}/bin/env:/usr/bin/env \\
+                $out/bin/.zig-unwrapped "\$@"
+              EOF
+              chmod +x $out/bin/zig
+            '';
+          });
           # zig-overlay does not expose a setup hook, see https://github.com/mitchellh/zig-overlay/issues/33
           # TODO remove once https://github.com/mitchellh/zig-overlay/pull/37 is merged
           passthru.hook = pkgs.zig.hook.override {
