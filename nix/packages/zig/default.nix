@@ -160,7 +160,6 @@
                   args.nativeBuildInputs
                   or []
                   ++ [
-                    zig
                     (zig.hook.overrideAttrs {
                       zig_default_flags = [
                         # Not passing -Dcpu=baseline as that overrides our target options from build.zig.
