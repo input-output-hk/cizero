@@ -41,7 +41,12 @@ eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
     }
 }, std.hash_map.default_max_load_percentage) = .{},
 
-jobs_thread_pool: std.Thread.Pool = undefined,
+// If this is not null, it has been initialized so we need to deinit it.
+// Wrapped in an optional so that we know whether we need to deinit,
+// as calling `deinit()` without previously calling `init()` will result in a crash.
+// We cannot call `jobs_thread_pool.init()` in `@This().init()`
+// because `std.Thread.Pool` cannot be copied to return it.
+jobs_thread_pool: ?std.Thread.Pool = null,
 
 /// Only purpose is to reject new jobs during shutdown.
 running: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
@@ -133,7 +138,10 @@ pub fn deinit(self: *@This()) void {
     std.debug.assert(self.build_jobs.size == 0);
     self.build_jobs.deinit(self.allocator);
 
-    self.jobs_thread_pool.deinit();
+    if (self.jobs_thread_pool) |*pool| {
+        pool.deinit();
+        self.jobs_thread_pool = null;
+    }
 }
 
 pub const InitError = std.mem.Allocator.Error || std.Thread.SpawnError;
@@ -322,7 +330,12 @@ fn insertCallback(
 }
 
 pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError || zqlite.Error)!void {
-    try self.jobs_thread_pool.init(.{ .allocator = self.allocator });
+    {
+        std.debug.assert(self.jobs_thread_pool == null);
+        self.jobs_thread_pool = undefined;
+        errdefer self.jobs_thread_pool = null;
+        try self.jobs_thread_pool.?.init(.{ .allocator = self.allocator });
+    }
 
     self.running.store(true, .monotonic);
 
@@ -408,7 +421,7 @@ fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNa
     self.wait_group.start();
     errdefer self.wait_group.finish();
 
-    try self.jobs_thread_pool.spawn(runJob, .{ self, job });
+    try self.jobs_thread_pool.?.spawn(runJob, .{ self, job });
 
     return true;
 }
