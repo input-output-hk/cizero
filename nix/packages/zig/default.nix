@@ -146,7 +146,6 @@
                 inherit (info) version;
 
                 postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
-                  ln --symbolic ${finalAttrs.passthru.deps} "$ZIG_GLOBAL_CACHE_DIR"/p
                   cd ${lib.escapeShellArg (builtins.dirOf buildZigZon)}
                 '';
 
@@ -166,6 +165,9 @@
                       zig_default_flags = [
                         # Not passing -Dcpu=baseline as that overrides our target options from build.zig.
 
+                        "--system"
+                        finalAttrs.passthru.deps
+
                         (
                           if builtins.typeOf zigRelease == "bool"
                           then "-Drelease=${builtins.toJSON zigRelease}"
@@ -183,6 +185,7 @@
                     );
 
                     # builds the $ZIG_GLOBAL_CACHE_DIR/p directory
+                    # newer zig versions can consume this directly using --system
                     deps =
                       runCommand (with finalAttrs; "${pname}-${version}-deps") {
                         nativeBuildInputs = [zig];

@@ -39,6 +39,8 @@
             dontBuild = true;
             dontInstall = true;
 
+            zigRelease = false;
+
             preCheck = ''
               ${oldAttrs.preCheck}
 
@@ -49,7 +51,14 @@
             checkPhase = ''
               runHook preCheck
 
-              zig build test-pdk -Dplugin=${config.packages."cizero-plugin-hello-${pdk}"}/libexec/cizero/plugins/hello-${lib.escapeShellArg pdk}.wasm
+              local flagsArray=(
+                  "''${zigDefaultFlagsArray[@]}"
+                  $zigCheckFlags "''${zigCheckFlagsArray[@]}"
+              )
+
+              zig build test-pdk \
+                "''${flagsArray[@]}" \
+                -Dplugin=${config.packages."cizero-plugin-hello-${pdk}"}/libexec/cizero/plugins/hello-${lib.escapeShellArg pdk}.wasm
 
               runHook postCheck
             '';
