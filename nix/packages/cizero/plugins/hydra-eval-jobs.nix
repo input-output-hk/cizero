@@ -40,6 +40,9 @@
           meta.mainProgram = "hydra-eval-jobs";
         };
 
+        # Unfortunately we cannot use `pkgs.symlinkJoin` or similar for this
+        # because each executable in `/bin` is a wrapper that prefixes `$PATH` referring to `$out`.
+        # That is impossible to overwrite from another build so we need to make our change in the original build.
         hydra-unstable = pkgs.hydra-unstable.overrideAttrs (oldAttrs: {
           postInstall = ''
             ${oldAttrs.postInstall}

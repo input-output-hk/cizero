@@ -24,6 +24,7 @@
         nix/devShells.nix
         nix/formatter.nix
         nix/hydraJobs.nix
+        nix/nixosModules.nix
       ];
     };
 }
