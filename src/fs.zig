@@ -66,3 +66,10 @@ pub fn pluginDataDirPathZ(allocator: std.mem.Allocator, plugin_name: []const u8)
 
     return std.fs.path.joinZ(allocator, &.{ known_path, "cizero", "plugins", dir_name });
 }
+
+pub fn dbPathZ(allocator: std.mem.Allocator) ![:0]const u8 {
+    const known_path = try known_folders.getPath(allocator, .data) orelse return error.NoKnownDataDir;
+    defer allocator.free(known_path);
+
+    return std.fs.path.joinZ(allocator, &.{ known_path, "cizero", "cizero.sqlite" });
+}

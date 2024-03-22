@@ -6,6 +6,7 @@ const lib = @import("lib");
 const meta = lib.meta;
 
 pub const components = @import("components.zig");
+pub const fs = @import("fs.zig");
 pub const sql = @import("sql.zig");
 
 pub const Registry = @import("Registry.zig");

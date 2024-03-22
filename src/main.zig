@@ -14,19 +14,28 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) std.log.err("leaked memory", .{});
     const allocator = gpa.allocator();
 
-    const db_path = "cizero.sqlite";
+    cizero = cizero: {
+        const db_path = try Cizero.fs.dbPathZ(allocator);
+        defer allocator.free(db_path);
 
-    if (builtin.mode == .Debug) {
-        const cwd = std.fs.cwd();
-        cwd.deleteFile(db_path) catch {};
-        cwd.deleteFile(db_path ++ "-wal") catch {};
-        cwd.deleteFile(db_path ++ "-shm") catch {};
-    }
+        if (builtin.mode == .Debug) {
+            const db_wal_path = try std.mem.concat(allocator, u8, &.{ db_path, "-wal" });
+            defer allocator.free(db_wal_path);
 
-    cizero = try Cizero.init(allocator, .{
-        .path = db_path,
-        .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
-    });
+            const db_shm_path = try std.mem.concat(allocator, u8, &.{ db_path, "-shm" });
+            defer allocator.free(db_shm_path);
+
+            const cwd = std.fs.cwd();
+            cwd.deleteFile(db_path) catch {};
+            cwd.deleteFile(db_wal_path) catch {};
+            cwd.deleteFile(db_shm_path) catch {};
+        }
+
+        break :cizero try Cizero.init(allocator, .{
+            .path = db_path,
+            .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
+        });
+    };
     defer cizero.deinit();
 
     shell_fg = if (std.io.getStdIn().isTty()) true else null;

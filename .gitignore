@@ -3,6 +3,3 @@
 /result
 /zig-cache
 /zig-out
-/cizero.sqlite
-/cizero.sqlite-shm
-/cizero.sqlite-wal
