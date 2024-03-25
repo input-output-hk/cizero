@@ -65,7 +65,10 @@ pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbInitErro
             .flags = db_config.flags,
             .size = db_config.size,
             .on_connection = initDbConn,
-        }) catch return error.DbInitError,
+        }) catch |err| {
+            std.log.err("could not initialize database: {s}", .{@errorName(err)});
+            return error.DbInitError;
+        },
         .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
         .components = .{
             .http = http,
