@@ -6,6 +6,7 @@ const lib = @import("lib");
 const meta = lib.meta;
 const wasm = lib.wasm;
 
+const c = @import("../c.zig");
 const components = @import("../components.zig");
 const fs = @import("../fs.zig");
 const sql = @import("../sql.zig");
@@ -152,11 +153,11 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
         .registry = registry,
         .wait_group = wait_group,
         .build_hook = blk: {
-            var args = try std.process.argsWithAllocator(allocator);
-            defer args.deinit();
+            const exe_path = try c.whereami.getExecutablePath(allocator);
+            defer exe_path.deinit(allocator);
 
             break :blk try std.fs.path.join(allocator, &.{
-                std.fs.path.dirname(args.next().?).?,
+                std.fs.path.dirname(exe_path.path).?,
                 "..",
                 "libexec",
                 "cizero",

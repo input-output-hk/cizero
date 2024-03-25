@@ -20,6 +20,7 @@
       nativeBuildInputs = with pkgs; [
         wasmtime.dev
         sqlite.dev
+        whereami
       ];
 
       zigDepsHash = "sha256-v1FasDL2KOI2JXBYl3XThntVujqHmL7YyzroMTL+oxQ=";

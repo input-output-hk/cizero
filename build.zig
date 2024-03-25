@@ -121,6 +121,7 @@ fn configureModule(b: *Build, module: *Build.Module, link: bool, opts: anytype) 
         module.link_libc = true;
         module.linkSystemLibrary("wasmtime", .{});
         module.linkSystemLibrary("sqlite3", .{});
+        module.linkSystemLibrary("whereami", .{});
     }
 
     module.addImport("cron", b.dependency("cron", opts).module("cron"));
