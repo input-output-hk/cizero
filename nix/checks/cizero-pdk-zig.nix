@@ -14,7 +14,7 @@
 
       buildZigZon = "pdk/zig/build.zig.zon";
 
-      zigDepsHash = "sha256-AO8Z24TQ6uk5CkM6pOBxJxCjJIX+nhPuiQnpRi4UoWg=";
+      zigDepsHash = "sha256-I7ImYz7MMk8nLHW+ONWc+mOr8WsX3ui7uV1JjS+j1rQ=";
 
       nativeCheckInputs = with pkgs; [
         wasmtime

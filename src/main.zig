@@ -41,7 +41,7 @@ pub fn main() !void {
     shell_fg = if (std.io.getStdIn().isTty()) true else null;
 
     {
-        const sa = std.os.Sigaction{
+        const sa = std.posix.Sigaction{
             .handler = .{ .handler = struct {
                 fn handler(sig: c_int) callconv(.C) void {
                     std.log.info("graceful shutdown requested via signal {d}", .{sig});
@@ -52,11 +52,11 @@ pub fn main() !void {
                     cizero.stop();
                 }
             }.handler },
-            .mask = std.os.empty_sigset,
-            .flags = std.os.SA.RESETHAND,
+            .mask = std.posix.empty_sigset,
+            .flags = std.posix.SA.RESETHAND,
         };
-        try std.os.sigaction(std.os.SIG.TERM, &sa, null);
-        try std.os.sigaction(std.os.SIG.INT, &sa, null);
+        try std.posix.sigaction(std.posix.SIG.TERM, &sa, null);
+        try std.posix.sigaction(std.posix.SIG.INT, &sa, null);
     }
 
     errdefer {

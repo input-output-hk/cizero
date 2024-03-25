@@ -5,73 +5,35 @@
   ];
 
   perSystem = {
-    system,
     config,
     pkgs,
-    lib,
     ...
   }: {
     packages = {
       zig =
-        # Zig built from source reliably OOMs even when building the result of `zig init`.
-        # https://github.com/Cloudef/zig2nix and https://github.com/erikarvstedt/nix-zig-build
-        # are also affected so we resort to prebuilt binaries for now.
-        /*
         (pkgs.zig.overrideAttrs (oldAttrs: rec {
           version = src.rev;
 
           src = oldAttrs.src.override {
-            rev = "26e895e3dc4ff1b7ac235414a356840bccb4fb1e";
-            hash = "sha256-LmE03OUjKZnkqRIWISyN1XXns1JyyHooGhthTeFjfv8=";
+            rev = "31a7f22b800c091962726de2dd29f10a8eb25b78";
+            hash = "sha256-zVD+1MYrp5kgib7O0xygMPv6cOAdBK7ggTYojbZoOao=";
           };
 
           postPatch = ''
             substituteInPlace lib/std/zig/system.zig \
               --replace '"/usr/bin/env"' '"${pkgs.coreutils}/bin/env"'
           '';
-
-          # do not build docs as the doc tests fail for windows
-          outputs = ["out"];
-          postBuild = "";
-          postInstall = "";
         }))
         .override {
           llvmPackages = pkgs.llvmPackages_17;
         };
-        */
-        let
-          zig = inputs.zig-overlay.packages.${system}.master-2024-03-17.overrideAttrs (oldAttrs: {
-            installPhase = ''
-              ${oldAttrs.installPhase}
-              mv $out/bin/{zig,.zig-unwrapped}
-              cat > $out/bin/zig <<EOF
-              #! ${lib.getExe pkgs.dash}
-              exec ${lib.getExe pkgs.proot} \\
-                --bind=${pkgs.coreutils}/bin/env:/usr/bin/env \\
-                $out/bin/.zig-unwrapped "\$@"
-              EOF
-              chmod +x $out/bin/zig
-            '';
-          });
-          # zig-overlay does not expose a setup hook, see https://github.com/mitchellh/zig-overlay/issues/33
-          # TODO remove once https://github.com/mitchellh/zig-overlay/pull/37 is merged
-          passthru.hook = pkgs.zig.hook.override {
-            zig =
-              zig
-              // {
-                # Not accurate as this is meta from the version from nixpkgs but we need this to evaluate.
-                inherit (pkgs.zig) meta;
-              };
-          };
-        in
-          zig // passthru // {inherit passthru;};
 
       zls = config.overlayAttrs.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
           owner = "zigtools";
           repo = "zls";
-          rev = "fd3b5afe51ee57dbfba2db317e48a13abf741039";
-          hash = "sha256-n3fC1pem18qvRZsesjVLFxDvAzcK3W/FiWiao+pC2vQ=";
+          rev = "96eddd067615efd9a88fa596dfa4c75943302885";
+          hash = "sha256-mXdiiWofQEzOP4o8ZrS9NtZ3gzwxLkr/4dLOGYBrlTQ=";
           fetchSubmodules = true;
         };
 
@@ -90,7 +52,7 @@
           '')
         ];
 
-        zigDepsHash = "sha256-HYrdL9k7ITDemanT7vHVjEPWtjDDskvY6It83tdHbSk=";
+        zigDepsHash = "sha256-qhC7BvIVJMOEBdbJ9NaK+Xngjs+PfopwZimuPc58xhU=";
 
         zigBuildFlags = [
           "-Dversion_data_path=${passthru.langref}"
@@ -99,20 +61,7 @@
 
         zigRelease = "ReleaseSafe";
 
-        # We can do this the simple way again once zig build from source works, see above.
-        # passthru.langref = config.packages.zig.src + /doc/langref.html.in;
-        passthru.langref = pkgs.fetchurl {
-          url = let
-            commit = "f88a971e4ff211b78695609b4482fb886f30a1af";
-            commitPrefixFromPackage = builtins.head (builtins.match ''.*\+(.*)'' config.packages.zig.version);
-          in
-            assert lib.assertMsg (lib.hasPrefix commitPrefixFromPackage commit) ''
-              ZLS langref version does not match zig compiler version.
-              ZLS langref version:  ${commit}
-              Zig compiler version: ${commitPrefixFromPackage}
-            ''; "https://raw.githubusercontent.com/ziglang/zig/${commit}/doc/langref.html.in";
-          hash = "sha256-uFb2lRKsi5q9nemtPraBNWPTADMLB0YhH+O52lSoQDU=";
-        };
+        passthru.langref = config.packages.zig.src + /doc/langref.html.in;
 
         inherit (pkgs.zls) meta;
       };
