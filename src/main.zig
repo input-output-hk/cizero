@@ -88,9 +88,13 @@ fn registerPlugins(allocator: std.mem.Allocator) !void {
 
     _ = args.next(); // discard executable (not a plugin)
     while (args.next()) |arg| {
+        const name = std.fs.path.stem(arg);
+
+        errdefer |err| std.log.err("failed to register plugin {s}: {s}", .{ name, @errorName(err) });
+
         const wasm = try cwd.readFileAlloc(allocator, arg, std.math.maxInt(usize));
         defer allocator.free(wasm);
 
-        try cizero.registry.registerPlugin(std.fs.path.stem(arg), wasm);
+        try cizero.registry.registerPlugin(name, wasm);
     }
 }
