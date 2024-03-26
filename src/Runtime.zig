@@ -418,7 +418,10 @@ fn configureWasi(self: @This(), wasi_config: WasiConfig) !void {
                 try preopens.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
         }
 
-        try preopens.put(allocator, try fs.pluginDataDirPathZ(allocator, self.plugin_name), "/");
+        const plugin_data_path = try fs.pluginDataDirPathZ(allocator, self.plugin_name);
+        try std.fs.cwd().makePath(plugin_data_path);
+
+        try preopens.put(allocator, plugin_data_path, "/");
 
         break :preopens preopens;
     };

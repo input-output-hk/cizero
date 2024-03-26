@@ -18,6 +18,9 @@ pub fn main() !void {
         const db_path = try Cizero.fs.dbPathZ(allocator);
         defer allocator.free(db_path);
 
+        const cwd = std.fs.cwd();
+        if (std.fs.path.dirname(db_path)) |path| try cwd.makePath(path);
+
         if (builtin.mode == .Debug) {
             const db_wal_path = try std.mem.concat(allocator, u8, &.{ db_path, "-wal" });
             defer allocator.free(db_wal_path);
@@ -25,7 +28,6 @@ pub fn main() !void {
             const db_shm_path = try std.mem.concat(allocator, u8, &.{ db_path, "-shm" });
             defer allocator.free(db_shm_path);
 
-            const cwd = std.fs.cwd();
             cwd.deleteFile(db_path) catch {};
             cwd.deleteFile(db_wal_path) catch {};
             cwd.deleteFile(db_shm_path) catch {};
