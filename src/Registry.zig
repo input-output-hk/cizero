@@ -25,6 +25,20 @@ pub fn registerComponent(self: *@This(), component_impl: anytype) !void {
 
 /// Runs the plugin's main function if it is a new version.
 pub fn registerPlugin(self: *@This(), name: []const u8, wasm: []const u8) !void {
+    {
+        const conn = self.db_pool.acquire();
+        defer self.db_pool.release(conn);
+
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        if (try queries.Plugin.SelectByName(&.{.wasm}).query(arena.allocator(), conn, .{name})) |row|
+            if (std.mem.eql(u8, wasm, row.wasm.value)) {
+                std.log.info("not registering already registered plugin: {s}", .{name});
+                return;
+            };
+    }
+
     std.log.info("registering plugin: {s}", .{name});
 
     {
