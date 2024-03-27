@@ -55,20 +55,12 @@ fn onWebhook(
         } else |err| if (err != error.FileNotFound) return err;
     }
 
-    const expr = expr: {
-        const jobs_expr = "(" ++ @embedFile("jobs.nix") ++ ")";
-        var expr = try std.ArrayListUnmanaged(u8).initCapacity(allocator, jobs_expr.len + 3);
-        errdefer expr.deinit(allocator);
-        expr.appendSliceAssumeCapacity(jobs_expr);
-        expr.appendSliceAssumeCapacity(" \"");
-        try expr.appendSlice(allocator, flake);
-        expr.appendAssumeCapacity('"');
+    const flake_z = try allocator.dupeZ(u8, flake);
+    defer allocator.free(flake_z);
 
-        break :expr try expr.toOwnedSliceSentinel(allocator, 0);
-    };
-    defer allocator.free(expr);
+    const expr = @embedFile("jobs.nix");
 
-    if (cizero.nix.evalState(expr, .json) == null) try cizero.nix.onEval(
+    if (cizero.nix.evalState(flake_z, expr, .json) == null) try cizero.nix.onEval(
         cizero.user_data.Shallow([]const u8),
         allocator,
         struct {
@@ -80,6 +72,7 @@ fn onWebhook(
             }
         }.callback,
         file_name,
+        flake_z,
         expr,
         .json,
     );

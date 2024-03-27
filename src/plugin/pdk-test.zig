@@ -440,10 +440,14 @@ test "nix_on_eval" {
 
     self.cizero.components.nix.mock_start_job = meta.disclosure(MockStartJob.call, true);
 
-    const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
+    const flake = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e";
+    const expr = "flake: flake.legacyPackages.x86_64-linux.hello.meta.description";
 
     try self.expectEqualStdio("",
         \\void
+        \\
+    ++ flake ++
+        \\
         \\
     ++ expr ++
         \\
@@ -464,8 +468,8 @@ test "nix_on_eval" {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        const rows = try Cizero.sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .plugin, .function, .user_data })
-            .query(arena_allocator, conn, .{ expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
+        const rows = try Cizero.sql.queries.NixEvalCallback.SelectCallbackByFlakeAndExprAndFormat(&.{ .plugin, .function, .user_data })
+            .query(arena_allocator, conn, .{ flake, expr, @intFromEnum(Cizero.components.Nix.EvalFormat.raw) });
 
         try testing.expectEqual(1, rows.len);
 

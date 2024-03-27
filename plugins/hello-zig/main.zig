@@ -204,11 +204,12 @@ const pdk_tests = struct {
             }
         }.callback;
 
-        const expr = "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.meta.description";
+        const flake = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e";
+        const expr = "flake: flake.legacyPackages.x86_64-linux.hello.meta.description";
         const format = cizero.nix.EvalFormat.raw;
 
-        std.debug.print("{}\n{s}\n{s}\n", .{ {}, expr, @tagName(format) });
-        try cizero.nix.onEval(UserData, allocator, callback, {}, expr, format);
+        std.debug.print("{}\n{s}\n{s}\n{s}\n", .{ {}, flake, expr, @tagName(format) });
+        try cizero.nix.onEval(UserData, allocator, callback, {}, flake, expr, format);
     }
 };
 
@@ -251,7 +252,8 @@ const tests = struct {
             fns.evalCallback,
             fns.buildCallback,
             null,
-            "(builtins.getFlake github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e).legacyPackages.x86_64-linux.hello.drvPath",
+            "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e",
+            "flake: flake.legacyPackages.x86_64-linux.hello.drvPath",
         );
     }
 };

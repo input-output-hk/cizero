@@ -4,6 +4,7 @@ const zqlite = @import("zqlite");
 
 const lib = @import("lib");
 const meta = lib.meta;
+const nix = lib.nix;
 const wasm = lib.wasm;
 
 const c = @import("../c.zig");
@@ -38,7 +39,9 @@ eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
     }
 
     pub fn eql(_: @This(), a: Job.Eval, b: Job.Eval) bool {
-        return a.output_format == b.output_format and std.mem.eql(u8, a.expr, b.expr);
+        return a.output_format == b.output_format and
+            (if (a.flake != null and b.flake != null) std.mem.eql(u8, a.flake.?, b.flake.?) else a.flake == null and b.flake == null) and
+            std.mem.eql(u8, a.expr, b.expr);
     }
 }, std.hash_map.default_max_load_percentage) = .{},
 
@@ -79,24 +82,35 @@ pub const Job = union(enum) {
     };
 
     pub const Eval = struct {
+        flake: ?[]const u8,
         expr: []const u8,
         // Naming this just `format` collides with custom `format()` for `std.fmt.format()`,
         // leading to a hard to understand error saying `type 'EvalFormat' is not a function`.
         output_format: EvalFormat,
 
         pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+            if (self.flake) |f| allocator.free(f);
             allocator.free(self.expr);
         }
 
         pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try std.fmt.format(writer, "`nix eval{s} --expr {s}`", .{
-                switch (self.output_format) {
-                    .nix => "",
-                    .json => " --json",
-                    .raw => " --raw",
-                },
-                self.expr,
+            try writer.writeAll("`nix eval");
+            try writer.writeAll(switch (self.output_format) {
+                .nix => "",
+                .json => " --json",
+                .raw => " --raw",
             });
+
+            try writer.writeAll(if (self.flake != null) " --apply " else " --expr ");
+            try writer.writeAll(self.expr);
+
+            if (self.flake) |f| {
+                try writer.writeByte(' ');
+                try writer.writeAll(f);
+                try writer.writeAll("#.");
+            }
+
+            try writer.writeByte('`');
         }
 
         pub const Result = union(enum) {
@@ -145,9 +159,38 @@ pub fn deinit(self: *@This()) void {
     }
 }
 
-pub const InitError = std.mem.Allocator.Error || std.Thread.SpawnError;
+pub const InitError = std.mem.Allocator.Error || std.Thread.SpawnError || std.process.Child.RunError || error{IncompatibleNixVersion};
 
 pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
+    {
+        // we need #. flake syntax
+        const min_nix_version = "2.19.0";
+
+        const result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &.{
+                "nix",
+                "eval",
+                "--expr",
+                \\builtins.compareVersions builtins.nixVersion "
+                ++ min_nix_version ++
+                    \\" != -1
+                ,
+            },
+        });
+        defer {
+            allocator.free(result.stdout);
+            allocator.free(result.stderr);
+        }
+
+        const stdout_trimmed = std.mem.trim(u8, result.stdout, " \t\n\r");
+
+        if (!std.mem.eql(u8, stdout_trimmed, "true")) {
+            log.err("nix version too old, must be {s} or newer", .{min_nix_version});
+            return error.IncompatibleNixVersion;
+        }
+    }
+
     return .{
         .allocator = allocator,
         .registry = registry,
@@ -180,7 +223,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
         },
         .nix_on_eval = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.Value.Type{.i32} ** 5,
+                .params = &[_]wasm.Value.Type{.i32} ** 6,
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(onEval, self),
@@ -194,7 +237,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
         },
         .nix_eval_state = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.Value.Type{.i32} ** 2,
+                .params = &[_]wasm.Value.Type{.i32} ** 3,
                 .returns = &.{.i32},
             },
             .host_function = Runtime.HostFunction.init(evalState, self),
@@ -221,19 +264,21 @@ fn buildState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator,
 }
 
 fn evalState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 2);
+    std.debug.assert(inputs.len == 3);
     std.debug.assert(outputs.len == 1);
 
     const params = .{
-        .expr = wasm.span(memory, inputs[0]),
-        .output_format = @as(EvalFormat, @enumFromInt(inputs[1].i32)),
+        .flake = if (inputs[0].i32 != 0) wasm.span(memory, inputs[0]) else null,
+        .expr = wasm.span(memory, inputs[1]),
+        .output_format = @as(EvalFormat, @enumFromInt(inputs[2].i32)),
     };
 
     const state = state: {
         self.eval_jobs_mutex.lock();
         defer self.eval_jobs_mutex.unlock();
 
-        const state = self.eval_jobs.getPtr(Job.Eval{
+        const state = self.eval_jobs.getPtr(.{
+            .flake = params.flake,
             .expr = params.expr,
             .output_format = params.output_format,
         });
@@ -272,7 +317,7 @@ fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
 }
 
 fn onEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 5);
+    std.debug.assert(inputs.len == 6);
     std.debug.assert(outputs.len == 0);
 
     try components.rejectIfStopped(&self.running);
@@ -281,15 +326,20 @@ fn onEval(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allo
         .func_name = wasm.span(memory, inputs[0]),
         .user_data_ptr = @as([*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
-        .expr = wasm.span(memory, inputs[3]),
-        .output_format = @as(EvalFormat, @enumFromInt(inputs[4].i32)),
+        .flake = if (inputs[3].i32 != 0) wasm.span(memory, inputs[3]) else null,
+        .expr = wasm.span(memory, inputs[4]),
+        .output_format = @as(EvalFormat, @enumFromInt(inputs[5].i32)),
     };
 
     const job = job: {
         const expr = try self.allocator.dupe(u8, params.expr);
         errdefer self.allocator.free(expr);
 
+        const flake = if (params.flake) |f| try self.allocator.dupe(u8, f) else null;
+        errdefer if (flake) |f| self.allocator.free(f);
+
         break :job Job{ .eval = .{
+            .flake = flake,
             .expr = expr,
             .output_format = params.output_format,
         } };
@@ -324,7 +374,7 @@ fn insertCallback(
 
     switch (job) {
         .build => |build_job| try sql.queries.NixBuildCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), build_job.installable }),
-        .eval => |eval_job| try sql.queries.NixEvalCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.expr, @intFromEnum(eval_job.output_format) }),
+        .eval => |eval_job| try sql.queries.NixEvalCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.flake, eval_job.expr, @intFromEnum(eval_job.output_format) }),
     }
 
     try conn.commit();
@@ -368,12 +418,13 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            break :rows try sql.queries.NixEvalCallback.Select(&.{ .expr, .format })
+            break :rows try sql.queries.NixEvalCallback.Select(&.{ .flake, .expr, .format })
                 .query(arena.allocator(), conn, .{});
         };
 
         for (rows) |row| {
             const job = Job{ .eval = .{
+                .flake = row.flake,
                 .expr = row.expr,
                 .output_format = @enumFromInt(row.format),
             } };
@@ -485,7 +536,7 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
         const max_eval_attempts = 10;
         var eval_attempts: usize = 0;
         while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
-            var eval_state = try self.eval(job.expr, job.output_format);
+            var eval_state = try self.eval(job.flake, job.expr, job.output_format);
 
             {
                 errdefer eval_state.deinit();
@@ -631,8 +682,8 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :rows try sql.queries.NixEvalCallback.SelectCallbackByExprAndFormat(&.{ .id, .plugin, .function, .user_data })
-            .query(arena_allocator, conn, .{ job.expr, @intFromEnum(job.output_format) });
+        break :rows try sql.queries.NixEvalCallback.SelectCallbackByFlakeAndExprAndFormat(&.{ .id, .plugin, .function, .user_data })
+            .query(arena_allocator, conn, .{ job.flake, job.expr, @intFromEnum(job.output_format) });
     };
     if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 
@@ -701,14 +752,71 @@ pub const EvalState = union(enum) {
     }
 };
 
-fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
+fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalFormat) !EvalState {
+    if (flake) |f| {
+        inline for (.{ "/", ".", "path:", "file:" }) |prefix|
+            if (std.mem.startsWith(u8, f, prefix)) return .{
+                .failure = std.ArrayList(u8).fromOwnedSlice(
+                    self.allocator,
+                    try self.allocator.dupe(u8, "flake URL with prefix " ++ prefix ++ " not allowed"),
+                ),
+            };
+
+        if (std.mem.indexOfScalar(u8, f, '#') != null) return .{
+            .failure = std.ArrayList(u8).fromOwnedSlice(
+                self.allocator,
+                try self.allocator.dupe(u8, "flake URL must not have an attribute path"),
+            ),
+        };
+    }
+
     const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
     defer ifds_tmp.deinit(self.allocator);
+
+    const flake_ref = if (flake) |f| try std.mem.concat(self.allocator, u8, &.{ f, "#." }) else null;
+    defer if (flake_ref) |ref| self.allocator.free(ref);
+
+    const allowed_uris = if (flake) |f| allowed_uris: {
+        const locks = try nix.flakeMetadataLocks(self.allocator, f, .{});
+        defer locks.deinit();
+
+        var allowed_uris = std.ArrayListUnmanaged(u8){};
+        errdefer allowed_uris.deinit(self.allocator);
+
+        for (locks.value.nodes.map.values()) |node| switch (node) {
+            .root => {},
+            inline else => |n| {
+                var arena = std.heap.ArenaAllocator.init(self.allocator);
+                defer arena.deinit();
+
+                const url = try n.locked.toUrl(arena.allocator());
+                try url.writeToStream(.{
+                    .scheme = true,
+                    .authentication = true,
+                    .authority = true,
+                    .path = true,
+
+                    // Nix does not parse the query.
+                    // Instead it just does a prefix match
+                    // against the URL in question without its query.
+                    // That also means it is impossible to use `--allowed-uris`
+                    // to allow URLs like `github:foo/bar?host=example.com`.
+                    .query = false,
+                }, allowed_uris.writer(self.allocator));
+
+                try allowed_uris.appendSlice(self.allocator, " ");
+            },
+        };
+
+        break :allowed_uris try allowed_uris.toOwnedSlice(self.allocator);
+    } else null;
+    defer if (allowed_uris) |uris| self.allocator.free(uris);
 
     const args = try std.mem.concat(self.allocator, []const u8, &.{
         &.{
             "nix",
             "eval",
+            "--quiet",
             "--restrict-eval",
             "--allow-import-from-derivation",
             "--build-hook",
@@ -718,13 +826,20 @@ fn eval(self: @This(), expression: []const u8, format: EvalFormat) !EvalState {
             "--builders",
             ifds_tmp.path,
         },
+        if (allowed_uris) |uris| &.{
+            "--extra-allowed-uris",
+            uris,
+        } else &.{},
         switch (format) {
             .nix => &.{},
             .json => &.{"--json"},
             .raw => &.{"--raw"},
         },
-        &.{
-            "--quiet",
+        if (flake_ref) |ref| &.{
+            "--apply",
+            expression,
+            ref,
+        } else &.{
             "--expr",
             expression,
         },

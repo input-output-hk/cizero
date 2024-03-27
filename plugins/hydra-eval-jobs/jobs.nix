@@ -1,4 +1,4 @@
-flakeRef: let
+flake: let
   job = let
     # mostly a port of `queryMetaStrings()` from the original `hydra-eval-jobs`
     # https://github.com/NixOS/hydra/blob/8f56209bd6f3b9ec53d50a23812a800dee7a1969/src/hydra-eval-jobs/hydra-eval-jobs.cc#L92
@@ -85,11 +85,9 @@ flakeRef: let
     in
       internal [] attrs;
 
-    jobAttrs = let
-      flake = builtins.getFlake flakeRef;
-    in
-      flake.outputs.hydraJobs
-      or (flake.outputs.checks or throw "flake '${flake}' does not provide any Hydra jobs or checks");
+    jobAttrs =
+      flake.hydraJobs
+      or (flake.checks or throw "flake does not provide any Hydra jobs or checks");
 
     # copied from nixpkgs
     isDerivation = v: v.type or null == "derivation";

@@ -633,6 +633,7 @@ pub const queries = struct {
 
     pub const NixEvalCallback = struct {
         callback: i64,
+        flake: ?[]const u8,
         expr: []const u8,
         format: i64,
 
@@ -657,7 +658,7 @@ pub const queries = struct {
             );
         }
 
-        pub fn SelectCallbackByExprAndFormat(comptime columns: []const Callback.Column) type {
+        pub fn SelectCallbackByFlakeAndExprAndFormat(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(Callback.table, columns) ++
@@ -677,6 +678,8 @@ pub const queries = struct {
                 ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\WHERE "
+                ++ @tagName(Column.flake) ++
+                    \\" IS ? AND "
                 ++ @tagName(Column.expr) ++
                     \\" = ? AND "
                 ++ @tagName(Column.format) ++
@@ -684,7 +687,7 @@ pub const queries = struct {
             ,
                 true,
                 meta.SubStruct(Callback, columns),
-                struct { []const u8, i64 },
+                struct { ?[]const u8, []const u8, i64 },
             );
         }
     };

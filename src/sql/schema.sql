@@ -30,6 +30,7 @@ CREATE TABLE "nix_build_callback" (
 
 CREATE TABLE "nix_eval_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
+	"flake" TEXT,
 	"expr" TEXT NOT NULL,
 	"format" INTEGER NOT NULL CHECK ("format" BETWEEN 0 AND 2)
 ) STRICT;
