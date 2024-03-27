@@ -2,9 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 const cizero = @import("cizero");
-const lib = @import("lib");
-
-const root = @This();
 
 const allocator = std.heap.wasm_allocator;
 
