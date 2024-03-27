@@ -52,6 +52,7 @@ pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size
 
 pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbInitError} || zqlite.Error || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
+    errdefer allocator.destroy(self);
 
     var http = try components.Http.init(allocator, &self.registry, &self.wait_group);
     errdefer http.deinit();
