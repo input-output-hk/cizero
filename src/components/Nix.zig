@@ -26,6 +26,7 @@ registry: *const Registry,
 wait_group: *std.Thread.WaitGroup,
 
 build_hook: []const u8,
+allowed_uris: []const []const u8,
 
 build_jobs_mutex: std.Thread.Mutex = .{},
 build_jobs: std.StringHashMapUnmanaged(void) = .{},
@@ -147,6 +148,9 @@ pub const Job = union(enum) {
 pub fn deinit(self: *@This()) void {
     self.allocator.free(self.build_hook);
 
+    for (self.allowed_uris) |allowed_uri| self.allocator.free(allowed_uri);
+    self.allocator.free(self.allowed_uris);
+
     std.debug.assert(self.eval_jobs.size == 0);
     self.eval_jobs.deinit(self.allocator);
 
@@ -159,10 +163,17 @@ pub fn deinit(self: *@This()) void {
     }
 }
 
-pub const InitError = std.mem.Allocator.Error || std.Thread.SpawnError || std.process.Child.RunError || error{IncompatibleNixVersion};
+pub const InitError = error{
+    IncompatibleNixVersion,
+    CouldNotReadNixConfig,
+} ||
+    std.mem.Allocator.Error ||
+    std.Thread.SpawnError ||
+    std.process.Child.RunError ||
+    std.json.ParseError(std.json.Scanner);
 
 pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
-    {
+    if (!builtin.is_test) {
         // we need #. flake syntax
         const min_nix_version = "2.19.0";
 
@@ -191,24 +202,71 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
         }
     }
 
+    const build_hook = build_hook: {
+        const exe_path = try c.whereami.getExecutablePath(allocator);
+        defer exe_path.deinit(allocator);
+
+        break :build_hook try std.fs.path.join(allocator, &.{
+            std.fs.path.dirname(exe_path.path).?,
+            "..",
+            "libexec",
+            "cizero",
+            "components",
+            name,
+            "build-hook",
+        });
+    };
+    errdefer allocator.free(build_hook);
+
+    const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
+        const result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .max_output_bytes = 100 * 1024,
+            .argv = &.{ "nix", "show-config", "--json" },
+        });
+        defer {
+            allocator.free(result.stdout);
+            allocator.free(result.stderr);
+        }
+
+        if (result.term != .Exited or result.term.Exited != 0) {
+            log.err("could not read nix config: {}\n{s}", .{ result.term, result.stderr });
+            return error.CouldNotReadNixConfig;
+        }
+
+        const json_options = .{ .ignore_unknown_fields = true };
+
+        const json = try std.json.parseFromSlice(struct {
+            @"allowed-uris": struct {
+                value: []const []const u8,
+            },
+        }, allocator, result.stdout, json_options);
+        defer json.deinit();
+
+        var allowed_uris = try std.ArrayListUnmanaged([]const u8).initCapacity(allocator, json.value.@"allowed-uris".value.len);
+        errdefer {
+            for (allowed_uris.items) |allowed_uri| allocator.free(allowed_uri);
+            allowed_uris.deinit(allocator);
+        }
+
+        for (json.value.@"allowed-uris".value) |allowed_uri|
+            allowed_uris.appendAssumeCapacity(try allocator.dupe(u8, allowed_uri));
+
+        log.debug("allowed URIs: {s}", .{allowed_uris.items});
+
+        break :allowed_uris try allowed_uris.toOwnedSlice(allocator);
+    };
+    errdefer {
+        for (allowed_uris) |allowed_uri| allocator.free(allowed_uri);
+        allocator.free(allowed_uris);
+    }
+
     return .{
         .allocator = allocator,
         .registry = registry,
         .wait_group = wait_group,
-        .build_hook = blk: {
-            const exe_path = try c.whereami.getExecutablePath(allocator);
-            defer exe_path.deinit(allocator);
-
-            break :blk try std.fs.path.join(allocator, &.{
-                std.fs.path.dirname(exe_path.path).?,
-                "..",
-                "libexec",
-                "cizero",
-                "components",
-                name,
-                "build-hook",
-            });
-        },
+        .build_hook = build_hook,
+        .allowed_uris = allowed_uris,
     };
 }
 
@@ -755,12 +813,22 @@ pub const EvalState = union(enum) {
 fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalFormat) !EvalState {
     if (flake) |f| {
         inline for (.{ "/", ".", "path:", "file:" }) |prefix|
-            if (std.mem.startsWith(u8, f, prefix)) return .{
-                .failure = std.ArrayList(u8).fromOwnedSlice(
-                    self.allocator,
-                    try self.allocator.dupe(u8, "flake URL with prefix " ++ prefix ++ " not allowed"),
-                ),
-            };
+            if (std.mem.startsWith(u8, f, prefix))
+                for (self.allowed_uris) |allowed_uri| {
+                    // XXX precisly check by the actual rules, see `nix show-config --json | jq '."allowed-uris".description'`
+                    if (std.mem.startsWith(u8, f, allowed_uri)) {
+                        log.debug("flake URL {s} allowed because of allowed URI {s}", .{ f, allowed_uri });
+                        break;
+                    }
+                } else {
+                    log.debug("flake URL {s} denied", .{f});
+                    return .{
+                        .failure = std.ArrayList(u8).fromOwnedSlice(
+                            self.allocator,
+                            try self.allocator.dupe(u8, "flake URL with prefix \"" ++ prefix ++ "\" must be in allowed-uris to be allowed"),
+                        ),
+                    };
+                };
 
         if (std.mem.indexOfScalar(u8, f, '#') != null) return .{
             .failure = std.ArrayList(u8).fromOwnedSlice(
@@ -776,40 +844,27 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     const flake_ref = if (flake) |f| try std.mem.concat(self.allocator, u8, &.{ f, "#." }) else null;
     defer if (flake_ref) |ref| self.allocator.free(ref);
 
-    const allowed_uris = if (flake) |f| allowed_uris: {
-        const locks = try nix.flakeMetadataLocks(self.allocator, f, .{});
-        defer locks.deinit();
+    const allowed_uris = if (flake) |f|
+        if (try nix.flakeMetadataLocks(self.allocator, f, .{})) |locks| allowed_uris: {
+            defer locks.deinit();
 
-        var allowed_uris = std.ArrayListUnmanaged(u8){};
-        errdefer allowed_uris.deinit(self.allocator);
+            var allowed_uris = std.ArrayListUnmanaged(u8){};
+            errdefer allowed_uris.deinit(self.allocator);
 
-        for (locks.value.nodes.map.values()) |node| switch (node) {
-            .root => {},
-            inline else => |n| {
-                var arena = std.heap.ArenaAllocator.init(self.allocator);
-                defer arena.deinit();
+            const allowed_uris_writer = allowed_uris.writer(self.allocator);
 
-                const url = try n.locked.toUrl(arena.allocator());
-                try url.writeToStream(.{
-                    .scheme = true,
-                    .authentication = true,
-                    .authority = true,
-                    .path = true,
+            for (locks.value.nodes.map.values()) |node| switch (node) {
+                .root => {},
+                inline else => |n| {
+                    try n.locked.writeAllowedUri(self.allocator, allowed_uris_writer);
+                    try allowed_uris_writer.writeByte(' ');
+                },
+            };
 
-                    // Nix does not parse the query.
-                    // Instead it just does a prefix match
-                    // against the URL in question without its query.
-                    // That also means it is impossible to use `--allowed-uris`
-                    // to allow URLs like `github:foo/bar?host=example.com`.
-                    .query = false,
-                }, allowed_uris.writer(self.allocator));
-
-                try allowed_uris.appendSlice(self.allocator, " ");
-            },
-        };
-
-        break :allowed_uris try allowed_uris.toOwnedSlice(self.allocator);
-    } else null;
+            break :allowed_uris try allowed_uris.toOwnedSlice(self.allocator);
+        } else null
+    else
+        null;
     defer if (allowed_uris) |uris| self.allocator.free(uris);
 
     const args = try std.mem.concat(self.allocator, []const u8, &.{
@@ -819,6 +874,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
             "--quiet",
             "--restrict-eval",
             "--allow-import-from-derivation",
+            "--no-write-lock-file",
             "--build-hook",
             self.build_hook,
             "--max-jobs",

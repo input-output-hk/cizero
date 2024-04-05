@@ -1,6 +1,7 @@
 parts @ {inputs, ...}: {
   perSystem = perSystem @ {
     system,
+    inputs',
     pkgs,
     ...
   }: {
@@ -18,7 +19,22 @@ parts @ {inputs, ...}: {
         config,
         pkgs,
         ...
-      }: {
+      }: let
+        flake = pkgs.writeTextDir "flake.nix" ''
+          {
+            outputs = _: {
+              hydraJobs.trivial = builtins.derivation {
+                name = "trivial";
+                system = "${system}";
+                builder = "/bin/sh";
+                allowSubstitutes = false;
+                preferLocalBuild = true;
+                args = ["-c" "echo success > $out; exit 0"];
+              };
+            };
+          }
+        '';
+      in {
         imports = [parts.config.flake.nixosModules.cizero];
 
         nixpkgs.overlays = [parts.config.flake.overlays.cizero-plugin-hydra-eval-jobs];
@@ -28,22 +44,7 @@ parts @ {inputs, ...}: {
             (pkgs.writeShellApplication {
               name = "create-trivial-project.sh";
               runtimeInputs = with pkgs; [curl];
-              text = let
-                flake = pkgs.writeTextDir "flake.nix" ''
-                  {
-                    outputs = _: {
-                      hydraJobs.trivial = builtins.derivation {
-                        name = "trivial";
-                        system = "${system}";
-                        builder = "/bin/sh";
-                        allowSubstitutes = false;
-                        preferLocalBuild = true;
-                        args = ["-c" "echo success > $out; exit 0"];
-                      };
-                    };
-                  }
-                '';
-              in ''
+              text = ''
                 URL=http://localhost:${toString config.services.hydra.port}
                 PROJECT_NAME=trivial
                 JOBSET_NAME=trivial
@@ -91,7 +92,13 @@ parts @ {inputs, ...}: {
             jq
           ]);
 
-        nix.settings.experimental-features = ["nix-command" "flakes"];
+        nix = {
+          package = inputs'.nix.packages.default;
+          settings = {
+            experimental-features = ["nix-command" "flakes"];
+            allowed-uris = ["path:${flake}"];
+          };
+        };
 
         services = {
           cizero = {
