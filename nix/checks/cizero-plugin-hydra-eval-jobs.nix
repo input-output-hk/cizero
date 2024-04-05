@@ -21,6 +21,8 @@ parts @ {inputs, ...}: {
       }: {
         imports = [parts.config.flake.nixosModules.cizero];
 
+        nixpkgs.overlays = [parts.config.flake.overlays.cizero-plugin-hydra-eval-jobs];
+
         environment.systemPackages =
           [
             (pkgs.writeShellApplication {
@@ -101,7 +103,6 @@ parts @ {inputs, ...}: {
 
           hydra = {
             enable = true;
-            package = perSystem.config.packages.cizero-plugin-hydra-eval-jobs.hydra-unstable;
             hydraURL = "http://example.com";
             notificationSender = "hydra@example.com";
           };

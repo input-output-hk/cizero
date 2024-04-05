@@ -22,6 +22,7 @@
         nix/checks
         nix/packages
         nix/devShells.nix
+        nix/overlays.nix
         nix/formatter.nix
         nix/hydraJobs.nix
         nix/nixosModules.nix

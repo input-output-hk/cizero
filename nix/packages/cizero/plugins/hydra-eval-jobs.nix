@@ -27,28 +27,16 @@
         export HOME="$TMPDIR"
       '';
 
-      passthru = rec {
-        hydra-eval-jobs = config.overlayAttrs.buildZigPackage {
-          src = inputs.inclusive.lib.inclusive ../../../.. [
-            ../../../../plugins/hydra-eval-jobs
-          ];
+      passthru.hydra-eval-jobs = config.overlayAttrs.buildZigPackage {
+        src = inputs.inclusive.lib.inclusive ../../../.. [
+          ../../../../plugins/hydra-eval-jobs
+        ];
 
-          buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
+        buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
 
-          zigDepsHash = "sha256-Ftvvp2X7mkjboMTUbQ+/oPW2AEmmcq7uZlHa2KiZSo4=";
+        zigDepsHash = "sha256-Ftvvp2X7mkjboMTUbQ+/oPW2AEmmcq7uZlHa2KiZSo4=";
 
-          meta.mainProgram = "hydra-eval-jobs";
-        };
-
-        # Unfortunately we cannot use `pkgs.symlinkJoin` or similar for this
-        # because each executable in `/bin` is a wrapper that prefixes `$PATH` referring to `$out`.
-        # That is impossible to overwrite from another build so we need to make our change in the original build.
-        hydra-unstable = pkgs.hydra-unstable.overrideAttrs (oldAttrs: {
-          postInstall = ''
-            ${oldAttrs.postInstall}
-            ln --symbolic --force ${lib.getExe hydra-eval-jobs} $out/bin/hydra-eval-jobs
-          '';
-        });
+        meta.mainProgram = "hydra-eval-jobs";
       };
     };
   };
