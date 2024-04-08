@@ -570,7 +570,10 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
 
     self.removeBuildJob(job);
 
-    try self.runBuildJobCallbacks(job, result);
+    self.runBuildJobCallbacks(job, result) catch |err| {
+        log.err("failed to run callbacks for job {}: {s}", .{ job, @errorName(err) });
+        return err;
+    };
 }
 
 fn removeBuildJob(self: *@This(), job: Job.Build) void {
@@ -594,7 +597,10 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
         const max_eval_attempts = 10;
         var eval_attempts: usize = 0;
         while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
-            var eval_state = try self.eval(job.flake, job.expr, job.output_format);
+            var eval_state = self.eval(job.flake, job.expr, job.output_format) catch |err| {
+                log.err("failed to evaluate job {}: {s}", .{ job, @errorName(err) });
+                return err;
+            };
 
             {
                 errdefer eval_state.deinit();
@@ -620,7 +626,10 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                             const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
                             defer self.allocator.free(installable);
 
-                            break :result try build(self.allocator, installable);
+                            break :result build(self.allocator, installable) catch |err| {
+                                log.err("failed to build IFD {s} for job {}: {s}", .{ ifd.*, job, @errorName(err) });
+                                return err;
+                            };
                         };
                         errdefer build_result.deinit(self.allocator);
 
@@ -653,7 +662,10 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
     // same as last `eval_state` from loop above, owns memory referenced by `result`
     defer eval_state.deinit();
 
-    try self.runEvalJobCallbacks(job, result);
+    self.runEvalJobCallbacks(job, result) catch |err| {
+        log.err("failed to run callbacks for job {}: {s}", .{ job, @errorName(err) });
+        return err;
+    };
 }
 
 fn removeEvalJob(self: *@This(), job: Job.Eval) EvalState {
