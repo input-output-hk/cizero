@@ -3,6 +3,7 @@ const std = @import("std");
 const zqlite = @import("zqlite");
 
 const lib = @import("lib");
+const fmt = lib.fmt;
 const meta = lib.meta;
 const nix = lib.nix;
 const wasm = lib.wasm;
@@ -103,7 +104,7 @@ pub const Job = union(enum) {
             });
 
             try writer.writeAll(if (self.flake != null) " --apply " else " --expr ");
-            try writer.writeAll(self.expr);
+            try writer.print("{s}", .{fmt.oneline(self.expr)});
 
             if (self.flake) |f| {
                 try writer.writeByte(' ');
@@ -138,9 +139,9 @@ pub const Job = union(enum) {
         }
     }
 
-    pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), comptime fmt_: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         try switch (self) {
-            inline else => |case| case.format(fmt, options, writer),
+            inline else => |case| case.format(fmt_, options, writer),
         };
     }
 };
