@@ -554,7 +554,7 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
     const result = result: {
         errdefer self.removeBuildJob(job);
 
-        const result = try build(self.allocator, job.installable);
+        const result = try build(self.allocator, &.{job.installable});
         errdefer result.deinit(self.allocator);
 
         switch (result) {
@@ -627,7 +627,7 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                             const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
                             defer self.allocator.free(installable);
 
-                            break :result build(self.allocator, installable) catch |err| {
+                            break :result build(self.allocator, &.{installable}) catch |err| {
                                 log.err("failed to build IFD {s} for job {}: {s}", .{ ifd.*, job, @errorName(err) });
                                 return err;
                             };
@@ -983,20 +983,25 @@ pub const BuildResult = union(enum) {
     }
 };
 
-fn build(allocator: std.mem.Allocator, installable: []const u8) !BuildResult {
-    log.debug("building {s}", .{installable});
+fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildResult {
+    log.debug("building {s}", .{installables});
 
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &.{
+    const argv = try std.mem.concat(allocator, []const u8, &.{
+        &.{
             "nix",
             "build",
             "--restrict-eval",
             "--no-link",
             "--print-out-paths",
             "--quiet",
-            installable,
         },
+        installables,
+    });
+    defer allocator.free(argv);
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
     });
     defer {
         allocator.free(result.stdout);
@@ -1068,17 +1073,17 @@ fn build(allocator: std.mem.Allocator, installable: []const u8) !BuildResult {
                     drv.* = try allocator.dupe(u8, line[parts[0].len..part2_index]);
                 }
 
-                log.debug("dependencies {s} of build {s} failed", .{ drvs, installable });
+                log.debug("dependencies {s} of build {s} failed", .{ drvs, installables });
 
                 free_drvs = false;
                 return .{ .deps_failed = drvs };
             },
-            else => log.debug("build of {s} exited with {d}", .{ installable, exited }),
+            else => log.debug("build of {s} exited with {d}", .{ installables, exited }),
         },
-        else => |term| log.debug("build of {s} terminated with {}", .{ installable, term }),
+        else => |term| log.debug("build of {s} terminated with {}", .{ installables, term }),
     }
 
-    if (outputs.items.len == 0) log.debug("build of {s} failed: {s}", .{ installable, result.stderr });
+    if (outputs.items.len == 0) log.debug("build of {s} failed: {s}", .{ installables, result.stderr });
 
     return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }
