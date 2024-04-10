@@ -68,23 +68,36 @@ pub fn onBuild(
 export fn @"pdk.nix.onBuild.callback"(
     callback_data_ptr: [*]const u8,
     callback_data_len: usize,
-    outputs_ptr: [*]const [*:0]const u8,
+    outputs_ptr: ?[*]const [*:0]const u8,
     outputs_len: usize,
-    failed_deps_ptr: [*]const [*:0]const u8,
-    failed_deps_len: usize,
+    failed_builds_ptr: ?[*]const [*:0]const u8,
+    failed_builds_len: usize,
+    failed_dependents_ptr: ?[*]const [*:0]const u8,
+    failed_dependents_len: usize,
 ) void {
+    std.debug.assert((outputs_len == 0) == (failed_builds_len != 0 or failed_dependents_len != 0));
+
     const allocator = std.heap.wasm_allocator;
 
-    var build_result: OnBuildResult = if (failed_deps_len == 0) blk: {
+    var build_result: OnBuildResult = if (outputs_len != 0) blk: {
         const outputs = allocator.alloc([]const u8, outputs_len) catch |err| @panic(@errorName(err));
-        for (outputs, outputs_ptr[0..outputs_len]) |*output, output_ptr|
+        for (outputs, outputs_ptr.?[0..outputs_len]) |*output, output_ptr|
             output.* = std.mem.span(output_ptr);
+
         break :blk .{ .outputs = outputs };
     } else blk: {
-        const deps_failed = allocator.alloc([]const u8, failed_deps_len) catch |err| @panic(@errorName(err));
-        for (deps_failed, failed_deps_ptr[0..failed_deps_len]) |*dep_failed, dep_failed_ptr|
-            dep_failed.* = std.mem.span(dep_failed_ptr);
-        break :blk .{ .deps_failed = deps_failed };
+        const builds = allocator.alloc([]const u8, failed_builds_len) catch |err| @panic(@errorName(err));
+        for (builds, failed_builds_ptr.?[0..failed_builds_len]) |*build, drv_ptr|
+            build.* = std.mem.span(drv_ptr);
+
+        const dependents = allocator.alloc([]const u8, failed_dependents_len) catch |err| @panic(@errorName(err));
+        for (dependents, failed_dependents_ptr.?[0..failed_dependents_len]) |*dependent, drv_ptr|
+            dependent.* = std.mem.span(drv_ptr);
+
+        break :blk .{ .failed = .{
+            .builds = builds,
+            .dependents = dependents,
+        } };
     };
     defer build_result.deinit(allocator);
 

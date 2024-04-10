@@ -556,11 +556,8 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
         errdefer result.deinit(self.allocator);
 
         switch (result) {
-            .outputs => |outputs| if (outputs.len == 0)
-                log.debug("job {} failed", .{job})
-            else
-                log.debug("job {} produced outputs {s}", .{ job, outputs }),
-            .deps_failed => |drvs| log.debug("dependencies {s} of job {} failed", .{ drvs, job }),
+            .outputs => |outputs| log.debug("job {} produced outputs {s}", .{ job, outputs }),
+            .failed => |failed| log.debug("builds {s} and dependents {s} of job {} failed", .{ failed.builds, failed.dependents, job }),
         }
 
         break :result result;
@@ -583,6 +580,10 @@ fn removeBuildJob(self: *@This(), job: Job.Build) void {
 }
 
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     const result: Job.Eval.Result = eval: {
         errdefer {
             var eval_state = self.removeEvalJob(job);
@@ -611,52 +612,72 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                 .ok => |evaluated| break :eval .{ .ok = evaluated.items },
                 .failure => |msg| break :eval .{ .failed = msg.items },
                 .ifds => |ifds| {
+                    // This is `ifds` as a list, only really needed for logging.
+                    var ifds_all = try std.ArrayListUnmanaged([]const u8).initCapacity(self.allocator, ifds.count());
+                    defer ifds_all.deinit(self.allocator);
+
                     var ifds_failed = std.ArrayListUnmanaged([]const u8){};
-                    errdefer ifds_failed.deinit(self.allocator);
+                    errdefer ifds_failed.deinit(arena_allocator);
 
                     var ifd_deps_failed = std.ArrayListUnmanaged([]const u8){};
-                    errdefer ifd_deps_failed.deinit(self.allocator);
+                    errdefer ifd_deps_failed.deinit(arena_allocator);
 
-                    // XXX build all IFDs in parallel
-                    var iter = ifds.iterator();
-                    while (iter.next()) |ifd| {
-                        std.debug.assert(std.mem.endsWith(u8, ifd.*, ".drv"));
-
-                        const build_result = result: {
-                            const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
-                            defer self.allocator.free(installable);
-
-                            break :result build(self.allocator, &.{installable}) catch |err| {
-                                log.err("failed to build IFD {s} for job {}: {s}", .{ ifd.*, job, @errorName(err) });
-                                return err;
-                            };
-                        };
-                        errdefer build_result.deinit(self.allocator);
-
-                        switch (build_result) {
-                            .outputs => |outputs| {
-                                defer build_result.deinit(self.allocator);
-
-                                if (outputs.len == 0) {
-                                    log.debug("could not build IFD {s} for job {}", .{ ifd.*, job });
-                                    try ifds_failed.append(self.allocator, ifd.*);
-                                } else log.debug("built IFD {s} producing {s} for job {}", .{ ifd.*, build_result.outputs, job });
-                            },
-                            .deps_failed => |drvs| {
-                                log.debug("could not build dependencies {s} of IFD {s} for job {}", .{ drvs, ifd.*, job });
-                                try ifds_failed.append(self.allocator, ifd.*);
-                                try ifd_deps_failed.appendSlice(self.allocator, drvs);
-                            },
+                    const build_result = build_result: {
+                        var installables = try std.ArrayListUnmanaged([]const u8).initCapacity(self.allocator, ifds.count());
+                        defer {
+                            for (installables.items) |installable| self.allocator.free(installable);
+                            installables.deinit(self.allocator);
                         }
+
+                        var iter = ifds.iterator();
+                        while (iter.next()) |ifd| {
+                            if (std.debug.runtime_safety) std.debug.assert(std.mem.endsWith(u8, ifd.*, ".drv"));
+
+                            try ifds_all.append(self.allocator, ifd.*);
+
+                            // XXX improve `build-hook` to return the needed outputs so that we don't have to build them all here
+                            const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
+                            errdefer self.allocator.free(installable);
+
+                            try installables.append(self.allocator, installable);
+                        }
+
+                        break :build_result build(arena_allocator, installables.items) catch |err| {
+                            log.err("failed to build IFDs {s} for job {}: {s}", .{ ifds_all.items, job, @errorName(err) });
+                            return err;
+                        };
+                    };
+                    errdefer build_result.deinit(arena_allocator);
+
+                    switch (build_result) {
+                        .outputs => |outputs| {
+                            defer build_result.deinit(arena_allocator);
+                            log.debug("built IFDs {s} producing {s} for job {}", .{ ifds_all.items, outputs, job });
+                        },
+                        .failed => |failed| inline for (.{ failed.builds, failed.dependents }) |drvs|
+                            for (drvs) |drv|
+                                for (ifds_all.items) |ifd| {
+                                    if (std.mem.eql(u8, ifd, drv)) {
+                                        try ifds_failed.append(arena_allocator, ifd);
+                                        break;
+                                    }
+                                } else try ifd_deps_failed.append(arena_allocator, drv),
                     }
 
-                    if (ifds_failed.items.len != 0) break :eval .{ .ifd_failed = .{
-                        .ifds = try ifds_failed.toOwnedSlice(self.allocator),
-                        .deps = try ifd_deps_failed.toOwnedSlice(self.allocator),
-                    } };
+                    if (ifds_failed.items.len != 0 or ifd_deps_failed.items.len != 0) {
+                        log.debug("could not build IFDs for job {}\nIFDs: {s}\nIFD dependencies: {s}", .{
+                            job,
+                            ifds_failed.items,
+                            ifd_deps_failed.items,
+                        });
+                        break :eval .{ .ifd_failed = .{
+                            .ifds = try ifds_failed.toOwnedSlice(arena_allocator),
+                            .deps = try ifd_deps_failed.toOwnedSlice(arena_allocator),
+                        } };
+                    }
 
-                    ifds_failed.deinit(self.allocator);
-                    ifd_deps_failed.deinit(self.allocator);
+                    ifds_failed.deinit(arena_allocator);
+                    ifd_deps_failed.deinit(arena_allocator);
                 },
             }
         } else {
@@ -720,26 +741,41 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
                     }
                     break :addrs @intCast(linear.memory.offset(addrs.ptr));
                 },
-                .deps_failed => 0,
+                .failed => 0,
             } },
             .{ .i32 = switch (result) {
                 .outputs => |outputs| @intCast(outputs.len),
-                .deps_failed => 0,
+                .failed => 0,
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .deps_failed => |deps_failed| addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, deps_failed.len);
-                    for (deps_failed, addrs) |dep_failed, *addr| {
-                        const dep_failed_wasm = try linear_allocator.dupeZ(u8, dep_failed);
-                        addr.* = linear.memory.offset(dep_failed_wasm.ptr);
+                .failed => |failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, failed.builds.len);
+                    for (failed.builds, addrs) |drv, *addr| {
+                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
+                        addr.* = linear.memory.offset(drv_wasm.ptr);
                     }
                     break :addrs @intCast(linear.memory.offset(addrs.ptr));
                 },
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .deps_failed => |deps_failed| @intCast(deps_failed.len),
+                .failed => |failed| @intCast(failed.builds.len),
+            } },
+            .{ .i32 = switch (result) {
+                .outputs => 0,
+                .failed => |failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, failed.dependents.len);
+                    for (failed.dependents, addrs) |drv, *addr| {
+                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
+                        addr.* = linear.memory.offset(drv_wasm.ptr);
+                    }
+                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
+                },
+            } },
+            .{ .i32 = switch (result) {
+                .outputs => 0,
+                .failed => |failed| @intCast(failed.dependents.len),
             } },
         }, &.{});
 
@@ -980,11 +1016,14 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
 }
 
 pub const BuildResult = union(enum) {
-    /// Output paths produced.
-    /// If empty, the build failed.
+    /// output paths produced
     outputs: []const []const u8,
-    /// dependency derivations that failed
-    deps_failed: []const []const u8,
+    failed: struct {
+        /// derivations that failed to build
+        builds: []const []const u8,
+        /// derivations that have dependencies that failed
+        dependents: []const []const u8,
+    },
 
     pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
         switch (self) {
@@ -992,9 +1031,12 @@ pub const BuildResult = union(enum) {
                 for (outputs) |output| allocator.free(output);
                 allocator.free(outputs);
             },
-            .deps_failed => |drvs| {
-                for (drvs) |drv| allocator.free(drv);
-                allocator.free(drvs);
+            .failed => |failed| {
+                for (failed.builds) |drv| allocator.free(drv);
+                allocator.free(failed.builds);
+
+                for (failed.dependents) |drv| allocator.free(drv);
+                allocator.free(failed.dependents);
             },
         }
     }
@@ -1035,72 +1077,87 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
         .Exited => |exited| switch (exited) {
             0 => {
                 var iter = std.mem.tokenizeScalar(u8, result.stdout, '\n');
-                while (iter.next()) |output|
-                    try outputs.append(allocator, try allocator.dupe(u8, output));
+                while (iter.next()) |output| {
+                    const output_dupe = try allocator.dupe(u8, output);
+                    errdefer allocator.free(output_dupe);
+
+                    try outputs.append(allocator, output_dupe);
+                }
             },
-            // XXX parse properly using a library like mecha or get rid of the `deps_failed` variant entirely
-            1 => deps_failed: {
-                var iter = std.mem.splitBackwardsScalar(u8, result.stderr, '\n');
-
-                const num_deps = num_deps: while (iter.next()) |line| {
-                    if (line.len == 0) continue;
-
-                    const parts = [_][]const u8{
-                        "error: ",
-                        // <num_deps>
-                        " dependencies of derivation '",
-                        // <drv>
-                        "' failed to build",
-                    };
-
-                    if (!std.mem.startsWith(u8, line, parts[0])) break :deps_failed;
-
-                    const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :deps_failed;
-
-                    const num_deps_str = line[parts[0].len..part2_index];
-                    const num_deps = std.fmt.parseUnsigned(usize, num_deps_str, 10) catch break :deps_failed;
-
-                    if (!std.mem.endsWith(u8, line, parts[2])) break :deps_failed;
-
-                    break :num_deps num_deps;
-                } else break :deps_failed;
-
-                std.debug.assert(num_deps != 0);
-
-                const drvs = try allocator.alloc([]const u8, num_deps);
-                var free_drvs = true;
-                defer if (free_drvs) {
-                    for (drvs) |drv| allocator.free(drv);
-                    allocator.free(drvs);
-                };
-
-                for (drvs) |*drv| {
-                    const line = iter.next() orelse break :deps_failed;
-
-                    const parts = [_][]const u8{
-                        "error: builder for '",
-                        // <drv>
-                        "' failed",
-                    };
-
-                    if (!std.mem.startsWith(u8, line, parts[0])) break :deps_failed;
-
-                    const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :deps_failed;
-
-                    drv.* = try allocator.dupe(u8, line[parts[0].len..part2_index]);
+            1 => {
+                var builds = std.ArrayListUnmanaged([]const u8){};
+                errdefer {
+                    for (builds.items) |drv| allocator.free(drv);
+                    builds.deinit(allocator);
                 }
 
-                log.debug("dependencies {s} of build {s} failed", .{ drvs, installables });
+                var dependents = std.ArrayListUnmanaged([]const u8){};
+                errdefer {
+                    for (dependents.items) |drv| allocator.free(drv);
+                    dependents.deinit(allocator);
+                }
 
-                free_drvs = false;
-                return .{ .deps_failed = drvs };
+                var iter = std.mem.splitScalar(u8, result.stderr, '\n');
+                while (iter.next()) |line| {
+                    builds: {
+                        const parts = [_][]const u8{
+                            "error: builder for '",
+                            // <drv>
+                            "' failed",
+                        };
+
+                        if (!std.mem.startsWith(u8, line, parts[0])) break :builds;
+
+                        const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :builds;
+
+                        const drv = try allocator.dupe(u8, line[parts[0].len..part2_index]);
+                        errdefer allocator.free(drv);
+
+                        try builds.append(allocator, drv);
+                    }
+
+                    dependents: {
+                        const parts = [_][]const u8{
+                            "error: ",
+                            // <num_deps>
+                            " dependencies of derivation '",
+                            // <drv>
+                            "' failed to build",
+                        };
+
+                        if (!std.mem.startsWith(u8, line, parts[0])) break :dependents;
+
+                        const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :dependents;
+                        const part3_index = std.mem.indexOfPos(u8, line, part2_index + parts[1].len, parts[2]) orelse break :dependents;
+
+                        const drv = try allocator.dupe(u8, line[part2_index + parts[1].len .. part3_index]);
+                        errdefer allocator.free(drv);
+
+                        try dependents.append(allocator, drv);
+                    }
+                }
+
+                log.debug("build of {s} failed to build derivations {s} preventing builds {s}", .{ installables, builds.items, dependents.items });
+
+                return .{ .failed = .{
+                    .builds = try builds.toOwnedSlice(allocator),
+                    .dependents = try dependents.toOwnedSlice(allocator),
+                } };
             },
             else => log.debug("build of {s} exited with {d}", .{ installables, exited }),
         },
         else => |term| log.debug("build of {s} terminated with {}", .{ installables, term }),
     }
 
-    if (outputs.items.len == 0) log.debug("build of {s} failed: {s}", .{ installables, result.stderr });
+    if (outputs.items.len == 0) {
+        log.debug("build of {s} failed: {s}", .{ installables, result.stderr });
+
+        outputs.deinit(allocator);
+        return .{ .failed = .{
+            .builds = try allocator.alloc([]const u8, 0),
+            .dependents = try allocator.alloc([]const u8, 0),
+        } };
+    }
 
     return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }

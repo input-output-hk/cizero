@@ -153,15 +153,19 @@ const pdk_tests = struct {
                 _: UserData,
                 build_result: cizero.nix.OnBuildResult,
             ) void {
-                std.debug.print("{}\n{s}\n{s}\n", .{
+                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n", .{
                     {},
                     switch (build_result) {
                         .outputs => |outputs| outputs,
-                        else => &[_][]const u8{},
+                        else => null,
                     },
                     switch (build_result) {
-                        .deps_failed => |deps_failed| deps_failed,
-                        else => &[_][]const u8{},
+                        .failed => |failed| failed.builds,
+                        else => null,
+                    },
+                    switch (build_result) {
+                        .failed => |failed| failed.dependents,
+                        else => null,
                     },
                 });
             }
