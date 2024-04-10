@@ -181,7 +181,7 @@ const pdk_tests = struct {
                 _: UserData,
                 eval_result: cizero.nix.OnEvalResult,
             ) void {
-                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{s}\n", .{
+                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{?s}\n", .{
                     {},
                     switch (eval_result) {
                         .ok => |result| result,
@@ -192,13 +192,12 @@ const pdk_tests = struct {
                         else => null,
                     },
                     switch (eval_result) {
-                        .ifd_failed => |drv| drv,
-                        .ifd_deps_failed => |ifd_deps_failed| ifd_deps_failed.ifd,
+                        .ifd_failed => |ifd_failed| ifd_failed.ifds,
                         else => null,
                     },
                     switch (eval_result) {
-                        .ifd_deps_failed => |ifd_deps_failed| ifd_deps_failed.drvs,
-                        else => &[_][]const u8{},
+                        .ifd_failed => |ifd_failed| ifd_failed.deps,
+                        else => null,
                     },
                 });
             }

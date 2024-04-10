@@ -120,13 +120,11 @@ pub const Job = union(enum) {
             ok: []const u8,
             /// evaluation error message
             failed: []const u8,
-            /// IFD derivation that failed
-            ifd_failed: []const u8,
-            ifd_deps_failed: struct {
-                /// IFD derivation
-                ifd: []const u8,
+            ifd_failed: struct {
+                /// IFD derivations that failed
+                ifds: []const []const u8,
                 /// dependency derivations that failed
-                drvs: []const []const u8,
+                deps: []const []const u8,
             },
             /// max eval attempts exceeded
             ifd_too_deep,
@@ -585,10 +583,6 @@ fn removeBuildJob(self: *@This(), job: Job.Build) void {
 }
 
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
-    // owns memory that `result` references so we can free it later
-    var ifd_build_result: ?BuildResult = null;
-    defer if (ifd_build_result) |build_result| build_result.deinit(self.allocator);
-
     const result: Job.Eval.Result = eval: {
         errdefer {
             var eval_state = self.removeEvalJob(job);
@@ -602,10 +596,9 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                 log.err("failed to evaluate job {}: {s}", .{ job, @errorName(err) });
                 return err;
             };
+            errdefer eval_state.deinit();
 
             {
-                errdefer eval_state.deinit();
-
                 self.eval_jobs_mutex.lock();
                 defer self.eval_jobs_mutex.unlock();
 
@@ -618,6 +611,12 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                 .ok => |evaluated| break :eval .{ .ok = evaluated.items },
                 .failure => |msg| break :eval .{ .failed = msg.items },
                 .ifds => |ifds| {
+                    var ifds_failed = std.ArrayListUnmanaged([]const u8){};
+                    errdefer ifds_failed.deinit(self.allocator);
+
+                    var ifd_deps_failed = std.ArrayListUnmanaged([]const u8){};
+                    errdefer ifd_deps_failed.deinit(self.allocator);
+
                     // XXX build all IFDs in parallel
                     var iter = ifds.iterator();
                     while (iter.next()) |ifd| {
@@ -635,21 +634,29 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                         errdefer build_result.deinit(self.allocator);
 
                         switch (build_result) {
-                            .outputs => |outputs| if (outputs.len == 0) {
-                                log.debug("could not build IFD {s} for job {}", .{ ifd.*, job });
-                                ifd_build_result = build_result;
-                                break :eval .{ .ifd_failed = ifd.* };
-                            } else {
-                                log.debug("built IFD {s} producing {s} for job {}", .{ ifd.*, outputs, job });
-                                build_result.deinit(self.allocator);
+                            .outputs => |outputs| {
+                                defer build_result.deinit(self.allocator);
+
+                                if (outputs.len == 0) {
+                                    log.debug("could not build IFD {s} for job {}", .{ ifd.*, job });
+                                    try ifds_failed.append(self.allocator, ifd.*);
+                                } else log.debug("built IFD {s} producing {s} for job {}", .{ ifd.*, build_result.outputs, job });
                             },
                             .deps_failed => |drvs| {
                                 log.debug("could not build dependencies {s} of IFD {s} for job {}", .{ drvs, ifd.*, job });
-                                ifd_build_result = build_result;
-                                break :eval .{ .ifd_deps_failed = .{ .ifd = ifd.*, .drvs = drvs } };
+                                try ifds_failed.append(self.allocator, ifd.*);
+                                try ifd_deps_failed.appendSlice(self.allocator, drvs);
                             },
                         }
                     }
+
+                    if (ifds_failed.items.len != 0) break :eval .{ .ifd_failed = .{
+                        .ifds = try ifds_failed.toOwnedSlice(self.allocator),
+                        .deps = try ifd_deps_failed.toOwnedSlice(self.allocator),
+                    } };
+
+                    ifds_failed.deinit(self.allocator);
+                    ifd_deps_failed.deinit(self.allocator);
                 },
             }
         } else {
@@ -780,23 +787,33 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |drv| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, drv)).ptr)),
-                .ifd_deps_failed => |ifd_deps_failed| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, ifd_deps_failed.ifd)).ptr)),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .ifd_deps_failed => |ifd_deps_failed| addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_deps_failed.drvs.len);
-                    for (ifd_deps_failed.drvs, addrs) |drv, *addr| {
-                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
-                        addr.* = linear.memory.offset(drv_wasm.ptr);
+                .ifd_failed => |ifd_failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_failed.ifds.len);
+                    for (ifd_failed.ifds, addrs) |ifd, *addr| {
+                        const ifd_wasm = try linear_allocator.dupeZ(u8, ifd);
+                        addr.* = linear.memory.offset(ifd_wasm.ptr);
                     }
                     break :addrs @intCast(linear.memory.offset(addrs.ptr));
                 },
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_deps_failed => |ifd_deps_failed| @intCast(ifd_deps_failed.drvs.len),
+                .ifd_failed => |ifd_failed| @intCast(ifd_failed.ifds.len),
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .ifd_failed => |ifd_failed| addrs: {
+                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_failed.deps.len);
+                    for (ifd_failed.deps, addrs) |dep, *addr| {
+                        const dep_wasm = try linear_allocator.dupeZ(u8, dep);
+                        addr.* = linear.memory.offset(dep_wasm.ptr);
+                    }
+                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
+                },
+                else => 0,
+            } },
+            .{ .i32 = switch (result) {
+                .ifd_failed => |ifd_failed| @intCast(ifd_failed.deps.len),
                 else => 0,
             } },
         }, &.{});

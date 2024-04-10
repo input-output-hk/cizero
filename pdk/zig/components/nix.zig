@@ -121,37 +121,42 @@ export fn @"pdk.nix.onEval.callback"(
     callback_data_len: usize,
     result: ?[*:0]const u8,
     err_msg: ?[*:0]const u8,
-    failed_ifd: ?[*:0]const u8,
+    failed_ifds_ptr: ?[*]const [*:0]const u8,
+    failed_ifds_len: usize,
     failed_ifd_deps_ptr: ?[*]const [*:0]const u8,
     failed_ifd_deps_len: usize,
 ) void {
+    std.debug.assert((result == null) != (err_msg == null));
+    std.debug.assert((failed_ifds_ptr == null) == (failed_ifds_len == 0));
     std.debug.assert((failed_ifd_deps_ptr == null) == (failed_ifd_deps_len == 0));
 
     const allocator = std.heap.wasm_allocator;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-
     const arena_allocator = arena.allocator();
 
     const eval_result: OnEvalResult = if (result) |r|
         .{ .ok = std.mem.span(r) }
     else if (err_msg) |em|
         .{ .failed = std.mem.span(em) }
-    else if (failed_ifd_deps_ptr) |fidp|
-        .{ .ifd_deps_failed = .{
-            .ifd = std.mem.span(failed_ifd.?),
-            .drvs = drvs: {
-                const drvs = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
-                for (drvs, fidp[0..failed_ifd_deps_len]) |*drv, dep|
-                    drv.* = std.mem.span(dep);
-                break :drvs drvs;
-            },
-        } }
-    else if (failed_ifd) |fi|
-        .{ .ifd_failed = std.mem.span(fi) }
+    else if (failed_ifds_ptr == null and failed_ifd_deps_ptr == null)
+        .ifd_too_deep
     else
-        .ifd_too_deep;
+        .{ .ifd_failed = .{
+            .ifds = if (failed_ifds_ptr) |fip| ifds: {
+                const ifds = arena_allocator.alloc([]const u8, failed_ifds_len) catch |err| @panic(@errorName(err));
+                for (ifds, fip[0..failed_ifds_len]) |*ifd, failed_ifd|
+                    ifd.* = std.mem.span(failed_ifd);
+                break :ifds ifds;
+            } else &.{},
+            .deps = if (failed_ifd_deps_ptr) |fidp| deps: {
+                const deps = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
+                for (deps, fidp[0..failed_ifd_deps_len]) |*dep, failed_ifd_dep|
+                    dep.* = std.mem.span(failed_ifd_dep);
+                break :deps deps;
+            } else &.{},
+        } };
 
     abi.CallbackData
         .deserialize(callback_data_ptr[0..callback_data_len])

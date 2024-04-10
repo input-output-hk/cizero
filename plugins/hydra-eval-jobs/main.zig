@@ -93,13 +93,16 @@ fn onEval(
     try file_writer.writeByte('\n');
 
     switch (result) {
-        .ok, .failed, .ifd_failed => |case| try file_writer.writeAll(case),
-        .ifd_deps_failed => |case| {
-            try file_writer.writeAll(case.ifd);
+        .ok, .failed => |case| try file_writer.writeAll(case),
+        .ifd_failed => |case| {
+            for (case.ifds, 1..) |ifd, i| {
+                try file_writer.writeAll(ifd);
+                if (i != case.ifds.len) try file_writer.writeByte(' ');
+            }
             try file_writer.writeByte('\n');
-            for (case.drvs) |drv| {
-                try file_writer.writeAll(drv);
-                try file_writer.writeByte('\n');
+            for (case.deps, 1..) |dep, i| {
+                try file_writer.writeAll(dep);
+                if (i != case.deps.len) try file_writer.writeByte(' ');
             }
         },
         .ifd_too_deep => {},
