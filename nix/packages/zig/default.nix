@@ -121,6 +121,8 @@
                           then "-Drelease=${builtins.toJSON zigRelease}"
                           else "-Doptimize=${zigRelease}"
                         )
+
+                        "-freference-trace"
                       ];
                     })
                   ];
