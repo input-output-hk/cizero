@@ -771,7 +771,6 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
-        const linear_allocator = linear.allocator();
 
         _ = try callback.run(self.allocator, runtime, &.{
             .{ .i32 = switch (result) {
@@ -784,14 +783,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .failed => |failed| if (failed.builds.len == 0) 0 else addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, failed.builds.len);
-                    for (failed.builds, addrs) |drv, *addr| {
-                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
-                        addr.* = linear.memory.offset(drv_wasm.ptr);
-                    }
-                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
-                },
+                .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.builds)),
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
@@ -799,14 +791,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .failed => |failed| if (failed.dependents.len == 0) 0 else addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, failed.dependents.len);
-                    for (failed.dependents, addrs) |drv, *addr| {
-                        const drv_wasm = try linear_allocator.dupeZ(u8, drv);
-                        addr.* = linear.memory.offset(drv_wasm.ptr);
-                    }
-                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
-                },
+                .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.dependents)),
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
@@ -858,14 +843,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_failed.ifds.len);
-                    for (ifd_failed.ifds, addrs) |ifd, *addr| {
-                        const ifd_wasm = try linear_allocator.dupeZ(u8, ifd);
-                        addr.* = linear.memory.offset(ifd_wasm.ptr);
-                    }
-                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
-                },
+                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.ifds)),
                 else => 0,
             } },
             .{ .i32 = switch (result) {
@@ -873,14 +851,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, ifd_failed.deps.len);
-                    for (ifd_failed.deps, addrs) |dep, *addr| {
-                        const dep_wasm = try linear_allocator.dupeZ(u8, dep);
-                        addr.* = linear.memory.offset(dep_wasm.ptr);
-                    }
-                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
-                },
+                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.deps)),
                 else => 0,
             } },
             .{ .i32 = switch (result) {

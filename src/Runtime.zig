@@ -711,6 +711,33 @@ pub const Allocator = struct {
             if (err != null or trap != null) log.warn(export_names[2] ++ "() failed, this likely leaked wasm memory", .{});
         }
     }
+
+    /// Allocates the given list of strings in linear memory
+    /// and returns the address of the allocated list.
+    pub fn dupeStringSliceAddr(self: @This(), strs: []const []const u8) !wasm.usize {
+        if (strs.len == 0) return 0;
+
+        const self_allocator = self.allocator();
+
+        var addrs = try std.ArrayListUnmanaged(wasm.usize).initCapacity(self_allocator, strs.len);
+        errdefer {
+            const memory = self.memory.slice();
+            for (addrs.items) |addr| self_allocator.free(wasm.span(memory, addr));
+            addrs.deinit(self_allocator);
+        }
+
+        for (strs) |str| {
+            const str_dupe = try self_allocator.dupeZ(u8, str);
+            errdefer self_allocator.free(str_dupe);
+
+            const addr = self.memory.offset(str_dupe.ptr);
+
+            try addrs.append(self_allocator, addr);
+        }
+
+        const addrs_slice = try addrs.toOwnedSlice(self_allocator);
+        return self.memory.offset(addrs_slice.ptr);
+    }
 };
 
 pub fn linearMemoryAllocator(self: @This()) !Allocator {
