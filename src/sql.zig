@@ -578,7 +578,7 @@ pub const queries = struct {
 
     pub const NixBuildCallback = struct {
         callback: i64,
-        installable: []const u8,
+        installables: []const u8,
 
         const table = "nix_build_callback";
 
@@ -601,7 +601,7 @@ pub const queries = struct {
             );
         }
 
-        pub fn SelectCallbackByInstallable(comptime columns: []const Callback.Column) type {
+        pub fn SelectCallbackByInstallables(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
                 ++ " " ++ columnList(Callback.table, columns) ++
@@ -621,13 +621,37 @@ pub const queries = struct {
                 ++ @tagName(Callback.Column.id) ++
                     \\"
                     \\WHERE "
-                ++ @tagName(Column.installable) ++
+                ++ @tagName(Column.installables) ++
                     \\" = ?
             ,
                 true,
                 meta.SubStruct(Callback, columns),
                 struct { []const u8 },
             );
+        }
+
+        pub fn encodeInstallables(allocator: std.mem.Allocator, installables: []const []const u8) ![]const u8 {
+            const installables_mut = try allocator.dupe([]const u8, installables);
+            defer allocator.free(installables_mut);
+
+            std.mem.sortUnstable([]const u8, installables_mut, {}, struct {
+                fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                    return std.mem.order(u8, a, b) == .lt;
+                }
+            }.lessThan);
+
+            return std.mem.join(allocator, "\n", installables_mut);
+        }
+
+        pub fn decodeInstallables(allocator: std.mem.Allocator, installables: []const u8) ![]const []const u8 {
+            var decoded = std.ArrayListUnmanaged([]const u8){};
+            errdefer decoded.deinit(allocator);
+
+            var iter = std.mem.splitScalar(u8, installables, '\n');
+            while (iter.next()) |installable|
+                try decoded.append(allocator, installable);
+
+            return decoded.toOwnedSlice(allocator);
         }
     };
 

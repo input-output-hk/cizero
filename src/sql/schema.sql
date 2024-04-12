@@ -25,7 +25,7 @@ CREATE TABLE "http_callback" (
 
 CREATE TABLE "nix_build_callback" (
 	"callback" INTEGER PRIMARY KEY REFERENCES "callback" ON DELETE CASCADE,
-	"installable" TEXT NOT NULL
+	"installables" TEXT NOT NULL
 ) STRICT;
 
 CREATE TABLE "nix_eval_callback" (

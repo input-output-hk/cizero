@@ -362,9 +362,9 @@ test "nix_on_build" {
 
     try self.expectEqualStdio("",
         \\void
-        \\
-    ++ installable ++
-        \\
+        \\{
+    ++ " " ++ installable ++
+        \\ }
         \\
     , {}, struct {
         fn call(_: void, rt: Cizero.Runtime) anyerror!void {
@@ -381,8 +381,11 @@ test "nix_on_build" {
         const conn = self.cizero.registry.db_pool.acquire();
         defer self.cizero.registry.db_pool.release(conn);
 
-        const rows = try Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .plugin, .function, .user_data })
-            .query(arena_allocator, conn, .{installable});
+        const installables = try Cizero.sql.queries.NixBuildCallback.encodeInstallables(testing.allocator, &.{installable});
+        defer testing.allocator.free(installables);
+
+        const rows = try Cizero.sql.queries.NixBuildCallback.SelectCallbackByInstallables(&.{ .plugin, .function, .user_data })
+            .query(arena_allocator, conn, .{installables});
 
         try testing.expectEqual(1, rows.len);
 

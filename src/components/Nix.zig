@@ -30,7 +30,20 @@ build_hook: []const u8,
 allowed_uris: []const []const u8,
 
 build_jobs_mutex: std.Thread.Mutex = .{},
-build_jobs: std.StringHashMapUnmanaged(void) = .{},
+build_jobs: std.HashMapUnmanaged([]const []const u8, void, struct {
+    pub fn hash(_: @This(), key: []const []const u8) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHashStrat(&hasher, key, .Deep);
+        return hasher.final();
+    }
+
+    pub fn eql(_: @This(), a: []const []const u8, b: []const []const u8) bool {
+        if (a.len != b.len) return false;
+        for (a, b) |x, y|
+            if (!std.mem.eql(u8, x, y)) return false;
+        return true;
+    }
+}, std.hash_map.default_max_load_percentage) = .{},
 
 eval_jobs_mutex: std.Thread.Mutex = .{},
 eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
@@ -70,14 +83,20 @@ pub const Job = union(enum) {
     eval: Eval,
 
     pub const Build = struct {
-        installable: []const u8,
+        installables: []const []const u8,
 
         pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
-            allocator.free(self.installable);
+            for (self.installables) |installable| allocator.free(installable);
+            allocator.free(self.installables);
         }
 
         pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try std.fmt.format(writer, "`nix build {s}`", .{self.installable});
+            try writer.writeAll("`nix build ");
+            for (self.installables, 1..) |installable, i| {
+                try writer.writeAll(installable);
+                if (i != self.installables.len) try writer.writeByte(' ');
+            }
+            try writer.writeAll("`");
         }
 
         pub const Result = BuildResult;
@@ -273,7 +292,7 @@ pub fn hostFunctions(self: *@This(), allocator: std.mem.Allocator) !std.StringAr
     return meta.hashMapFromStruct(std.StringArrayHashMapUnmanaged(Runtime.HostFunctionDef), allocator, .{
         .nix_on_build = Runtime.HostFunctionDef{
             .signature = .{
-                .params = &[_]wasm.Value.Type{.i32} ** 4,
+                .params = &[_]wasm.Value.Type{.i32} ** 5,
                 .returns = &.{},
             },
             .host_function = Runtime.HostFunction.init(onBuild, self),
@@ -307,14 +326,21 @@ fn buildState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator,
     std.debug.assert(outputs.len == 1);
 
     const params = .{
-        .installable = wasm.span(memory, inputs[0]),
+        .installable_addrs_ptr = @as([*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[0].i32)]))),
+        .installable_addrs_len = @as(wasm.usize, @intCast(inputs[1].i32)),
     };
+
+    const installables = try self.allocator.alloc([]const u8, params.installable_addrs_len);
+    defer self.allocator.free(installables);
+
+    for (installables, params.installable_addrs_ptr[0..params.installable_addrs_len]) |*installable, installable_addr|
+        installable.* = wasm.span(memory, installable_addr);
 
     const building = building: {
         self.build_jobs_mutex.lock();
         defer self.build_jobs_mutex.unlock();
 
-        break :building self.build_jobs.contains(params.installable);
+        break :building self.build_jobs.contains(installables);
     };
 
     outputs[0] = .{ .i32 = @intFromBool(building) };
@@ -347,7 +373,7 @@ fn evalState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, 
 }
 
 fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
-    std.debug.assert(inputs.len == 4);
+    std.debug.assert(inputs.len == 5);
     std.debug.assert(outputs.len == 0);
 
     try components.rejectIfStopped(&self.running);
@@ -356,15 +382,24 @@ fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.All
         .func_name = wasm.span(memory, inputs[0]),
         .user_data_ptr = @as([*]const u8, @ptrCast(&memory[@intCast(inputs[1].i32)])),
         .user_data_len = @as(wasm.usize, @intCast(inputs[2].i32)),
-        .installable = wasm.span(memory, inputs[3]),
+        .installable_addrs_ptr = @as([*]const wasm.usize, @alignCast(@ptrCast(&memory[@intCast(inputs[3].i32)]))),
+        .installable_addrs_len = @as(wasm.usize, @intCast(inputs[4].i32)),
     };
 
-    const job = job: {
-        const installable = try self.allocator.dupe(u8, params.installable);
+    var installables = try std.ArrayListUnmanaged([]const u8).initCapacity(self.allocator, params.installable_addrs_len);
+    errdefer {
+        for (installables.items) |installable| self.allocator.free(installable);
+        installables.deinit(self.allocator);
+    }
+
+    for (params.installable_addrs_ptr[0..params.installable_addrs_len]) |installable_addr| {
+        const installable = try self.allocator.dupe(u8, wasm.span(memory, installable_addr));
         errdefer self.allocator.free(installable);
 
-        break :job Job{ .build = .{ .installable = installable } };
-    };
+        try installables.append(self.allocator, installable);
+    }
+
+    const job = Job{ .build = .{ .installables = try installables.toOwnedSlice(self.allocator) } };
     errdefer job.deinit(self.allocator);
 
     try self.insertCallback(plugin_name, params.func_name, params.user_data_ptr, params.user_data_len, job);
@@ -430,7 +465,12 @@ fn insertCallback(
     });
 
     switch (job) {
-        .build => |build_job| try sql.queries.NixBuildCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), build_job.installable }),
+        .build => |build_job| {
+            const installables = try sql.queries.NixBuildCallback.encodeInstallables(self.allocator, build_job.installables);
+            defer self.allocator.free(installables);
+
+            try sql.queries.NixBuildCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), installables });
+        },
         .eval => |eval_job| try sql.queries.NixEvalCallback.insert.exec(conn, .{ conn.lastInsertedRowId(), eval_job.flake, eval_job.expr, @intFromEnum(eval_job.output_format) }),
     }
 
@@ -448,19 +488,20 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     self.running.store(true, .monotonic);
 
     {
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-
         const rows = rows: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
-            break :rows try sql.queries.NixBuildCallback.Select(&.{.installable})
-                .query(arena.allocator(), conn, .{});
+            break :rows try sql.queries.NixBuildCallback.Select(&.{.installables})
+                .query(self.allocator, conn, .{});
         };
+        defer self.allocator.free(rows);
 
         for (rows) |row| {
-            const job = Job{ .build = .{ .installable = row.installable } };
+            const installables = try sql.queries.NixBuildCallback.decodeInstallables(self.allocator, row.installables);
+            errdefer self.allocator.free(installables);
+
+            const job = Job{ .build = .{ .installables = installables } };
 
             const started = try self.startJob(job);
             if (!started) job.deinit(self.allocator);
@@ -468,16 +509,14 @@ pub fn start(self: *@This()) (std.Thread.SpawnError || std.Thread.SetNameError |
     }
 
     {
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-
         const rows = rows: {
             const conn = self.registry.db_pool.acquire();
             defer self.registry.db_pool.release(conn);
 
             break :rows try sql.queries.NixEvalCallback.Select(&.{ .flake, .expr, .format })
-                .query(arena.allocator(), conn, .{});
+                .query(self.allocator, conn, .{});
         };
+        defer self.allocator.free(rows);
 
         for (rows) |row| {
             const job = Job{ .eval = .{
@@ -507,7 +546,7 @@ fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNa
             self.build_jobs_mutex.lock();
             defer self.build_jobs_mutex.unlock();
 
-            break :running try self.build_jobs.fetchPut(self.allocator, build_job.installable, {}) != null;
+            break :running try self.build_jobs.fetchPut(self.allocator, build_job.installables, {}) != null;
         },
         .eval => |eval_job| running: {
             self.eval_jobs_mutex.lock();
@@ -552,7 +591,7 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
     const result = result: {
         errdefer self.removeBuildJob(job);
 
-        const result = try build(self.allocator, &.{job.installable});
+        const result = try build(self.allocator, job.installables);
         errdefer result.deinit(self.allocator);
 
         switch (result) {
@@ -576,7 +615,7 @@ fn removeBuildJob(self: *@This(), job: Job.Build) void {
     self.build_jobs_mutex.lock();
     defer self.build_jobs_mutex.unlock();
 
-    std.debug.assert(self.build_jobs.fetchRemove(job.installable) != null);
+    std.debug.assert(self.build_jobs.fetchRemove(job.installables) != null);
 }
 
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
@@ -714,8 +753,11 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
 
-        break :rows try sql.queries.NixBuildCallback.SelectCallbackByInstallable(&.{ .id, .plugin, .function, .user_data })
-            .query(arena_allocator, conn, .{job.installable});
+        const installables = try sql.queries.NixBuildCallback.encodeInstallables(self.allocator, job.installables);
+        defer self.allocator.free(installables);
+
+        break :rows try sql.queries.NixBuildCallback.SelectCallbackByInstallables(&.{ .id, .plugin, .function, .user_data })
+            .query(arena_allocator, conn, .{installables});
     };
     if (callback_rows.len == 0) log.err("no callbacks found for job {}", .{job});
 
@@ -733,14 +775,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
 
         _ = try callback.run(self.allocator, runtime, &.{
             .{ .i32 = switch (result) {
-                .outputs => |outputs| if (outputs.len == 0) 0 else addrs: {
-                    const addrs = try linear_allocator.alloc(wasm.usize, outputs.len);
-                    for (outputs, addrs) |output, *addr| {
-                        const out = try linear_allocator.dupeZ(u8, output);
-                        addr.* = linear.memory.offset(out.ptr);
-                    }
-                    break :addrs @intCast(linear.memory.offset(addrs.ptr));
-                },
+                .outputs => |outputs| @intCast(try linear.dupeStringSliceAddr(outputs)),
                 .failed => 0,
             } },
             .{ .i32 = switch (result) {
@@ -749,7 +784,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .failed => |failed| addrs: {
+                .failed => |failed| if (failed.builds.len == 0) 0 else addrs: {
                     const addrs = try linear_allocator.alloc(wasm.usize, failed.builds.len);
                     for (failed.builds, addrs) |drv, *addr| {
                         const drv_wasm = try linear_allocator.dupeZ(u8, drv);
@@ -764,7 +799,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
             } },
             .{ .i32 = switch (result) {
                 .outputs => 0,
-                .failed => |failed| addrs: {
+                .failed => |failed| if (failed.dependents.len == 0) 0 else addrs: {
                     const addrs = try linear_allocator.alloc(wasm.usize, failed.dependents.len);
                     for (failed.dependents, addrs) |drv, *addr| {
                         const drv_wasm = try linear_allocator.dupeZ(u8, drv);

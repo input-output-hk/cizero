@@ -20,7 +20,8 @@ const externs = struct {
         func_name: [*:0]const u8,
         user_data_ptr: ?*const anyopaque,
         user_data_len: usize,
-        installable: [*:0]const u8,
+        installables: [*]const [*:0]const u8,
+        installables_len: usize,
     ) void;
 
     // only powers of two >= 8 are compatible with the ABI
@@ -57,12 +58,18 @@ pub fn onBuild(
     allocator: std.mem.Allocator,
     callback: OnBuildCallback(UserData),
     user_data: UserData.Value,
-    installable: [:0]const u8,
+    installables: []const [:0]const u8,
 ) std.mem.Allocator.Error!void {
     const callback_data = try abi.CallbackData.serialize(UserData, allocator, callback, user_data);
     defer allocator.free(callback_data);
 
-    externs.nix_on_build("pdk.nix.onBuild.callback", callback_data.ptr, callback_data.len, installable);
+    const installable_ptrs = try allocator.alloc([*:0]const u8, installables.len);
+    defer allocator.free(installable_ptrs);
+
+    for (installables, installable_ptrs) |installable, *ptr|
+        ptr.* = installable.ptr;
+
+    externs.nix_on_build("pdk.nix.onBuild.callback", callback_data.ptr, callback_data.len, installable_ptrs.ptr, installable_ptrs.len);
 }
 
 export fn @"pdk.nix.onBuild.callback"(
@@ -204,19 +211,30 @@ pub fn onEvalBuild(
 ) std.mem.Allocator.Error!void {
     const evalCallback = struct {
         fn evalCallback(ud: UserData, result: OnEvalResult) void {
-            var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
+            const alloc = std.heap.wasm_allocator;
+
+            var arena = std.heap.ArenaAllocator.init(alloc);
             defer arena.deinit();
 
             const ud_value = eval_callback(ud, arena.allocator(), result);
 
-            if (result == .ok) {
-                const alloc = std.heap.wasm_allocator;
+            if (result != .ok) return;
 
-                const installable_z = std.mem.concatWithSentinel(alloc, u8, &.{ result.ok, "^*" }, 0) catch |err| @panic(@errorName(err));
-                defer alloc.free(installable_z);
-
-                onBuild(UserData, alloc, buildCallback, ud_value, installable_z) catch |err| @panic(@errorName(err));
+            var installables = std.ArrayListUnmanaged([:0]const u8){};
+            defer {
+                for (installables.items) |installable| alloc.free(installable);
+                installables.deinit(alloc);
             }
+
+            var lines = std.mem.tokenizeScalar(u8, result.ok, '\n');
+            while (lines.next()) |line| {
+                const installable = std.mem.concatWithSentinel(alloc, u8, &.{ line, "^*" }, 0) catch |err| @panic(@errorName(err));
+                errdefer alloc.free(installable);
+
+                installables.append(alloc, installable) catch |err| @panic(@errorName(err));
+            }
+
+            onBuild(UserData, alloc, buildCallback, ud_value, installables.items) catch |err| @panic(@errorName(err));
         }
 
         fn buildCallback(ud: UserData, result: OnBuildResult) void {

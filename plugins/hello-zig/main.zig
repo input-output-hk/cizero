@@ -173,8 +173,8 @@ const pdk_tests = struct {
 
         const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
 
-        std.debug.print("{}\n{s}\n", .{ {}, installable });
-        try cizero.nix.onBuild(UserData, allocator, callback, {}, installable);
+        std.debug.print("{}\n{s}\n", .{ {}, [_][]const u8{installable} });
+        try cizero.nix.onBuild(UserData, allocator, callback, {}, &.{installable});
     }
 
     pub fn @"nix.onEval"() !void {
