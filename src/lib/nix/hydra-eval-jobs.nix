@@ -45,70 +45,16 @@ flake: let
       );
 
   result = let
-    collectAttrPaths = predicate: attrs: let
-      internal = path: attrs: let
-        inherit
-          (
-            builtins.partition
-            (attrName: predicate attrs.${attrName})
-            (builtins.attrNames attrs)
-          )
-          right
-          wrong
-          ;
-
-        flattenDepth = depth: x:
-          if builtins.isList x && depth >= 0
-          then builtins.concatMap (flattenDepth (depth - 1)) x
-          else [x];
-      in
-        map (attrName: path ++ [attrName]) right
-        ++ (
-          if attrs.recurseIntoAttrs or true
-          then
-            flattenDepth 1 (
-              map
-              (
-                attrName:
-                  internal
-                  (path ++ [attrName])
-                  attrs.${attrName}
-              )
-              (
-                builtins.filter
-                (attrName: builtins.isAttrs attrs.${attrName})
-                wrong
-              )
-            )
-          else []
-        );
-    in
-      internal [] attrs;
-
     jobAttrs =
       flake.hydraJobs
       or (flake.checks or throw "flake does not provide any Hydra jobs or checks");
 
-    # copied from nixpkgs
-    isDerivation = v: v.type or null == "derivation";
-
-    jobAttrPaths = collectAttrPaths isDerivation jobAttrs;
-
-    # TODO copy `showAttrPath` from nixpkgs
-    showAttrPath = builtins.concatStringsSep ".";
-
-    # copied from nixpkgs and simplified
-    attrByPath = path: attrs: let
-      attr = builtins.head path;
-    in
-      if path == []
-      then attrs
-      else attrByPath (builtins.tail path) attrs.${attr};
+    jobAttrPaths = lib.collectAttrPaths lib.isDerivation jobAttrs;
   in
     builtins.listToAttrs (
       map (path: {
-        name = showAttrPath path;
-        value = job (attrByPath path jobAttrs);
+        name = lib.showAttrPath path;
+        value = job (lib.attrByPath path jobAttrs);
       })
       jobAttrPaths
     );

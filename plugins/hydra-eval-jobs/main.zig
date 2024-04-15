@@ -2,6 +2,9 @@ const std = @import("std");
 
 const cizero = @import("cizero");
 
+const lib = @import("lib");
+const nix = lib.nix;
+
 const allocator = std.heap.wasm_allocator;
 
 pub fn main() u8 {
@@ -58,9 +61,7 @@ fn onWebhook(
     const flake_z = try allocator.dupeZ(u8, flake);
     defer allocator.free(flake_z);
 
-    const expr = @embedFile("jobs.nix");
-
-    if (cizero.nix.evalState(flake_z, expr, .json) == null) try cizero.nix.onEval(
+    if (cizero.nix.evalState(flake_z, nix.hydraEvalJobs, .json) == null) try cizero.nix.onEval(
         cizero.user_data.Shallow([]const u8),
         allocator,
         struct {
@@ -73,7 +74,7 @@ fn onWebhook(
         }.callback,
         file_name,
         flake_z,
-        expr,
+        nix.hydraEvalJobs,
         .json,
     );
 
