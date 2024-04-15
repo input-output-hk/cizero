@@ -152,7 +152,8 @@
                           --cache-dir "$TMPDIR" \
                           --global-cache-dir "$TMPDIR"/cache
 
-                        mv "$TMPDIR"/cache/p $out
+                        # create an empty directory if there are no dependencies
+                        mv "$TMPDIR"/cache/p $out || mkdir $out
                       '';
                   }
                   // args.passthru or {};
