@@ -117,7 +117,7 @@
                         finalAttrs.passthru.deps
 
                         (
-                          if builtins.typeOf zigRelease == "bool"
+                          if builtins.isBool zigRelease
                           then "-Drelease=${builtins.toJSON zigRelease}"
                           else "-Doptimize=${zigRelease}"
                         )
