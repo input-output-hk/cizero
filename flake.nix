@@ -19,17 +19,28 @@
   };
 
   outputs = inputs:
-    inputs.parts.lib.mkFlake {inherit inputs;} {
+    inputs.parts.lib.mkFlake {inherit inputs;} (parts: {
       systems = ["x86_64-linux"];
 
       imports = [
         nix/checks
         nix/packages
+        nix/overlays
         nix/devShells.nix
-        nix/overlays.nix
         nix/formatter.nix
         nix/hydraJobs.nix
         nix/nixosModules.nix
       ];
-    };
+
+      perSystem = {
+        inputs',
+        config,
+        ...
+      }: {
+        _module.args.pkgs = inputs'.nixpkgs.legacyPackages.appendOverlays [
+          (_final: _prev: {inherit (config.packages) zig;})
+          parts.config.flake.overlays.zig
+        ];
+      };
+    });
 }

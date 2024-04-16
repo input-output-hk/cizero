@@ -1,10 +1,6 @@
 {inputs, ...}: {
-  perSystem = {
-    config,
-    pkgs,
-    ...
-  }: {
-    packages.cizero-plugin-hello-zig = config.overlayAttrs.buildZigPackage {
+  perSystem = {pkgs, ...}: {
+    packages.cizero-plugin-hello-zig = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hello-zig
         ../../../../pdk/zig

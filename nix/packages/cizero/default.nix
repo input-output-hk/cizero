@@ -11,7 +11,7 @@
     pkgs,
     ...
   }: {
-    packages.cizero = config.overlayAttrs.buildZigPackage {
+    packages.cizero = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../.. [
         ../../../build.zig
         ../../../build.zig.zon

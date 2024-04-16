@@ -1,11 +1,10 @@
 {inputs, ...}: {
   perSystem = {
-    config,
     lib,
     pkgs,
     ...
   }: {
-    packages.cizero-plugin-hydra-eval-jobs = config.overlayAttrs.buildZigPackage {
+    packages.cizero-plugin-hydra-eval-jobs = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hydra-eval-jobs
         ../../../../pdk/zig
@@ -27,7 +26,7 @@
         export HOME="$TMPDIR"
       '';
 
-      passthru.hydra-eval-jobs = config.overlayAttrs.buildZigPackage {
+      passthru.hydra-eval-jobs = pkgs.buildZigPackage {
         src = inputs.inclusive.lib.inclusive ../../../.. [
           ../../../../plugins/hydra-eval-jobs
         ];

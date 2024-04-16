@@ -1,17 +1,13 @@
-{inputs, ...}: {
-  imports = [
-    inputs.parts.flakeModules.easyOverlay
-    ./package-info
-  ];
-
+{
   perSystem = {
+    inputs',
     config,
     pkgs,
     ...
   }: {
     packages = {
       zig =
-        (pkgs.zig.overrideAttrs (oldAttrs: rec {
+        (inputs'.nixpkgs.legacyPackages.zig.overrideAttrs (oldAttrs: rec {
           version = src.rev;
 
           src = oldAttrs.src.override {
@@ -28,7 +24,7 @@
           llvmPackages = pkgs.llvmPackages_17;
         };
 
-      zls = config.overlayAttrs.buildZigPackage rec {
+      zls = pkgs.buildZigPackage rec {
         src = pkgs.fetchFromGitHub {
           owner = "zigtools";
           repo = "zls";
@@ -65,101 +61,6 @@
 
         inherit (pkgs.zls) meta;
       };
-    };
-
-    overlayAttrs = {
-      inherit (config.packages) zig;
-
-      buildZigPackage = pkgs.callPackage (
-        {
-          lib,
-          stdenv,
-          runCommand,
-          zig,
-        }: args @ {
-          src,
-          buildZigZon ? "build.zig.zon",
-          zigDepsHash,
-          # Can be a boolean for for `-Drelease` or a string for `-Doptimize`.
-          # `-Doptimize` was replaced with `-Drelease` in newer zig versions
-          # when `build.zig` declares a preferred optimize mode.
-          zigRelease ? true,
-          ...
-        }:
-          stdenv.mkDerivation (
-            finalAttrs: let
-              info = lib.importJSON finalAttrs.passthru.packageInfo;
-            in
-              {
-                pname = info.name;
-                inherit (info) version;
-
-                postPatch = lib.optionalString (finalAttrs.passthru ? deps) ''
-                  cd ${lib.escapeShellArg (builtins.dirOf buildZigZon)}
-                '';
-
-                doCheck = true;
-              }
-              // builtins.removeAttrs args [
-                "buildZigZon"
-                "zigDepsHash"
-              ]
-              // {
-                nativeBuildInputs =
-                  args.nativeBuildInputs
-                  or []
-                  ++ [
-                    (zig.hook.overrideAttrs {
-                      zig_default_flags = [
-                        # Not passing -Dcpu=baseline as that overrides our target options from build.zig.
-
-                        "--system"
-                        finalAttrs.passthru.deps
-
-                        (
-                          if builtins.isBool zigRelease
-                          then "-Drelease=${builtins.toJSON zigRelease}"
-                          else "-Doptimize=${zigRelease}"
-                        )
-
-                        "-freference-trace"
-                      ];
-                    })
-                  ];
-
-                passthru =
-                  {
-                    packageInfo = config.overlayAttrs.zigPackageInfo (
-                      lib.optionalString (!lib.hasPrefix "/" buildZigZon) "${finalAttrs.src}/"
-                      + buildZigZon
-                    );
-
-                    # builds the $ZIG_GLOBAL_CACHE_DIR/p directory
-                    # newer zig versions can consume this directly using --system
-                    deps =
-                      runCommand (with finalAttrs; "${pname}-${version}-deps") {
-                        nativeBuildInputs = [zig];
-
-                        outputHashMode = "recursive";
-                        outputHashAlgo = "sha256";
-                        outputHash = zigDepsHash;
-                      } ''
-                        mkdir "$TMPDIR"/cache
-
-                        cd ${src}
-                        cd ${lib.escapeShellArg (builtins.dirOf buildZigZon)}
-                        zig build --fetch \
-                          --cache-dir "$TMPDIR" \
-                          --global-cache-dir "$TMPDIR"/cache
-
-                        # create an empty directory if there are no dependencies
-                        mv "$TMPDIR"/cache/p $out || mkdir $out
-                      '';
-                  }
-                  // args.passthru or {};
-              }
-          )
-      ) {inherit (config.packages) zig;};
     };
   };
 }
