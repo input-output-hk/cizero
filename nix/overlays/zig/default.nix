@@ -41,7 +41,9 @@
                 ++ [
                   (zig.hook.overrideAttrs {
                     zig_default_flags = [
-                      # Not passing -Dcpu=baseline as that overrides our target options from build.zig.
+                      # ensure deterministic build
+                      # XXX make a proper target triple like in https://github.com/Cloudef/zig2nix/blob/362cc6f3fe27d73f3663d8c2c25f23ca75151ed6/src/lib.nix
+                      "-Dcpu=baseline"
 
                       "--system"
                       finalAttrs.passthru.deps
