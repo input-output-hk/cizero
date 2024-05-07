@@ -24,7 +24,7 @@
         whereami
       ];
 
-      zigDepsHash = "sha256-evn5NMPQAOnDIC/1ASLhXOe35qRNlqVKJ2kiCu3QZgg=";
+      zigDepsHash = "sha256-wsCEw5wvFeLfAnLD4+wiebwR7t5VsWO06O+o4Ef5RYs=";
 
       preCheck = ''
         # for wasmtime cache

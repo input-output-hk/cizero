@@ -10,14 +10,14 @@ pub fn build(b: *Build) !void {
     };
 
     const lib_mod = b.addModule("lib", .{
-        .root_source_file = Build.LazyPath.relative("src/lib.zig"),
+        .root_source_file = b.path("src/lib.zig"),
         .target = opts.target,
         .optimize = opts.optimize,
     });
     configureModule(b, lib_mod, false, opts);
 
     const cizero_mod = b.addModule("cizero", .{
-        .root_source_file = Build.LazyPath.relative("src/Cizero.zig"),
+        .root_source_file = b.path("src/Cizero.zig"),
         .target = opts.target,
         .optimize = opts.optimize,
     });
@@ -26,7 +26,7 @@ pub fn build(b: *Build) !void {
 
     const cizero_exe = b.addExecutable(.{
         .name = "cizero",
-        .root_source_file = Build.LazyPath.relative("src/main.zig"),
+        .root_source_file = b.path("src/main.zig"),
         .target = opts.target,
         .optimize = opts.optimize,
     });
@@ -37,7 +37,7 @@ pub fn build(b: *Build) !void {
     {
         const nix_build_hook_exe = b.addExecutable(.{
             .name = "build-hook",
-            .root_source_file = Build.LazyPath.relative("src/components/nix/build-hook/main.zig"),
+            .root_source_file = b.path("src/components/nix/build-hook/main.zig"),
             .target = opts.target,
             .optimize = opts.optimize,
         });
@@ -102,7 +102,7 @@ pub fn build(b: *Build) !void {
 
         const pdk_test = b.addTest(.{
             .name = "PDK",
-            .root_source_file = Build.LazyPath.relative("src/plugin/pdk-test.zig"),
+            .root_source_file = b.path("src/plugin/pdk-test.zig"),
             .target = opts.target,
             .optimize = opts.optimize,
         });

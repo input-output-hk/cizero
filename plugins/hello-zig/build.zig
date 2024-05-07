@@ -12,7 +12,7 @@ pub fn build(b: *Build) !void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
     };
 
-    const source = Build.LazyPath.relative("main.zig");
+    const source = b.path("main.zig");
 
     {
         const exe = b.addExecutable(.{

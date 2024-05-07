@@ -11,20 +11,20 @@
             .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
         },
         .httpz = .{
-            .url = "https://github.com/karlseguin/http.zig/archive/6e15856ec41befddd9906052fd44d7ec7607693b.tar.gz",
-            .hash = "122006341428528cd9def40a3009f4650d312832f12249ecfe2b6c89f451090a641d",
+            .url = "https://github.com/karlseguin/http.zig/archive/0d4a5cd520a54eaf800438e0b9093c77c90dcf11.tar.gz",
+            .hash = "12209b8216a80f21be12d43e588811150bdbbb53d35eac6a2a61c460f197350e19ad",
         },
         .@"known-folders" = .{
-            .url = "https://github.com/ziglibs/known-folders/archive/055c95a717c5b54a0fc52ff5f370439c28eb2e73.tar.gz",
-            .hash = "12204a8a7e9184a77f70795b1fc8a9f94dff5cce208c20c5c6452967dddc498e0b64",
+            .url = "https://github.com/ziglibs/known-folders/archive/bf79988adcfce166f848e4b11e718c1966365329.tar.gz",
+            .hash = "12201314cffeb40c5e4e3da166217d2c74628c74486414aaf97422bcd2279915b9fd",
         },
         .trait = .{
             .url = "https://github.com/wrongnull/zigtrait/archive/327d916b522676e6440df7f831d049001fa24dfd.tar.gz",
             .hash = "12209e2e8b61415ca4e12d08cf6e7e0fe514ac83a2659f497c033be19c331cef408d",
         },
         .zqlite = .{
-            .url = "https://github.com/karlseguin/zqlite.zig/archive/5f0379ea624bf8f67e9a91474f780a35db8695d5.tar.gz",
-            .hash = "1220a173f2ca69317180fb421725f43d86b71cbdd51a9a4aab96d9ee71850ec1cd44",
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/2415644448f878fc6c79a2c2e40498616361ef5c.tar.gz",
+            .hash = "12206659ecd84862173c7ea89f32904f2416dabe4aaf84a9d12f34eb266c5e2a7797",
         },
     },
     .paths = .{

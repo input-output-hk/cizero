@@ -312,7 +312,7 @@ fn columnList(comptime table: ?[]const u8, comptime columns: anytype) []const u8
         select.* = "\"" ++ column_name ++ "\"";
         if (table) |t| select.* = "\"" ++ t ++ "\"." ++ select.*;
     }
-    return comptimeJoin(&selects, ", ");
+    return comptime comptimeJoin(&selects, ", ");
 }
 
 test columnList {

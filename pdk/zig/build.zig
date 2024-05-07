@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
     };
 
-    const module = b.addModule("cizero-pdk", .{ .root_source_file = std.Build.LazyPath.relative("main.zig") });
+    const module = b.addModule("cizero-pdk", .{ .root_source_file = b.path("main.zig") });
     configureModule(b, module, opts);
 
     const test_step = b.step("test", "Run unit tests");

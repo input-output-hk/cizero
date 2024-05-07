@@ -61,7 +61,7 @@ fn onWebhook(
     const flake_z = try allocator.dupeZ(u8, flake);
     defer allocator.free(flake_z);
 
-    if (cizero.nix.evalState(flake_z, nix.hydraEvalJobs, .json) == null) try cizero.nix.onEval(
+    if (cizero.nix.evalState(flake_z, &nix.hydraEvalJobs, .json) == null) try cizero.nix.onEval(
         cizero.user_data.Shallow([]const u8),
         allocator,
         struct {
@@ -74,7 +74,7 @@ fn onWebhook(
         }.callback,
         file_name,
         flake_z,
-        nix.hydraEvalJobs,
+        &nix.hydraEvalJobs,
         .json,
     );
 
