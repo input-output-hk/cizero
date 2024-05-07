@@ -18,13 +18,15 @@
         ../../../src
       ];
 
-      nativeBuildInputs = with pkgs; [
+      buildInputs = with pkgs; [
         wasmtime.dev
         sqlite.dev
         whereami
       ];
 
       zigDepsHash = "sha256-wsCEw5wvFeLfAnLD4+wiebwR7t5VsWO06O+o4Ef5RYs=";
+
+      zigTarget = null;
 
       preCheck = ''
         # for wasmtime cache

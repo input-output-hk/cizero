@@ -16,6 +16,8 @@
 
       zigDepsHash = "sha256-OJvViRJjsMMscjXcs0v0EqD/ad3WaGoOGBfy/+2rFTw=";
 
+      zigTarget = null;
+
       nativeCheckInputs = with pkgs; [
         wasmtime
       ];

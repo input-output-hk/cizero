@@ -13,6 +13,10 @@
       url = github:input-output-hk/nix-inclusive;
       inputs.stdlib.follows = "parts/nixpkgs-lib";
     };
+    zig2nix = {
+      url = github:Cloudef/zig2nix;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs:
