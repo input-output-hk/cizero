@@ -14,7 +14,7 @@
       default = pkgs.mkShell {
         name = "devShell";
         packages = with pkgs; [
-          config.packages.zls
+          zls
           wasm-tools
         ];
         inputsFrom = [

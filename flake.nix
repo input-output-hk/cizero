@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = github:NixOS/nixpkgs/nixos-23.11;
+    nixpkgs.url = github:NixOS/nixpkgs/nixpkgs-unstable;
     nix = {
       url = github:NixOS/nix/2.19-maintenance;
       inputs.nixpkgs.follows = "nixpkgs";
@@ -37,10 +37,9 @@
         config,
         ...
       }: {
-        _module.args.pkgs = inputs'.nixpkgs.legacyPackages.appendOverlays [
-          (_final: _prev: {inherit (config.packages) zig;})
-          parts.config.flake.overlays.zig
-        ];
+        _module.args.pkgs =
+          inputs'.nixpkgs.legacyPackages.extend
+          parts.config.flake.overlays.zig;
       };
     });
 }

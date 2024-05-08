@@ -1,7 +1,6 @@
 {
   imports = [
     ./cizero
-    ./zig
   ];
 
   perSystem = {
