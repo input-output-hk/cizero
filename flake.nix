@@ -1,10 +1,7 @@
 {
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixpkgs-unstable;
-    nix = {
-      url = github:NixOS/nix/2.19-maintenance;
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nix.url = github:NixOS/nix/2.19-maintenance;
     parts.url = github:hercules-ci/flake-parts;
     mission-control.url = github:Platonic-Systems/mission-control;
     flake-root.url = github:srid/flake-root;
