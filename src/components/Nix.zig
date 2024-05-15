@@ -1105,50 +1105,50 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
 
                 var iter = std.mem.splitScalar(u8, result.stderr, '\n');
                 while (iter.next()) |line| {
-                    builds: {
-                        const parts = [_][]const u8{
-                            "error: builder for '",
-                            // <drv>
-                            "' failed",
-                        };
-
-                        if (!std.mem.startsWith(u8, line, parts[0])) break :builds;
-
-                        const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :builds;
-
-                        const drv = try allocator.dupe(u8, line[parts[0].len..part2_index]);
-                        errdefer allocator.free(drv);
-
-                        try builds.append(allocator, drv);
-                    }
+                    const readExpected = struct {
+                        fn call(reader: anytype, comptime slice: []const u8) !bool {
+                            var buf: [slice.len]u8 = undefined;
+                            const len = reader.readAll(&buf) catch |err|
+                                return if (err == error.EndOfStream) false else err;
+                            return std.mem.eql(u8, buf[0..len], slice);
+                        }
+                    }.call;
 
                     builds: {
-                        const readExpected = struct {
-                            fn call(reader: anytype, comptime slice: []const u8) !bool {
-                                var buf: [slice.len]u8 = undefined;
-                                const len = reader.readAll(&buf) catch |err|
-                                    return if (err == error.EndOfStream) false else err;
-                                return std.mem.eql(u8, buf[0..len], slice);
-                            }
-                        }.call;
-
                         var line_stream = std.io.fixedBufferStream(line);
                         const line_reader = line_stream.reader();
 
                         var drv_list = std.ArrayListUnmanaged(u8){};
                         errdefer drv_list.deinit(allocator);
 
-                        if (!try readExpected(line_reader, "error: a '")) break :builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :builds;
-                        if (!try readExpected(line_reader, " with features {")) break :builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :builds;
-                        if (!try readExpected(line_reader, " is required to build '")) break :builds;
+                        if (!try readExpected(line_reader, "error: builder for '")) break :builds;
                         line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :builds;
-                        if (!try readExpected(line_reader, ", but I am a '")) break :builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :builds;
-                        if (!try readExpected(line_reader, " with features {")) break :builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :builds;
-                        if (line_reader.readByte() != error.EndOfStream) break :builds;
+                        if (!try readExpected(line_reader, " failed")) break :builds;
+
+                        const drv = try drv_list.toOwnedSlice(allocator);
+                        errdefer allocator.free(drv);
+
+                        try builds.append(allocator, drv);
+                    }
+
+                    foreign_builds: {
+                        var line_stream = std.io.fixedBufferStream(line);
+                        const line_reader = line_stream.reader();
+
+                        var drv_list = std.ArrayListUnmanaged(u8){};
+                        errdefer drv_list.deinit(allocator);
+
+                        if (!try readExpected(line_reader, "error: a '")) break :foreign_builds;
+                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :foreign_builds;
+                        if (!try readExpected(line_reader, " with features {")) break :foreign_builds;
+                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :foreign_builds;
+                        if (!try readExpected(line_reader, " is required to build '")) break :foreign_builds;
+                        line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :foreign_builds;
+                        if (!try readExpected(line_reader, ", but I am a '")) break :foreign_builds;
+                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :foreign_builds;
+                        if (!try readExpected(line_reader, " with features {")) break :foreign_builds;
+                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :foreign_builds;
+                        if (line_reader.readByte() != error.EndOfStream) break :foreign_builds;
 
                         const drv = try drv_list.toOwnedSlice(allocator);
                         errdefer allocator.free(drv);
@@ -1157,20 +1157,19 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
                     }
 
                     dependents: {
-                        const parts = [_][]const u8{
-                            "error: ",
-                            // <num_deps>
-                            " dependencies of derivation '",
-                            // <drv>
-                            "' failed to build",
-                        };
+                        var line_stream = std.io.fixedBufferStream(line);
+                        const line_reader = line_stream.reader();
 
-                        if (!std.mem.startsWith(u8, line, parts[0])) break :dependents;
+                        var drv_list = std.ArrayListUnmanaged(u8){};
+                        errdefer drv_list.deinit(allocator);
 
-                        const part2_index = std.mem.indexOfPos(u8, line, parts[0].len, parts[1]) orelse break :dependents;
-                        const part3_index = std.mem.indexOfPos(u8, line, part2_index + parts[1].len, parts[2]) orelse break :dependents;
+                        if (!try readExpected(line_reader, "error: ")) break :dependents;
+                        line_reader.streamUntilDelimiter(std.io.null_writer, ' ', null) catch break :dependents;
+                        if (!try readExpected(line_reader, "dependencies of derivation '")) break :dependents;
+                        line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :dependents;
+                        if (!try readExpected(line_reader, " failed to build")) break :dependents;
 
-                        const drv = try allocator.dupe(u8, line[part2_index + parts[1].len .. part3_index]);
+                        const drv = try drv_list.toOwnedSlice(allocator);
                         errdefer allocator.free(drv);
 
                         try dependents.append(allocator, drv);
