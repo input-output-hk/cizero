@@ -322,7 +322,7 @@ pub fn init(
             const host_module_name = "cizero";
 
             const signature = try wasmtime.functype(allocator, def_entry.value_ptr.signature);
-            errdefer c.wasm_functype_delete(signature);
+            defer c.wasm_functype_delete(signature);
 
             try handleError(
                 "failed to define function",
