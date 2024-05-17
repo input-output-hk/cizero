@@ -92,9 +92,11 @@ fn hostFunctions(self: @This(), allocator: std.mem.Allocator) !std.StringArrayHa
         var component_host_functions = try component.hostFunctions(allocator);
         defer component_host_functions.deinit(allocator);
 
+        try host_functions.ensureUnusedCapacity(allocator, component_host_functions.count());
+
         var component_host_functions_iter = component_host_functions.iterator();
         while (component_host_functions_iter.next()) |entry|
-            try host_functions.put(allocator, entry.key_ptr.*, entry.value_ptr.*);
+            host_functions.putAssumeCapacity(entry.key_ptr.*, entry.value_ptr.*);
     }
 
     return host_functions;
