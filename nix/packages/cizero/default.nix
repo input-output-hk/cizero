@@ -24,7 +24,7 @@
         whereami
       ];
 
-      zigDepsHash = "sha256-wsCEw5wvFeLfAnLD4+wiebwR7t5VsWO06O+o4Ef5RYs=";
+      zigDepsHash = "sha256-8pmGZh8xpqGH8gQ0sPuk2vwxdIV0uoK+6LGLB7rdMDg=";
 
       zigTarget = null;
 

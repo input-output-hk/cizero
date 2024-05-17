@@ -11,8 +11,8 @@
             .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
         },
         .httpz = .{
-            .url = "https://github.com/karlseguin/http.zig/archive/0d4a5cd520a54eaf800438e0b9093c77c90dcf11.tar.gz",
-            .hash = "12209b8216a80f21be12d43e588811150bdbbb53d35eac6a2a61c460f197350e19ad",
+            .url = "https://github.com/karlseguin/http.zig/archive/6946917979ec263574cb5586032f655e8c6728d9.tar.gz",
+            .hash = "1220141aeed687703aa42ed5b219715e33fc8805c8bbb5617f638b4974fd20d57d67",
         },
         .@"known-folders" = .{
             .url = "https://github.com/ziglibs/known-folders/archive/bf79988adcfce166f848e4b11e718c1966365329.tar.gz",
