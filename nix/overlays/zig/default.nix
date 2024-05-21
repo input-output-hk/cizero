@@ -6,7 +6,7 @@
 }: {
   flake.overlays.zig = final: prev:
     withSystem prev.stdenv.hostPlatform.system ({system, ...}: {
-      buildZigPackage = prev.callPackage (
+      buildZigPackage = lib.makeOverridable (prev.callPackage (
         {
           lib,
           stdenv,
@@ -106,7 +106,7 @@
                   // args.passthru or {};
               }
           )
-      ) {};
+      ) {});
 
       zigPackageInfo = buildZigZon:
         prev.runCommand "zig-package-info" {
