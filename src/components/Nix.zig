@@ -182,6 +182,9 @@ pub fn deinit(self: *@This()) void {
 }
 
 pub const InitError = error{
+    Overflow,
+    InvalidVersion,
+    UnknownNixVersion,
     IncompatibleNixVersion,
     CouldNotReadNixConfig,
 } ||
@@ -193,29 +196,12 @@ pub const InitError = error{
 pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
     if (!builtin.is_test) {
         // we need #. flake syntax
-        const min_nix_version = "2.19.0";
+        const min_nix_version = std.SemanticVersion{ .major = 2, .minor = 19, .patch = 0 };
 
-        const result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &.{
-                "nix",
-                "eval",
-                "--expr",
-                \\builtins.compareVersions builtins.nixVersion "
-                ++ min_nix_version ++
-                    \\" != -1
-                ,
-            },
-        });
-        defer {
-            allocator.free(result.stdout);
-            allocator.free(result.stderr);
-        }
+        const version = try nix.version(allocator);
 
-        const stdout_trimmed = std.mem.trim(u8, result.stdout, " \t\n\r");
-
-        if (!std.mem.eql(u8, stdout_trimmed, "true")) {
-            log.err("nix version too old, must be {s} or newer", .{min_nix_version});
+        if (version.order(min_nix_version) == .lt) {
+            log.err("nix version {} is too old, must be {} or newer", .{ version, min_nix_version });
             return error.IncompatibleNixVersion;
         }
     }
