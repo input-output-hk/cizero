@@ -50,6 +50,8 @@
               DynamicUser = true;
               StateDirectory = "cizero";
               CacheDirectory = "cizero";
+
+              Restart = "on-failure";
             };
 
             path = [
