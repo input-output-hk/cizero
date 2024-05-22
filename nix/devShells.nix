@@ -24,6 +24,7 @@
 
         env.WASMTIME_BACKTRACE_DETAILS = 1;
 
+        # TODO remove once merged: https://github.com/NixOS/nixpkgs/pull/310588
         shellHook = ''
           # Set to `/build/tmp.XXXXXXXXXX` by the zig hook.
           unset ZIG_GLOBAL_CACHE_DIR
