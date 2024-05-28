@@ -45,6 +45,11 @@
                 '';
 
                 doCheck = true;
+
+                dontStrip =
+                  if builtins.isBool zigRelease
+                  then !zigRelease
+                  else zigRelease == "Debug";
               }
               // builtins.removeAttrs args [
                 "buildZigZon"
