@@ -147,11 +147,8 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
 
                 pub fn next(self: *@This()) !?Row {
                     if (self.zqlite_rows.next()) |zqlite_row| {
-                        var arena = std.heap.ArenaAllocator.init(self.allocator);
-                        errdefer arena.deinit();
-
                         var typed_row: Row = undefined;
-                        try structFromRow(arena.allocator(), &typed_row, zqlite_row, column);
+                        try structFromRow(self.allocator, &typed_row, zqlite_row, column);
 
                         return typed_row;
                     }
@@ -160,24 +157,23 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
 
                 /// Consumes this so `deinit()` or `deinitErr()` no longer have to be called.
                 pub fn toOwnedSlice(self: *@This()) ![]Row {
-                    var arena = std.heap.ArenaAllocator.init(self.allocator);
-                    errdefer arena.deinit();
-
-                    var this = @This(){
-                        .zqlite_rows = self.zqlite_rows,
-                        .allocator = arena.allocator(),
-                    };
-                    errdefer this.deinit();
+                    errdefer self.deinit();
 
                     var typed_rows = std.ArrayListUnmanaged(Row){};
-                    errdefer typed_rows.deinit(this.allocator);
+                    errdefer {
+                        for (typed_rows.items) |typed_row| freeStructFromRow(Row, self.allocator, typed_row);
+                        typed_rows.deinit(self.allocator);
+                    }
 
-                    while (try this.next()) |typed_row|
-                        (try typed_rows.addOne(this.allocator)).* = typed_row;
+                    while (try self.next()) |typed_row|
+                        (typed_rows.addOne(self.allocator) catch |err| {
+                            freeStructFromRow(Row, self.allocator, typed_row);
+                            return err;
+                        }).* = typed_row;
 
-                    try this.deinitErr();
+                    try self.deinitErr();
 
-                    return typed_rows.toOwnedSlice(this.allocator);
+                    return typed_rows.toOwnedSlice(self.allocator);
                 }
             };
 
@@ -201,11 +197,9 @@ fn Query(comptime sql: []const u8, comptime multi: bool, comptime Row: type, com
                 const zqlite_row = try row(conn, values) orelse return null;
                 errdefer zqlite_row.deinit();
 
-                var arena = std.heap.ArenaAllocator.init(allocator);
-                errdefer arena.deinit();
-
                 var typed_row: Row = undefined;
-                try structFromRow(arena.allocator(), &typed_row, zqlite_row, column);
+                try structFromRow(allocator, &typed_row, zqlite_row, column);
+                errdefer freeStructFromRow(Row, allocator, typed_row);
 
                 try zqlite_row.deinitErr();
 
@@ -742,51 +736,33 @@ fn structFromRow(
         }
 
         fn clone(self: *@This(), comptime T: type, value: anytype) std.mem.Allocator.Error!T {
-            return switch (T) {
-                []u8,
-                []const u8,
-                => blk: {
-                    const slice = try self.allocator.dupe(u8, value);
-                    self.allocated_mem[self.allocated] = slice;
-                    self.allocated += 1;
-                    break :blk slice;
+            return switch (@typeInfo(T)) {
+                .Pointer => |pointer| pointer: {
+                    const cloned = if (pointer.sentinel == null) blk: {
+                        const slice = try self.allocator.dupe(pointer.child, value);
+                        self.allocated_mem[self.allocated] = slice;
+                        self.allocated += 1;
+                        break :blk slice;
+                    } else blk: {
+                        const slice_z = try self.allocator.dupeZ(pointer.child, value);
+                        self.allocated_mem_z[self.allocated_z] = slice_z;
+                        self.allocated_z += 1;
+                        break :blk slice_z;
+                    };
+
+                    break :pointer switch (pointer.size) {
+                        .Slice => cloned,
+                        .Many => cloned.ptr,
+                        else => @compileError("unsupported pointer size"),
+                    };
                 },
 
-                [*]u8,
-                [*]const u8,
-                => blk: {
-                    const slice = try self.allocator.dupe(u8, value).ptr;
-                    self.allocated_mem[self.allocated] = slice;
-                    self.allocated += 1;
-                    break :blk slice;
-                },
+                .Optional => |optional| if (value) |v| try self.clone(optional.child, v) else null,
 
-                [:0]u8,
-                [:0]const u8,
-                => blk: {
-                    const slice_z = try self.allocator.dupeZ(u8, value);
-                    self.allocated_mem_z[self.allocated_z] = slice_z;
-                    self.allocated_z += 1;
-                    break :blk slice_z;
+                else => switch (T) {
+                    zqlite.Blob => .{ .value = try self.clone(std.meta.fieldInfo(T, .value).type, value) },
+                    else => value,
                 },
-
-                [*:0]u8,
-                [*:0]const u8,
-                => blk: {
-                    const slice_z = try self.allocator.dupeZ(u8, value).ptr;
-                    self.allocated_mem_z[self.allocated_z] = slice_z;
-                    self.allocated_z += 1;
-                    break :blk slice_z;
-                },
-
-                zqlite.Blob => blk: {
-                    const slice = try self.allocator.dupe(u8, value);
-                    self.allocated_mem[self.allocated] = slice;
-                    self.allocated += 1;
-                    break :blk .{ .value = slice };
-                },
-
-                else => value,
             };
         }
     }{ .allocator = allocator };
@@ -798,10 +774,39 @@ fn structFromRow(
         const target_field = &@field(target, @tagName(field));
         const TargetField = @TypeOf(target_field.*);
 
-        target_field.* = switch (@typeInfo(TargetField)) {
-            .Optional => |optional| if (value) |v| try clone_ctx.clone(optional.child, v) else null,
-            else => try clone_ctx.clone(TargetField, value),
-        };
+        target_field.* = try clone_ctx.clone(TargetField, value);
+    }
+}
+
+pub fn freeStructFromRow(comptime Row: type, allocator: std.mem.Allocator, row: Row) void {
+    const free = struct {
+        fn free(alloc: std.mem.Allocator, value: anytype) void {
+            const Value = @TypeOf(value);
+
+            switch (@typeInfo(Value)) {
+                .Pointer => |pointer| alloc.free(switch (pointer.size) {
+                    .Slice => value,
+                    .Many => if (pointer.sentinel != null)
+                        std.mem.span(value)
+                    else
+                        @compileError("many-item pointers only supported with sentinel"),
+                    else => @compileError("unsupported pointer size"),
+                }),
+
+                .Optional => if (value) |v| free(alloc, v),
+
+                else => switch (Value) {
+                    zqlite.Blob => alloc.free(value.value),
+                    else => {},
+                },
+            }
+        }
+    }.free;
+
+    inline for (@typeInfo(Row).Struct.fields) |field| {
+        const field_value = @field(row, field.name);
+
+        free(allocator, field_value);
     }
 }
 
