@@ -728,103 +728,79 @@ fn structFromRow(
 
     const fields = comptime std.enums.values(std.meta.FieldEnum(Target));
 
-    var allocated_mem: [fields.len][]const u8 = undefined;
-    var allocated: usize = 0;
-    var allocated_mem_z: [fields.len][:0]const u8 = undefined;
-    var allocated_z: usize = 0;
-    errdefer {
-        for (allocated_mem[0..allocated]) |slice| allocator.free(slice);
-        for (allocated_mem_z[0..allocated_z]) |slice_z| allocator.free(slice_z);
-    }
+    var clone_ctx = struct {
+        allocator: std.mem.Allocator,
+
+        allocated_mem: [fields.len][]const u8 = undefined,
+        allocated: usize = 0,
+        allocated_mem_z: [fields.len][:0]const u8 = undefined,
+        allocated_z: usize = 0,
+
+        fn deinit(self: *@This()) void {
+            for (self.allocated_mem[0..self.allocated]) |slice| self.allocator.free(slice);
+            for (self.allocated_mem_z[0..self.allocated_z]) |slice_z| self.allocator.free(slice_z);
+        }
+
+        fn clone(self: *@This(), comptime T: type, value: anytype) std.mem.Allocator.Error!T {
+            return switch (T) {
+                []u8,
+                []const u8,
+                => blk: {
+                    const slice = try self.allocator.dupe(u8, value);
+                    self.allocated_mem[self.allocated] = slice;
+                    self.allocated += 1;
+                    break :blk slice;
+                },
+
+                [*]u8,
+                [*]const u8,
+                => blk: {
+                    const slice = try self.allocator.dupe(u8, value).ptr;
+                    self.allocated_mem[self.allocated] = slice;
+                    self.allocated += 1;
+                    break :blk slice;
+                },
+
+                [:0]u8,
+                [:0]const u8,
+                => blk: {
+                    const slice_z = try self.allocator.dupeZ(u8, value);
+                    self.allocated_mem_z[self.allocated_z] = slice_z;
+                    self.allocated_z += 1;
+                    break :blk slice_z;
+                },
+
+                [*:0]u8,
+                [*:0]const u8,
+                => blk: {
+                    const slice_z = try self.allocator.dupeZ(u8, value).ptr;
+                    self.allocated_mem_z[self.allocated_z] = slice_z;
+                    self.allocated_z += 1;
+                    break :blk slice_z;
+                },
+
+                zqlite.Blob => blk: {
+                    const slice = try self.allocator.dupe(u8, value);
+                    self.allocated_mem[self.allocated] = slice;
+                    self.allocated += 1;
+                    break :blk .{ .value = slice };
+                },
+
+                else => value,
+            };
+        }
+    }{ .allocator = allocator };
+    errdefer clone_ctx.deinit();
 
     inline for (fields) |field| {
         const value = column_fn(row, field);
 
         const target_field = &@field(target, @tagName(field));
+        const TargetField = @TypeOf(target_field.*);
 
-        target_field.* = switch (@TypeOf(target_field.*)) {
-            []u8,
-            []const u8,
-            => blk: {
-                const slice = try allocator.dupe(u8, value);
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk slice;
-            },
-            ?[]u8,
-            ?[]const u8,
-            => if (value) |v| blk: {
-                const slice = try allocator.dupe(u8, v);
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk slice;
-            } else null,
-
-            [*]u8,
-            [*]const u8,
-            => blk: {
-                const slice = try allocator.dupe(u8, value).ptr;
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk slice;
-            },
-            ?[*]u8,
-            ?[*]const u8,
-            => if (value) |v| blk: {
-                const slice = try allocator.dupe(u8, v).ptr;
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk slice;
-            } else null,
-
-            [:0]u8,
-            [:0]const u8,
-            => blk: {
-                const slice_z = try allocator.dupeZ(u8, value);
-                allocated_mem_z[allocated_z] = slice_z;
-                allocated_z += 1;
-                break :blk slice_z;
-            },
-            ?[:0]u8,
-            ?[:0]const u8,
-            => if (value) |v| blk: {
-                const slice_z = try allocator.dupeZ(u8, v);
-                allocated_mem_z[allocated_z] = slice_z;
-                allocated_z += 1;
-                break :blk slice_z;
-            } else null,
-
-            [*:0]u8,
-            [*:0]const u8,
-            => blk: {
-                const slice_z = try allocator.dupeZ(u8, value).ptr;
-                allocated_mem_z[allocated_z] = slice_z;
-                allocated_z += 1;
-                break :blk slice_z;
-            },
-            ?[*:0]u8,
-            ?[*:0]const u8,
-            => if (value) |v| blk: {
-                const slice_z = try allocator.dupeZ(u8, v).ptr;
-                allocated_mem_z[allocated_z] = slice_z;
-                allocated_z += 1;
-                break :blk slice_z;
-            } else null,
-
-            zqlite.Blob => blk: {
-                const slice = try allocator.dupe(u8, value);
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk .{ .value = slice };
-            },
-            ?zqlite.Blob => if (value) |v| blk: {
-                const slice = try allocator.dupe(u8, v);
-                allocated_mem[allocated] = slice;
-                allocated += 1;
-                break :blk .{ .value = slice };
-            } else null,
-
-            else => value,
+        target_field.* = switch (@typeInfo(TargetField)) {
+            .Optional => |optional| if (value) |v| try clone_ctx.clone(optional.child, v) else null,
+            else => try clone_ctx.clone(TargetField, value),
         };
     }
 }
