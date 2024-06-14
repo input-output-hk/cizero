@@ -17,6 +17,7 @@
       url = github:Cloudef/zig2nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    ghc-wasm-meta.url = "https://gitlab.haskell.org/ghc/ghc-wasm-meta/-/archive/master/ghc-wasm-meta-master.tar.gz";
   };
 
   outputs = inputs:

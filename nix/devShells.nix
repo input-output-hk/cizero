@@ -6,6 +6,7 @@
 
   perSystem = {
     config,
+    inputs',
     lib,
     pkgs,
     ...
@@ -34,6 +35,12 @@
       crystal = pkgs.mkShell {
         name = "${config.devShells.default.name}-crystal";
         packages = with pkgs; [crystal crystalline];
+        inputsFrom = [config.devShells.default];
+      };
+
+      haskell = pkgs.mkShell {
+        name="${config.devShells.default.name}-haskell";
+        packages = with pkgs; [ inputs'.ghc-wasm-meta.packages.wasm32-wasi-ghc-gmp  ];
         inputsFrom = [config.devShells.default];
       };
     };

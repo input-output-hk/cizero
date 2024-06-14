@@ -2,6 +2,7 @@
   imports = [
     plugins/hello-zig.nix
     plugins/hello-crystal.nix
+    plugins/hello-haskell.nix
     plugins/hydra-eval-jobs.nix
   ];
 
