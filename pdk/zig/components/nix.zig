@@ -255,7 +255,7 @@ pub const flakeMetadata = nix_impl.flakeMetadata;
 pub const flakeMetadataLocks = nix_impl.flakeMetadataLocks;
 
 pub fn lockFlakeRef(allocator: std.mem.Allocator, flake_ref: []const u8, opts: nix.FlakeMetadataOptions) ![]const u8 {
-    const flake_ref_locked = nix_impl.lockFlakeRef(allocator, flake_ref, opts);
+    const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts);
 
     if (comptime std.log.logEnabled(.debug, log_scope)) {
         if (std.mem.eql(u8, flake_ref_locked, flake_ref))
