@@ -14,7 +14,7 @@ pub fn build(b: *Build) !void {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    configureModule(b, cizero_mod, false, opts);
+    addDependencyImports(b, cizero_mod, opts);
 
     const cizero_exe = b.addExecutable(.{
         .name = "cizero",
@@ -22,7 +22,8 @@ pub fn build(b: *Build) !void {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    configureModule(b, &cizero_exe.root_module, true, opts);
+    addDependencyImports(b, &cizero_exe.root_module, opts);
+    linkSystemLibraries(&cizero_exe.root_module);
     cizero_exe.root_module.addImport("cizero", cizero_mod);
     b.installArtifact(cizero_exe);
 
@@ -55,7 +56,8 @@ pub fn build(b: *Build) !void {
             .target = opts.target,
             .optimize = opts.optimize,
         });
-        configureModule(b, &cizero_mod_test.root_module, true, opts);
+        addDependencyImports(b, &cizero_mod_test.root_module, opts);
+        linkSystemLibraries(&cizero_mod_test.root_module);
 
         const run_cizero_mod_test = b.addRunArtifact(cizero_mod_test);
         test_step.dependOn(&run_cizero_mod_test.step);
@@ -67,41 +69,15 @@ pub fn build(b: *Build) !void {
             .target = opts.target,
             .optimize = opts.optimize,
         });
-        configureModule(b, &cizero_exe_test.root_module, false, opts);
+        addDependencyImports(b, &cizero_exe_test.root_module, opts);
         cizero_exe_test.root_module.addImport("cizero", cizero_mod);
 
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
         test_step.dependOn(&run_cizero_exe_test.step);
     }
-
-    const test_pdk_step = b.step("test-pdk", "Run PDK tests");
-    if (b.option([]const u8, "plugin", "Path to WASM module of a PDK test plugin")) |plugin_path| {
-        const build_options = b.addOptions();
-        build_options.addOption([]const u8, "plugin_path", plugin_path);
-
-        const pdk_test = b.addTest(.{
-            .name = "PDK",
-            .root_source_file = b.path("plugin/pdk-test.zig"),
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-        configureModule(b, &pdk_test.root_module, true, opts);
-        pdk_test.root_module.addOptions("build_options", build_options);
-        pdk_test.root_module.addImport("cizero", cizero_mod);
-
-        const run_pdk_test = b.addRunArtifact(pdk_test);
-        test_pdk_step.dependOn(&run_pdk_test.step);
-    }
 }
 
-fn configureModule(b: *Build, module: *Build.Module, link: bool, opts: anytype) void {
-    if (link) {
-        module.link_libc = true;
-        module.linkSystemLibrary("wasmtime", .{});
-        module.linkSystemLibrary("sqlite3", .{});
-        module.linkSystemLibrary("whereami", .{});
-    }
-
+pub fn addDependencyImports(b: *Build, module: *Build.Module, opts: anytype) void {
     const lib_mod = b.dependency("lib", opts).module("lib");
 
     module.addImport("lib", lib_mod);
@@ -111,4 +87,11 @@ fn configureModule(b: *Build, module: *Build.Module, link: bool, opts: anytype) 
     module.addImport("httpz", b.dependency("httpz", opts).module("httpz"));
     module.addImport("known-folders", b.dependency("known-folders", .{}).module("known-folders"));
     module.addImport("zqlite", b.dependency("zqlite", opts).module("zqlite"));
+}
+
+pub fn linkSystemLibraries(module: *Build.Module) void {
+    module.link_libc = true;
+    module.linkSystemLibrary("wasmtime", .{});
+    module.linkSystemLibrary("sqlite3", .{});
+    module.linkSystemLibrary("whereami", .{});
 }

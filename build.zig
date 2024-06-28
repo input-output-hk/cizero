@@ -60,6 +60,33 @@ pub fn build(b: *Build) !void {
                 ) catch @panic("OOM");
         }
     }
+
+    const test_pdk_step = b.step("test-pdk", "Run PDK tests");
+    if (b.option([]const u8, "plugin", "Path to WASM module of a PDK test plugin")) |plugin_path| {
+        const CizeroBuild = b.lazyImport(@This(), "cizero") orelse unreachable;
+
+        const cizero_pkg = b.dependencyFromBuildZig(CizeroBuild, .{
+            .target = opts.target,
+            .release = opts.optimize != .Debug,
+        });
+
+        const build_options = b.addOptions();
+        build_options.addOption([]const u8, "plugin_path", plugin_path);
+
+        const pdk_test = b.addTest(.{
+            .name = "PDK",
+            .root_source_file = b.path("pdk-test.zig"),
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+        CizeroBuild.addDependencyImports(cizero_pkg.builder, &pdk_test.root_module, opts);
+        CizeroBuild.linkSystemLibraries(&pdk_test.root_module);
+        pdk_test.root_module.addOptions("build_options", build_options);
+        pdk_test.root_module.addImport("cizero", cizero_pkg.module("cizero"));
+
+        const run_pdk_test = b.addRunArtifact(pdk_test);
+        test_pdk_step.dependOn(&run_pdk_test.step);
+    }
 }
 
 /// Like `std.Build.Step.InstallDir`
