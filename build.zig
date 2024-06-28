@@ -7,19 +7,26 @@ pub fn build(b: *Build) !void {
         .optimize = b.standardOptimizeOption(.{}),
     };
 
-    const test_step = b.step("test", "Run unit tests");
-
-    inline for (.{
-        .{ "lib", opts },
-        .{ "cizero", .{
+    const deps_opts = .{
+        .lib = opts,
+        .cizero = .{
             .target = opts.target,
             .release = opts.optimize != .Debug,
-        } },
-        .{ "cizero-pdk", .{
+        },
+        .@"cizero-pdk" = .{
             .release = opts.optimize != .Debug,
-        } },
-    }) |dep_entry| {
-        const dep_name, const dep_opts = dep_entry;
+        },
+    };
+
+    {
+        const cizero_run_tls = b.dependency("cizero", deps_opts.cizero).builder.top_level_steps.get("run").?;
+        try b.top_level_steps.putNoClobber(b.allocator, cizero_run_tls.step.name, cizero_run_tls);
+    }
+
+    const test_step = b.step("test", "Run unit tests");
+
+    inline for (comptime std.meta.fieldNames(@TypeOf(deps_opts))) |dep_name| {
+        const dep_opts = @field(deps_opts, dep_name);
 
         const pkg = b.dependency(dep_name, dep_opts);
 
@@ -65,10 +72,7 @@ pub fn build(b: *Build) !void {
     if (b.option([]const u8, "plugin", "Path to WASM module of a PDK test plugin")) |plugin_path| {
         const CizeroBuild = b.lazyImport(@This(), "cizero") orelse unreachable;
 
-        const cizero_pkg = b.dependencyFromBuildZig(CizeroBuild, .{
-            .target = opts.target,
-            .release = opts.optimize != .Debug,
-        });
+        const cizero_pkg = b.dependencyFromBuildZig(CizeroBuild, deps_opts.cizero);
 
         const build_options = b.addOptions();
         build_options.addOption([]const u8, "plugin_path", plugin_path);
