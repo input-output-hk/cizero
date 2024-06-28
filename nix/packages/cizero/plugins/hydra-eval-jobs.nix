@@ -8,9 +8,8 @@
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hydra-eval-jobs
         ../../../../pdk/zig
-        ../../../../build.zig
-        ../../../../build.zig.zon
         ../../../../src
+        ../../../../lib
       ];
 
       buildZigZon = "plugins/hydra-eval-jobs/build.zig.zon";
@@ -29,11 +28,9 @@
       '';
 
       passthru.hydra-eval-jobs = pkgs.buildZigPackage {
-        src = inputs.inclusive.lib.inclusive ../../../.. [
-          ../../../../plugins/hydra-eval-jobs
-        ];
+        src = ../../../../plugins/hydra-eval-jobs;
 
-        buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
+        buildZigZon = "hydra-eval-jobs/build.zig.zon";
 
         zigDepsHash = "sha256-Ftvvp2X7mkjboMTUbQ+/oPW2AEmmcq7uZlHa2KiZSo4=";
 

@@ -3,11 +3,13 @@
     .version = "0.0.0",
     .dependencies = .{
         .pdk = .{ .path = "../../pdk/zig" },
-        .cizero = .{ .path = "../.." },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "main.zig",
+        "../../pdk/zig",
+        "../../src",
+        "../../lib",
     },
 }

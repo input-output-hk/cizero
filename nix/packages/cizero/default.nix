@@ -11,11 +11,10 @@
     pkgs,
     ...
   }: {
-    packages.cizero = pkgs.buildZigPackage {
+    packages.cizero = pkgs.buildZigPackage rec {
       src = inputs.inclusive.lib.inclusive ../../.. [
-        ../../../build.zig
-        ../../../build.zig.zon
         ../../../src
+        ../../../lib
       ];
 
       buildInputs = with pkgs; [
@@ -27,6 +26,8 @@
       zigDepsHash = "sha256-8pmGZh8xpqGH8gQ0sPuk2vwxdIV0uoK+6LGLB7rdMDg=";
 
       zigTarget = null;
+
+      buildZigZon = "src/build.zig.zon";
 
       preCheck = ''
         # for wasmtime cache
