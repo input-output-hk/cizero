@@ -103,7 +103,7 @@
             (ks: ''
               declare -a attrs
               for attr in ${lib.escapeShellArgs ks}; do
-                  attrs+=(".#$attr")
+                attrs+=(".#$attr")
               done
               exec nix build --no-link --print-build-logs --print-out-paths "''${attrs[@]}" "$@"
             '')
