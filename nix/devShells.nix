@@ -19,15 +19,18 @@
         ];
         inputsFrom = [
           config.mission-control.devShell
+          config.flake-root.devShell
           config.packages.cizero
         ];
 
         env.WASMTIME_BACKTRACE_DETAILS = 1;
 
-        # TODO remove once merged: https://github.com/NixOS/nixpkgs/pull/310588
         shellHook = ''
+          # TODO remove once merged: https://github.com/NixOS/nixpkgs/pull/310588
           # Set to `/build/tmp.XXXXXXXXXX` by the zig hook.
           unset ZIG_GLOBAL_CACHE_DIR
+
+          export ZIG_LOCAL_CACHE_DIR="$FLAKE_ROOT/zig-cache"
         '';
       };
 
