@@ -11,7 +11,7 @@
     pkgs,
     ...
   }: {
-    packages.cizero = pkgs.buildZigPackage rec {
+    packages.cizero = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../.. [
         ../../../src
         ../../../lib
