@@ -73,8 +73,8 @@
                 runHook preCheck
 
                 local flagsArray=(
-                    "''${zigDefaultFlagsArray[@]}"
-                    $zigCheckFlags "''${zigCheckFlagsArray[@]}"
+                  "''${zigDefaultFlagsArray[@]}"
+                  $zigCheckFlags "''${zigCheckFlagsArray[@]}"
                 )
 
                 zig build test-pdk \
