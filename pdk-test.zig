@@ -317,7 +317,7 @@ test "http_on_webhook" {
 
                 const res_status_wasm = try allocator.create(u16);
                 defer allocator.destroy(res_status_wasm);
-                res_status_wasm.* = 0;
+                res_status_wasm.* = 204;
 
                 const res_body_addr = try allocator.create(wasm.usize);
                 defer allocator.destroy(res_body_addr);
