@@ -7,9 +7,8 @@
     checks.cizero-pdk-zig = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../.. [
         ../../pdk/zig
-        ../../build.zig
-        ../../build.zig.zon
         ../../src
+        ../../lib
       ];
 
       buildZigZon = "pdk/zig/build.zig.zon";

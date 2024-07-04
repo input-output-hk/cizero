@@ -13,9 +13,8 @@
   }: {
     packages.cizero = pkgs.buildZigPackage {
       src = inputs.inclusive.lib.inclusive ../../.. [
-        ../../../build.zig
-        ../../../build.zig.zon
         ../../../src
+        ../../../lib
       ];
 
       buildInputs = with pkgs; [
@@ -28,6 +27,8 @@
 
       zigTarget = null;
 
+      buildZigZon = "src/build.zig.zon";
+
       preCheck = ''
         # for wasmtime cache
         export HOME="$TMPDIR"
@@ -36,41 +37,58 @@
       passthru.pdkTests =
         lib.genAttrs
         (lib.pipe ../../../pdk [builtins.readDir builtins.attrNames])
-        (pdk:
-          config.packages.cizero.overrideAttrs (oldAttrs: {
-            pname = "cizero-pdk-${pdk}";
+        (
+          pdk:
+            (config.packages.cizero.override {
+              pname = "cizero-pdk-${pdk}";
 
-            dontBuild = true;
-            dontInstall = true;
+              src = inputs.inclusive.lib.inclusive ../../.. [
+                ../../../build.zig
+                ../../../build.zig.zon
+                ../../../pdk-test.zig
+                ../../../src
+                ../../../lib
 
-            zigRelease = false;
+                ../../../pdk/zig
+              ];
 
-            preCheck = ''
-              ${oldAttrs.preCheck}
+              buildZigZon = "build.zig.zon";
 
-              # for temporary files written by cizero
-              mkdir "''${XDG_CACHE_HOME:-$HOME/.cache}"
-            '';
+              zigDepsHash = "sha256-wnva5TJsPrzVfTJFsD+zkZcGiTvZ++Zqk8C/f2idf/w=";
 
-            checkPhase = ''
-              runHook preCheck
+              zigRelease = "Debug";
+            })
+            .overrideAttrs (oldAttrs: {
+              dontBuild = true;
+              dontInstall = true;
 
-              local flagsArray=(
+              preCheck = ''
+                ${oldAttrs.preCheck}
+
+                # for temporary files written by cizero
+                mkdir "''${XDG_CACHE_HOME:-$HOME/.cache}"
+              '';
+
+              checkPhase = ''
+                runHook preCheck
+
+                local flagsArray=(
                   "''${zigDefaultFlagsArray[@]}"
                   $zigCheckFlags "''${zigCheckFlagsArray[@]}"
-              )
+                )
 
-              zig build test-pdk \
-                "''${flagsArray[@]}" \
-                -Dplugin=${config.packages."cizero-plugin-hello-${pdk}"}/libexec/cizero/plugins/hello-${lib.escapeShellArg pdk}.wasm
+                zig build test-pdk \
+                  "''${flagsArray[@]}" \
+                  -Dplugin=${config.packages."cizero-plugin-hello-${pdk}"}/libexec/cizero/plugins/hello-${lib.escapeShellArg pdk}.wasm
 
-              runHook postCheck
-            '';
+                runHook postCheck
+              '';
 
-            postCheck = ''
-              touch $out
-            '';
-          }));
+              postCheck = ''
+                touch $out
+              '';
+            })
+        );
     };
   };
 }

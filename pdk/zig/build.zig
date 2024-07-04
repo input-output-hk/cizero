@@ -36,17 +36,13 @@ fn configureCompileStep(b: *std.Build, step: *std.Build.Step.Compile, opts: anyt
 }
 
 fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void {
-    const cizero_pkg = b.dependency("cizero", .{
+    const cizero_mod = b.dependency("cizero", .{
         .target = opts.target,
         .release = opts.optimize != .Debug,
-    });
-    const lib_mod = cizero_pkg.module("lib");
-    module.addImport("lib", lib_mod);
-    module.addImport("cizero", cizero_pkg.module("cizero"));
+    }).module("cizero");
 
-    module.addImport("trait", lib_mod.import_table.get("trait").?);
-    module.addImport("s2s", b.dependency("s2s", .{
-        .target = opts.target,
-        .optimize = opts.optimize,
-    }).module("s2s"));
+    module.addImport("cizero", cizero_mod);
+    module.addImport("lib", cizero_mod.import_table.get("lib").?);
+    module.addImport("trait", cizero_mod.import_table.get("trait").?);
+    module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 }

@@ -4,9 +4,8 @@
       src = inputs.inclusive.lib.inclusive ../../../.. [
         ../../../../plugins/hello-zig
         ../../../../pdk/zig
-        ../../../../build.zig
-        ../../../../build.zig.zon
         ../../../../src
+        ../../../../lib
       ];
 
       buildZigZon = "plugins/hello-zig/build.zig.zon";

@@ -1,0 +1,33 @@
+.{
+    .name = "cizero",
+    .version = "0.0.0",
+    .dependencies = .{
+        .lib = .{ .path = "../lib" },
+        .cron = .{
+            .url = "https://github.com/dying-will-bullet/cron/archive/4080f1f35616c9467117734c0cb30dd7591d6e09.tar.gz",
+            .hash = "12208ab8c210795b499f6214bb15ecf09a113142360c05b5b20adde8990ba369a647",
+        },
+        .datetime = .{
+            .url = "https://github.com/frmdstryr/zig-datetime/archive/a9c75242dfc119a305c1381c2352d2fc16b2e0aa.tar.gz",
+            .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
+        },
+        .httpz = .{
+            .url = "https://github.com/karlseguin/http.zig/archive/6946917979ec263574cb5586032f655e8c6728d9.tar.gz",
+            .hash = "1220141aeed687703aa42ed5b219715e33fc8805c8bbb5617f638b4974fd20d57d67",
+        },
+        .@"known-folders" = .{
+            .url = "https://github.com/ziglibs/known-folders/archive/bf79988adcfce166f848e4b11e718c1966365329.tar.gz",
+            .hash = "12201314cffeb40c5e4e3da166217d2c74628c74486414aaf97422bcd2279915b9fd",
+        },
+        .zqlite = .{
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/2415644448f878fc6c79a2c2e40498616361ef5c.tar.gz",
+            .hash = "12206659ecd84862173c7ea89f32904f2416dabe4aaf84a9d12f34eb266c5e2a7797",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "../lib",
+    },
+}

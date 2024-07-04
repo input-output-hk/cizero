@@ -46,12 +46,11 @@ fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) voi
     step.rdynamic = true;
     step.wasi_exec_model = .command;
 
-    step.root_module.addImport("cizero", b.dependency("pdk", .{
+    const pdk_mod = b.dependency("pdk", .{
         .target = opts.target,
         .release = opts.optimize != .Debug,
-    }).module("cizero-pdk"));
-    step.root_module.addImport("lib", b.dependency("cizero", .{
-        .target = opts.target,
-        .release = opts.optimize != .Debug,
-    }).module("lib"));
+    }).module("cizero-pdk");
+
+    step.root_module.addImport("cizero", pdk_mod);
+    step.root_module.addImport("lib", pdk_mod.import_table.get("lib").?);
 }
