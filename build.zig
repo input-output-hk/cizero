@@ -1,7 +1,10 @@
 const std = @import("std");
 const Build = std.Build;
 
-const cizero = @import("cizero");
+const lib_build = @import("lib");
+const cizero_build = @import("cizero");
+
+pub const lib = lib_build.lib;
 
 pub fn build(b: *Build) !void {
     const opts = .{
@@ -27,6 +30,8 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
 
+    const check_step = b.step("check", "Check compilation for errors");
+
     inline for (comptime std.meta.fieldNames(@TypeOf(deps_opts))) |dep_name| {
         const dep_opts = @field(deps_opts, dep_name);
 
@@ -43,7 +48,7 @@ pub fn build(b: *Build) !void {
             pkg_install_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_install_step.name }) catch @panic("OOM");
 
             // Move the output of the `pkg`'s step into our install directory to produce one top-level merged `zig-out`.
-            const install_dir_lenient = InstallDirLenientStep.create(b, .{
+            const install_dir_lenient = lib.InstallDirLenientStep.create(b, .{
                 .source_dir = b.path(std.fs.path.relative(b.allocator, b.build_root.path.?, pkg.builder.install_path) catch @panic("OOM")),
                 .install_dir = .prefix,
                 .install_subdir = "",
@@ -61,6 +66,13 @@ pub fn build(b: *Build) !void {
         }
 
         {
+            const pkg_check_step = &pkg.builder.top_level_steps.get("check").?.step;
+            pkg_check_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_check_step.name }) catch @panic("OOM");
+
+            check_step.dependOn(pkg_check_step);
+        }
+
+        {
             var pkg_mod_iter = pkg.builder.modules.iterator();
             while (pkg_mod_iter.next()) |pkg_mod_entry|
                 b.modules.put(
@@ -72,7 +84,7 @@ pub fn build(b: *Build) !void {
 
     const test_pdk_step = b.step("test-pdk", "Run PDK tests");
     if (b.option([]const u8, "plugin", "Path to WASM module of a PDK test plugin")) |plugin_path| {
-        const cizero_pkg = b.dependencyFromBuildZig(cizero, deps_opts.cizero);
+        const cizero_pkg = b.dependencyFromBuildZig(cizero_build, deps_opts.cizero);
 
         const build_options = b.addOptions();
         build_options.addOption([]const u8, "plugin_path", plugin_path);
@@ -83,8 +95,8 @@ pub fn build(b: *Build) !void {
             .target = opts.target,
             .optimize = opts.optimize,
         });
-        cizero.addDependencyImports(cizero_pkg.builder, &pdk_test.root_module, opts);
-        cizero.linkSystemLibraries(&pdk_test.root_module);
+        cizero_build.addDependencyImports(cizero_pkg.builder, &pdk_test.root_module, opts);
+        cizero_build.linkSystemLibraries(&pdk_test.root_module);
         pdk_test.root_module.addOptions("build_options", build_options);
         pdk_test.root_module.addImport("cizero", cizero_pkg.module("cizero"));
 
@@ -92,47 +104,3 @@ pub fn build(b: *Build) !void {
         test_pdk_step.dependOn(&run_pdk_test.step);
     }
 }
-
-/// Like `std.Build.Step.InstallDir`
-/// but does nothing instead of returning an error
-/// if the source directory does not exist.
-const InstallDirLenientStep = struct {
-    step: Build.Step,
-    inner: *Build.Step.InstallDir,
-
-    pub const base_id = .install_dir_lenient;
-
-    pub fn create(owner: *Build, options: Build.Step.InstallDir.Options) *@This() {
-        const self = owner.allocator.create(@This()) catch @panic("OOM");
-
-        const inner = Build.Step.InstallDir.create(owner, options);
-
-        self.* = .{
-            .step = Build.Step.init(.{
-                .id = inner.step.id,
-                .name = inner.step.name,
-                .owner = inner.step.owner,
-                .makeFn = make,
-            }),
-            .inner = inner,
-        };
-
-        return self;
-    }
-
-    fn make(step: *Build.Step, progress_node: *std.Progress.Node) !void {
-        const self: *@This() = @fieldParentPtr("step", step);
-        const src_dir_path = self.inner.options.source_dir.getPath2(step.owner, step);
-
-        std.fs.accessAbsolute(src_dir_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => {
-                step.result_cached = true;
-                return;
-            },
-            else => return err,
-        };
-
-        try self.inner.step.makeFn(&self.inner.step, progress_node);
-        step.result_cached = self.inner.step.result_cached;
-    }
-};

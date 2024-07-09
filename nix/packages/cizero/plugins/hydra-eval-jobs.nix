@@ -28,11 +28,14 @@
       '';
 
       passthru.hydra-eval-jobs = pkgs.buildZigPackage {
-        src = ../../../../plugins/hydra-eval-jobs;
+        src = inputs.inclusive.lib.inclusive ../../../.. [
+          ../../../../plugins/hydra-eval-jobs
+          ../../../../lib
+        ];
 
-        buildZigZon = "hydra-eval-jobs/build.zig.zon";
+        buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
 
-        zigDepsHash = "sha256-Ftvvp2X7mkjboMTUbQ+/oPW2AEmmcq7uZlHa2KiZSo4=";
+        zigDepsHash = "sha256-15bcToU57WBfCbDpEFHh0jRM3yyjipFNe9rs/Nz4raM=";
 
         meta.mainProgram = "hydra-eval-jobs";
       };

@@ -3,6 +3,7 @@
     .version = "0.0.0",
     .dependencies = .{
         .pdk = .{ .path = "../../pdk/zig" },
+        .lib = .{ .path = "../../lib" },
     },
     .paths = .{
         "build.zig",

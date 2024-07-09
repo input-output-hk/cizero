@@ -1,6 +1,8 @@
 const std = @import("std");
 const Build = std.Build;
 
+const lib = @import("lib").lib;
+
 pub fn build(b: *Build) !void {
     b.enable_wasmtime = true;
 
@@ -75,6 +77,8 @@ pub fn build(b: *Build) !void {
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
         test_step.dependOn(&run_cizero_exe_test.step);
     }
+
+    _ = lib.addCheckTls(b);
 }
 
 pub fn addDependencyImports(b: *Build, module: *Build.Module, opts: anytype) void {

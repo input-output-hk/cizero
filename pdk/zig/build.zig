@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const lib = @import("lib").lib;
+
 pub fn build(b: *std.Build) !void {
     b.enable_wasmtime = true;
 
@@ -26,6 +28,8 @@ pub fn build(b: *std.Build) !void {
         const run_tests = b.addRunArtifact(tests);
         test_step.dependOn(&run_tests.step);
     }
+
+    _ = lib.addCheckTls(b);
 }
 
 fn configureCompileStep(b: *std.Build, step: *std.Build.Step.Compile, opts: anytype) void {
