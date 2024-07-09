@@ -15,7 +15,7 @@
         }: args @ {
           src,
           buildZigZon ? "build.zig.zon",
-          zigDepsHash,
+          zigDepsHash ? "",
           # Can be a boolean for for `-Drelease` or a string for `-Doptimize`.
           zigRelease ? true,
           # Passed to `-Dtarget` if not null.
