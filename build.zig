@@ -47,7 +47,7 @@ pub fn build(b: *Build) !void {
                 .install_subdir = "",
             });
             install_dir_lenient.step.name = std.mem.concat(b.allocator, u8, &.{ "install ", dep_name, "/zig-out" }) catch @panic("OOM");
-            install_dir_lenient.step.dependOn(pkg.builder.getInstallStep());
+            install_dir_lenient.step.dependOn(pkg_install_step);
             b.getInstallStep().dependOn(&install_dir_lenient.step);
         }
 
