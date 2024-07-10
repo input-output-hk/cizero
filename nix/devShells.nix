@@ -5,6 +5,7 @@
   ];
 
   perSystem = {
+    inputs',
     config,
     lib,
     pkgs,
@@ -16,6 +17,7 @@
         packages = with pkgs; [
           zls
           wasm-tools
+          inputs'.nix.packages.nix
         ];
         inputsFrom = [
           config.mission-control.devShell
