@@ -35,7 +35,10 @@ fn innerMain(allocator: std.mem.Allocator) !void {
 
         _ = args.next();
 
-        const verbosity: log.Action.Verbosity = @enumFromInt(try std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), args.next().?, 10));
+        const verbosity: log.Action.Verbosity = @enumFromInt(std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), args.next().?, 10) catch |err| switch (err) {
+            error.Overflow => @intFromEnum(log.Action.Verbosity.vomit),
+            else => return err,
+        });
         std.log.info("log verbosity: {s}", .{@tagName(verbosity)});
     }
 
