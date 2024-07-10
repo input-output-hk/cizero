@@ -146,7 +146,6 @@ export fn @"pdk.nix.onEval.callback"(
     failed_ifd_deps_ptr: ?[*]const [*:0]const u8,
     failed_ifd_deps_len: usize,
 ) void {
-    std.debug.assert((result == null) != (err_msg == null));
     std.debug.assert((failed_ifds_ptr == null) == (failed_ifds_len == 0));
     std.debug.assert((failed_ifd_deps_ptr == null) == (failed_ifd_deps_len == 0));
 
