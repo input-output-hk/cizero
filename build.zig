@@ -26,6 +26,15 @@ pub fn build(b: *Build) !void {
     {
         const cizero_run_tls = b.dependency("cizero", deps_opts.cizero).builder.top_level_steps.get("run").?;
         try b.top_level_steps.putNoClobber(b.allocator, cizero_run_tls.step.name, cizero_run_tls);
+
+        for (cizero_run_tls.step.dependencies.items) |dep_step| {
+            if (dep_step.id != .run) continue;
+
+            if (b.args) |args| {
+                const run = dep_step.cast(Build.Step.Run).?;
+                run.addArgs(args);
+            }
+        }
     }
 
     const test_step = b.step("test", "Run unit tests");
