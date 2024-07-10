@@ -8,7 +8,9 @@ pub fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const prefix = if (scope != .default) "(" ++ @tagName(scope) ++ "): " else "";
+    const prefix =
+        "[" ++ comptime level.asText() ++ "] " ++
+        if (scope != .default) "(" ++ @tagName(scope) ++ ") " else "";
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) std.debug.panic("could not log memory leak after logging\n", .{});
