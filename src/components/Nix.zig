@@ -903,7 +903,13 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     defer if (flake_ref) |ref| self.allocator.free(ref);
 
     const allowed_uris = if (flake) |f|
-        if (try nix.flakeMetadataLocks(self.allocator, f, .{})) |locks| allowed_uris: {
+        if (locks: {
+            var diagnostics: ?nix.ChildProcessDiagnostics = null;
+            break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
+                error.FlakePrefetchFailed => .{ .failure = std.ArrayList(u8).fromOwnedSlice(self.allocator, diagnostics.?.stderr) },
+                else => err,
+            };
+        }) |locks| allowed_uris: {
             defer locks.deinit();
 
             var allowed_uris = std.ArrayListUnmanaged(u8){};

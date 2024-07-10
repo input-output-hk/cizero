@@ -220,9 +220,11 @@ const pdk_tests = struct {
 /// possibly built on top of cizero's host functions.
 const tests = struct {
     pub fn @"nix.lockFlakeRef"() !void {
-        const flake_locked = try cizero.nix.lockFlakeRef(allocator, "github:NixOS/nixpkgs/23.11", .{});
+        var diagnostics: ?cizero.nix.ChildProcessDiagnostics = null;
+        const flake_locked = try cizero.nix.lockFlakeRef(allocator, "github:NixOS/nixpkgs/23.11", .{}, &diagnostics);
         defer allocator.free(flake_locked);
 
+        try std.testing.expect(diagnostics == null);
         try std.testing.expectEqualStrings("github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e", flake_locked);
     }
 

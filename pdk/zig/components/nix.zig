@@ -250,12 +250,21 @@ const nix_impl = nix.impl(
     log_scope,
 );
 
-pub const flakeMetadata = nix_impl.flakeMetadata;
+pub const ChildProcessDiagnostics = nix.ChildProcessDiagnostics;
+pub const FlakeMetadata = nix.FlakeMetadata;
+pub const FlakeMetadataOptions = nix.FlakeMetadataOptions;
+pub const FlakePrefetchOptions = nix.FlakePrefetchOptions;
 
+pub const flakeMetadata = nix_impl.flakeMetadata;
 pub const flakeMetadataLocks = nix_impl.flakeMetadataLocks;
 
-pub fn lockFlakeRef(allocator: std.mem.Allocator, flake_ref: []const u8, opts: nix.FlakeMetadataOptions) ![]const u8 {
-    const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts);
+pub fn lockFlakeRef(
+    allocator: std.mem.Allocator,
+    flake_ref: []const u8,
+    opts: FlakeMetadataOptions,
+    diagnostics: *?ChildProcessDiagnostics,
+) ![]const u8 {
+    const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts, diagnostics);
 
     if (comptime std.log.logEnabled(.debug, log_scope)) {
         if (std.mem.eql(u8, flake_ref_locked, flake_ref))
