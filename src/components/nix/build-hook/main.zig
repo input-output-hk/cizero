@@ -64,10 +64,17 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     var ifds_file = ifds_file: {
         const builders = settings.map.get("builders").?;
         if (builders.len == 0) {
-            std.log.err("expected path to file to write IFDs to in the nix config `builders` entry but it is empty", .{});
+            std.log.err("expected path to write IFDs to in nix config entry `builders` but it is empty", .{});
             return error.NoBuilders;
         }
-        break :ifds_file try std.fs.openFileAbsolute(builders, .{ .mode = .write_only });
+        if (!std.fs.path.isAbsolute(builders)) {
+            std.log.err("path in nix config entry `builders` is not absolute: {s}", .{builders});
+            return error.AccessDenied;
+        }
+        break :ifds_file std.fs.openFileAbsolute(builders, .{ .mode = .write_only }) catch |err| {
+            std.log.err("failed to open path in nix config entry `builders`: {s}", .{builders});
+            return err;
+        };
     };
     defer ifds_file.close();
 
