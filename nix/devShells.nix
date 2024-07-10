@@ -69,11 +69,19 @@
             shift
           fi
         '';
+
+        zigBuildFlags = lib.escapeShellArgs [
+          "-freference-trace"
+          "--color"
+          "on"
+        ];
       in {
         run = {
           description = "run cizero without any plugins";
           exec = ''
-            exec zig build run -- "$@"
+            ${prelude}
+
+            exec zig build ${zigBuildFlags} run -- "$@"
           '';
         };
 
@@ -90,7 +98,7 @@
             result=$(try ${just "build-plugin"} ''${releaseFlag:+--release} "$plugin")
 
             set -x
-            exec zig build run -- "$result"/libexec/cizero/plugins/* "$@"
+            exec zig build ${zigBuildFlags} run -- "$result"/libexec/cizero/plugins/* "$@"
           '';
         };
 
@@ -104,7 +112,7 @@
             plugins_unsplit=$(try ${just "build-plugins"} ''${releaseFlag:+--release})
             readarray -t plugins <<<"$plugins_unsplit"
             set -x
-            exec zig build run -- "''${plugins[@]}" "$@"
+            exec zig build ${zigBuildFlags} run -- "''${plugins[@]}" "$@"
           '';
         };
 
@@ -147,7 +155,7 @@
               pushd >/dev/null plugins/"$plugin"
               case "$plugin" in
                 hello-zig | hydra-eval-jobs)
-                  try nix develop --command zig build "$@" 1>/dev/null
+                  try nix develop --command zig build ${zigBuildFlags} "$@" 1>/dev/null
                   realpath zig-out
                   ;;
                 *)
@@ -190,7 +198,7 @@
             result=$(try ${just "build-plugin"} ''${releaseFlag:+--release} hello-"$language")
 
             set -x
-            exec zig build test-pdk --summary all -Dplugin="$(echo "$result"/libexec/cizero/plugins/*)" "$@"
+            exec zig build ${zigBuildFlags} test-pdk --summary all -Dplugin="$(echo "$result"/libexec/cizero/plugins/*)" "$@"
           '';
         };
       };
