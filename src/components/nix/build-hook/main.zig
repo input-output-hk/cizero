@@ -39,7 +39,7 @@ fn innerMain(allocator: std.mem.Allocator) !void {
             error.Overflow => @intFromEnum(log.Action.Verbosity.vomit),
             else => return err,
         });
-        std.log.info("log verbosity: {s}", .{@tagName(verbosity)});
+        std.log.debug("log verbosity: {s}", .{@tagName(verbosity)});
     }
 
     var settings = try protocol.readStringStringMap(allocator, stdin);
