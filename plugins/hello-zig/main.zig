@@ -221,6 +221,7 @@ const pdk_tests = struct {
 const tests = struct {
     pub fn @"nix.lockFlakeRef"() !void {
         var diagnostics: ?cizero.nix.ChildProcessDiagnostics = null;
+        defer if (diagnostics) |d| d.deinit(allocator);
         const flake_locked = try cizero.nix.lockFlakeRef(allocator, "github:NixOS/nixpkgs/23.11", .{}, &diagnostics);
         defer allocator.free(flake_locked);
 

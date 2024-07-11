@@ -905,6 +905,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     const allowed_uris = if (flake) |f|
         if (locks: {
             var diagnostics: ?nix.ChildProcessDiagnostics = null;
+            errdefer if (diagnostics) |d| d.deinit(self.allocator);
             break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
                 error.FlakePrefetchFailed => .{ .failure = std.ArrayList(u8).fromOwnedSlice(self.allocator, diagnostics.?.stderr) },
                 else => err,
