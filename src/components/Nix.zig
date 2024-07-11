@@ -223,37 +223,26 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
     errdefer allocator.free(build_hook);
 
     const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
-        const result = try std.process.Child.run(.{
-            .allocator = allocator,
-            .max_output_bytes = 100 * 1024,
-            .argv = &.{ "nix", "show-config", "--json" },
-        });
-        defer {
-            allocator.free(result.stdout);
-            allocator.free(result.stderr);
-        }
+        const nix_config = nix_config: {
+            var diagnostics: ?nix.ChildProcessDiagnostics = null;
+            defer if (diagnostics) |d| d.deinit(allocator);
+            break :nix_config nix.config(allocator, &diagnostics) catch |err| return switch (err) {
+                error.CouldNotReadNixConfig => blk: {
+                    log.err("could not read nix config: {}, stderr: {s}", .{ diagnostics.?.term, diagnostics.?.stderr });
+                    break :blk err;
+                },
+                else => err,
+            };
+        };
+        defer nix_config.deinit();
 
-        if (result.term != .Exited or result.term.Exited != 0) {
-            log.err("could not read nix config: {}\n{s}", .{ result.term, result.stderr });
-            return error.CouldNotReadNixConfig;
-        }
-
-        const json_options = .{ .ignore_unknown_fields = true };
-
-        const json = try std.json.parseFromSlice(struct {
-            @"allowed-uris": struct {
-                value: []const []const u8,
-            },
-        }, allocator, result.stdout, json_options);
-        defer json.deinit();
-
-        var allowed_uris = try std.ArrayListUnmanaged([]const u8).initCapacity(allocator, json.value.@"allowed-uris".value.len);
+        var allowed_uris = try std.ArrayListUnmanaged([]const u8).initCapacity(allocator, nix_config.value.@"allowed-uris".value.len);
         errdefer {
             for (allowed_uris.items) |allowed_uri| allocator.free(allowed_uri);
             allowed_uris.deinit(allocator);
         }
 
-        for (json.value.@"allowed-uris".value) |allowed_uri|
+        for (nix_config.value.@"allowed-uris".value) |allowed_uri|
             allowed_uris.appendAssumeCapacity(try allocator.dupe(u8, allowed_uri));
 
         log.debug("allowed URIs: {s}", .{allowed_uris.items});
