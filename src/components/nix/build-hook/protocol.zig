@@ -76,15 +76,15 @@ pub fn readBool(reader: anytype) !bool {
     };
 }
 
-pub fn readPacket(allocator: std.mem.Allocator, reader: anytype) ![]u8 {
+pub fn readPacket(allocator: std.mem.Allocator, reader: anytype) ![]const u8 {
     const buf = try allocator.alloc(u8, try readU64(reader));
     errdefer allocator.free(buf);
     try readPadded(reader, buf);
     return buf;
 }
 
-pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ![][]u8 {
-    const bufs = try allocator.alloc([]u8, try readU64(reader));
+pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ![]const []const u8 {
+    const bufs = try allocator.alloc([]const u8, try readU64(reader));
     errdefer {
         for (bufs) |buf| allocator.free(buf);
         allocator.free(bufs);
@@ -93,28 +93,64 @@ pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ![][]u8 {
     return bufs;
 }
 
-const StringStringMapOwned = struct {
-    map: std.StringHashMapUnmanaged([]u8) = .{},
+pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) !std.BufMap {
+    // We build the `std.BufMap`'s underlying `.hash_map` directly
+    // so that we don't have to copy keys and values twice:
+    // Once when reading and once when inserting.
 
-    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        var iter = self.map.iterator();
-        while (iter.next()) |entry| {
-            alloc.free(entry.key_ptr.*);
-            alloc.free(entry.value_ptr.*);
-        }
-        self.map.deinit(alloc);
+    var hash_map = std.StringHashMap([]const u8).init(allocator);
+    errdefer {
+        var buf_map = std.BufMap{ .hash_map = hash_map };
+        buf_map.deinit();
     }
-};
 
-pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) !StringStringMapOwned {
-    var map = StringStringMapOwned{};
-    errdefer map.deinit(allocator);
     while (try readU64(reader) != 0) {
         const key = try readPacket(allocator, reader);
         errdefer allocator.free(key);
+
         const value = try readPacket(allocator, reader);
         errdefer allocator.free(value);
-        try map.map.put(allocator, key, value);
+
+        try hash_map.put(key, value);
     }
-    return map;
+
+    return std.BufMap{ .hash_map = hash_map };
+}
+
+/// Reads fields in declaration order.
+pub fn readStruct(comptime T: type, allocator: std.mem.Allocator, reader: anytype) !T {
+    var strukt: T = undefined;
+
+    const fields = @typeInfo(T).Struct.fields;
+    inline for (fields, 0..) |field, field_idx| {
+        @field(strukt, field.name) = switch (field.type) {
+            []const u8 => readPacket(allocator, reader),
+            []const []const u8 => readPackets(allocator, reader),
+            u64 => readU64(reader),
+            bool => readBool(reader),
+            std.BufMap => readStringStringMap(allocator, reader),
+            std.StringHashMapUnmanaged([]const u8) => if (readStringStringMap(allocator, reader)) |map|
+                map.hash_map.unmanaged
+            else |err|
+                err,
+            else => @compileError("type \"" ++ @typeName(T) ++ "\" does not exist in the nix protocol"),
+        } catch |err| {
+            inline for (fields[0..field_idx]) |field_| {
+                const field_value = @field(strukt, field.name);
+                switch (field_.type) {
+                    []const u8 => allocator.free(field_value),
+                    []const []const u8 => for (field_value) |item| allocator.free(item),
+                    std.BufMap => field_value.deinit(),
+                    std.StringHashMapUnmanaged([]const u8) => {
+                        var map = std.BufMap{ .hash_map = field_value.promote(allocator) };
+                        map.deinit();
+                    },
+                    else => {},
+                }
+            }
+            return err;
+        };
+    }
+
+    return strukt;
 }

@@ -43,13 +43,13 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     }
 
     var settings = try protocol.readStringStringMap(allocator, stdin);
-    defer settings.deinit(allocator);
+    defer settings.deinit();
 
     if (std.log.defaultLogEnabled(.debug)) {
         var settings_msg = std.ArrayList(u8).init(allocator);
         defer settings_msg.deinit();
 
-        var iter = settings.map.iterator();
+        var iter = settings.iterator();
         while (iter.next()) |entry| {
             try settings_msg.appendNTimes(' ', 2);
             try settings_msg.appendSlice(entry.key_ptr.*);
@@ -62,7 +62,7 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     }
 
     var ifds_file = ifds_file: {
-        const builders = settings.map.get("builders").?;
+        const builders = settings.get("builders").?;
         if (builders.len == 0) {
             std.log.err("expected path to write IFDs to in nix config entry `builders` but it is empty", .{});
             return error.NoBuilders;
@@ -123,32 +123,24 @@ fn innerMain(allocator: std.mem.Allocator) !void {
         }
 
         const drv = blk: {
-            const am_willing = try protocol.readBool(stdin);
-            const needed_system = try protocol.readPacket(allocator, stdin);
-            const drv_path = try protocol.readPacket(allocator, stdin);
-            const required_features = try protocol.readPackets(allocator, stdin);
+            const drv = try protocol.readStruct(Drv, allocator, stdin);
 
-            const gop = try drvs.getOrPut(allocator, drv_path);
+            const gop = try drvs.getOrPut(allocator, drv.drv_path);
 
             if (gop.found_existing) {
-                std.debug.assert(am_willing == gop.value_ptr.am_willing);
+                std.debug.assert(drv.am_willing == gop.value_ptr.am_willing);
 
-                std.debug.assert(std.mem.eql(u8, needed_system, gop.value_ptr.needed_system));
+                std.debug.assert(std.mem.eql(u8, drv.needed_system, gop.value_ptr.needed_system));
 
-                std.debug.assert(std.mem.eql(u8, drv_path, gop.value_ptr.drv_path));
+                std.debug.assert(std.mem.eql(u8, drv.drv_path, gop.value_ptr.drv_path));
 
-                std.debug.assert(required_features.len == gop.value_ptr.required_features.len);
-                for (required_features, gop.value_ptr.required_features) |a, b|
+                std.debug.assert(drv.required_features.len == gop.value_ptr.required_features.len);
+                for (drv.required_features, gop.value_ptr.required_features) |a, b|
                     std.debug.assert(std.mem.eql(u8, a, b));
 
-                std.log.debug("known drv: {s}", .{drv_path});
+                std.log.debug("known drv: {s}", .{drv.drv_path});
             } else {
-                gop.value_ptr.* = .{
-                    .am_willing = am_willing,
-                    .needed_system = needed_system,
-                    .drv_path = drv_path,
-                    .required_features = required_features,
-                };
+                gop.value_ptr.* = drv;
 
                 const drv_json = try std.json.stringifyAlloc(allocator, gop.value_ptr.*, .{});
                 defer allocator.free(drv_json);
@@ -218,23 +210,7 @@ const Accepted = struct {
 /// The nix daemon will start another instance of the build hook for the remaining derivations.
 fn accept(allocator: std.mem.Allocator, store_uri: []const u8) !Accepted {
     try stderr.print("# accept\n{s}\n", .{store_uri});
-
-    const inputs = try protocol.readPackets(allocator, stdin);
-    errdefer {
-        for (inputs) |input| allocator.free(input);
-        allocator.free(inputs);
-    }
-
-    const wanted_outputs = try protocol.readPackets(allocator, stdin);
-    errdefer {
-        for (wanted_outputs) |wanted_output| allocator.free(wanted_output);
-        allocator.free(wanted_outputs);
-    }
-
-    return .{
-        .inputs = inputs,
-        .wanted_outputs = wanted_outputs,
-    };
+    return protocol.readStruct(Accepted, allocator, stdin);
 }
 
 test {
