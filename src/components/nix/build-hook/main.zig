@@ -1,18 +1,14 @@
 const std = @import("std");
 
-const log = @import("log.zig");
-const protocol = @import("protocol.zig");
-
-const stdin = std.io.getStdIn().reader();
-const stderr = std.io.getStdErr().writer();
+const build_hook = @import("nix-build-hook");
 
 pub const std_options = .{
-    .logFn = log.logFn,
+    .logFn = build_hook.log.logFn,
 };
 
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (gpa.deinit() == .leak) (log.Action{ .error_info = .{
+    defer if (gpa.deinit() == .leak) (build_hook.log.Action{ .error_info = .{
         .level = .warn,
         .msg = "leaked memory",
         .raw_msg = @tagName(.leak),
@@ -21,7 +17,7 @@ pub fn main() void {
     const allocator = gpa.allocator();
 
     innerMain(allocator) catch |err|
-        log.logErrorInfo(allocator, .@"error", err, "error: {s}", .{@errorName(err)}) catch |err|
+        build_hook.log.logErrorInfo(allocator, .@"error", err, "error: {s}", .{@errorName(err)}) catch |err|
         std.debug.panic("could not log error: {}\n", .{err});
 }
 
@@ -33,36 +29,31 @@ fn innerMain(allocator: std.mem.Allocator) !void {
         var args = try std.process.argsWithAllocator(allocator);
         defer args.deinit();
 
-        _ = args.next();
-
-        const verbosity: log.Action.Verbosity = @enumFromInt(std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), args.next().?, 10) catch |err| switch (err) {
-            error.Overflow => @intFromEnum(log.Action.Verbosity.vomit),
-            else => return err,
-        });
+        const verbosity = try build_hook.parseArgs(&args);
         std.log.debug("log verbosity: {s}", .{@tagName(verbosity)});
     }
 
-    var settings = try protocol.readStringStringMap(allocator, stdin);
-    defer settings.deinit();
+    var nix_config, var connection = try build_hook.start(allocator);
+    defer nix_config.deinit();
 
     if (std.log.defaultLogEnabled(.debug)) {
-        var settings_msg = std.ArrayList(u8).init(allocator);
-        defer settings_msg.deinit();
+        var nix_config_msg = std.ArrayList(u8).init(allocator);
+        defer nix_config_msg.deinit();
 
-        var iter = settings.iterator();
+        var iter = nix_config.iterator();
         while (iter.next()) |entry| {
-            try settings_msg.appendNTimes(' ', 2);
-            try settings_msg.appendSlice(entry.key_ptr.*);
-            try settings_msg.appendSlice(" = ");
-            try settings_msg.appendSlice(entry.value_ptr.*);
-            try settings_msg.append('\n');
+            try nix_config_msg.appendNTimes(' ', 2);
+            try nix_config_msg.appendSlice(entry.key_ptr.*);
+            try nix_config_msg.appendSlice(" = ");
+            try nix_config_msg.appendSlice(entry.value_ptr.*);
+            try nix_config_msg.append('\n');
         }
 
-        std.log.debug("nix config: \n{s}", .{settings_msg.items});
+        std.log.debug("nix config: \n{s}", .{nix_config_msg.items});
     }
 
     var ifds_file = ifds_file: {
-        const builders = settings.get("builders").?;
+        const builders = nix_config.get("builders").?;
         if (builders.len == 0) {
             std.log.err("expected path to write IFDs to in nix config entry `builders` but it is empty", .{});
             return error.NoBuilders;
@@ -80,23 +71,7 @@ fn innerMain(allocator: std.mem.Allocator) !void {
 
     const ifds_writer = ifds_file.writer();
 
-    const Drv = struct {
-        am_willing: bool,
-        needed_system: []const u8,
-        drv_path: []const u8,
-        required_features: []const []const u8,
-
-        pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
-            alloc.free(self.needed_system);
-
-            alloc.free(self.drv_path);
-
-            for (self.required_features) |feature| alloc.free(feature);
-            alloc.free(self.required_features);
-        }
-    };
-
-    var drvs = std.StringHashMapUnmanaged(Drv){};
+    var drvs = std.StringHashMapUnmanaged(build_hook.Derivation){};
     defer {
         // No need to free the keys explicitly
         // because `Drv.drv_path` is used as the key
@@ -109,21 +84,8 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     }
 
     while (true) {
-        {
-            const command = protocol.readPacket(allocator, stdin) catch |err| switch (err) {
-                error.EndOfStream => return,
-                else => return err,
-            };
-            defer allocator.free(command);
-
-            if (!std.mem.eql(u8, command, "try")) {
-                std.log.debug("received unexpected command \"{s}\", expected \"try\"", .{std.fmt.fmtSliceEscapeLower(command)});
-                return;
-            }
-        }
-
         const drv = blk: {
-            const drv = try protocol.readStruct(Drv, allocator, stdin);
+            const drv = try connection.readDerivation(allocator);
 
             const gop = try drvs.getOrPut(allocator, drv.drv_path);
 
@@ -154,7 +116,7 @@ fn innerMain(allocator: std.mem.Allocator) !void {
         try ifds_writer.writeAll(drv.drv_path);
         try ifds_writer.writeByte('\n');
 
-        try decline();
+        try connection.decline();
     }
 
     // The rest of this function is only implemented to demonstrate
@@ -162,58 +124,13 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     // In practice we will never get here
     // because we do not intend to accept any build.
 
-    const accepted = try accept(allocator, "ssh://example.com");
-    defer accepted.deinit(allocator);
+    const build_io = try connection.accept(allocator, "ssh://example.com");
+    defer build_io.deinit(allocator);
 
     {
-        const accepted_json = try std.json.stringifyAlloc(allocator, accepted, .{});
-        defer allocator.free(accepted_json);
+        const build_io_json = try std.json.stringifyAlloc(allocator, build_io, .{});
+        defer allocator.free(build_io_json);
 
-        std.log.debug("accepted: {s}", .{accepted_json});
+        std.log.debug("accepted: {s}", .{build_io_json});
     }
-}
-
-fn decline() !void {
-    try stderr.print("# decline\n", .{});
-}
-
-/// The nix daemon will immediately kill the build hook after we decline permanently
-/// so make sure to clean up all resources before calling this function.
-///
-/// This is because (if I interpret nix' code correctly)
-/// [`worker.hook = 0`](https://github.com/NixOS/nix/blob/5fe2accb754249df6cb8f840330abfcf3bd26695/src/libstore/build/derivation-goal.cc#L1160)
-/// invokes the [destructor](https://github.com/NixOS/nix/blob/5fe2accb754249df6cb8f840330abfcf3bd26695/src/libstore/build/hook-instance.cc#L82)
-/// which sends SIGKILL [by default](https://github.com/NixOS/nix/blob/5fe2accb754249df6cb8f840330abfcf3bd26695/src/libutil/processes.cc#L54) (oof).
-fn declinePermanently() !void {
-    try stderr.print("# decline-permanently\n", .{});
-}
-
-fn postpone() !void {
-    try stderr.print("# postpone\n", .{});
-}
-
-const Accepted = struct {
-    inputs: []const []const u8,
-    wanted_outputs: []const []const u8,
-
-    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
-        for (self.inputs) |input| alloc.free(input);
-        alloc.free(self.inputs);
-
-        for (self.wanted_outputs) |output| alloc.free(output);
-        alloc.free(self.wanted_outputs);
-    }
-};
-
-/// The nix daemon will close stdin and wait for EOF from the build hook.
-/// Therefore we can only accept once.
-/// The nix daemon will start another instance of the build hook for the remaining derivations.
-fn accept(allocator: std.mem.Allocator, store_uri: []const u8) !Accepted {
-    try stderr.print("# accept\n{s}\n", .{store_uri});
-    return protocol.readStruct(Accepted, allocator, stdin);
-}
-
-test {
-    _ = log;
-    _ = protocol;
 }

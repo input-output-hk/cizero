@@ -29,14 +29,21 @@ pub fn build(b: *Build) !void {
     cizero_exe.root_module.addImport("cizero", cizero_mod);
     b.installArtifact(cizero_exe);
 
-    {
-        const nix_build_hook_exe = b.addExecutable(.{
-            .name = "build-hook",
-            .root_source_file = b.path("components/nix/build-hook/main.zig"),
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
+    const nix_build_hook_mod = b.addModule("nix-build-hook", .{
+        .root_source_file = b.path("components/nix/build-hook/root.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
 
+    const nix_build_hook_exe = b.addExecutable(.{
+        .name = "build-hook",
+        .root_source_file = b.path("components/nix/build-hook/main.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
+    nix_build_hook_exe.root_module.addImport("nix-build-hook", nix_build_hook_mod);
+
+    {
         const install_nix_build_hook_exe = b.addInstallArtifact(nix_build_hook_exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/components/nix" } } });
         b.getInstallStep().dependOn(&install_nix_build_hook_exe.step);
     }
@@ -53,7 +60,7 @@ pub fn build(b: *Build) !void {
     const test_step = b.step("test", "Run unit tests");
     {
         const cizero_mod_test = b.addTest(.{
-            .name = "cizero",
+            .name = "cizero (mod)",
             .root_source_file = cizero_mod.root_source_file.?,
             .target = opts.target,
             .optimize = opts.optimize,
@@ -66,7 +73,7 @@ pub fn build(b: *Build) !void {
     }
     {
         const cizero_exe_test = b.addTest(.{
-            .name = "exe",
+            .name = "cizero (exe)",
             .root_source_file = cizero_exe.root_module.root_source_file.?,
             .target = opts.target,
             .optimize = opts.optimize,
@@ -76,6 +83,29 @@ pub fn build(b: *Build) !void {
 
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
         test_step.dependOn(&run_cizero_exe_test.step);
+    }
+    {
+        const nix_build_hook_mod_test = b.addTest(.{
+            .name = "nix-build-hook (mod)",
+            .root_source_file = nix_build_hook_mod.root_source_file.?,
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+
+        const run_nix_build_hook_mod_test = b.addRunArtifact(nix_build_hook_mod_test);
+        test_step.dependOn(&run_nix_build_hook_mod_test.step);
+    }
+    {
+        const nix_build_hook_exe_test = b.addTest(.{
+            .name = "nix-build-hook (exe)",
+            .root_source_file = nix_build_hook_exe.root_module.root_source_file.?,
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+        nix_build_hook_exe_test.root_module.addImport("nix-build-hook", nix_build_hook_mod);
+
+        const run_nix_build_hook_exe_test = b.addRunArtifact(nix_build_hook_exe_test);
+        test_step.dependOn(&run_nix_build_hook_exe_test.step);
     }
 
     _ = lib.addCheckTls(b);

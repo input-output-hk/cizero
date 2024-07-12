@@ -1182,7 +1182,3 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
 
     return .{ .outputs = try outputs.toOwnedSlice(allocator) };
 }
-
-test {
-    _ = @import("nix/build-hook/main.zig");
-}
