@@ -6,6 +6,8 @@ pub const std_options = .{
     .logFn = build_hook.log.logFn,
 };
 
+const accept_after_collecting = false;
+
 pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) (build_hook.log.Action{ .error_info = .{
@@ -34,61 +36,74 @@ fn innerMain(allocator: std.mem.Allocator) !void {
     }
 
     var nix_config, var connection = try build_hook.start(allocator);
-    defer nix_config.deinit();
 
-    if (std.log.defaultLogEnabled(.debug)) {
-        var nix_config_msg = std.ArrayList(u8).init(allocator);
-        defer nix_config_msg.deinit();
+    {
+        errdefer nix_config.deinit();
 
-        var iter = nix_config.iterator();
-        while (iter.next()) |entry| {
-            try nix_config_msg.appendNTimes(' ', 2);
-            try nix_config_msg.appendSlice(entry.key_ptr.*);
-            try nix_config_msg.appendSlice(" = ");
-            try nix_config_msg.appendSlice(entry.value_ptr.*);
-            try nix_config_msg.append('\n');
+        if (std.log.defaultLogEnabled(.debug)) {
+            var nix_config_msg = std.ArrayList(u8).init(allocator);
+            defer nix_config_msg.deinit();
+
+            var iter = nix_config.iterator();
+            while (iter.next()) |entry| {
+                try nix_config_msg.appendNTimes(' ', 2);
+                try nix_config_msg.appendSlice(entry.key_ptr.*);
+                try nix_config_msg.appendSlice(" = ");
+                try nix_config_msg.appendSlice(entry.value_ptr.*);
+                try nix_config_msg.append('\n');
+            }
+
+            std.log.debug("nix config: \n{s}", .{nix_config_msg.items});
         }
-
-        std.log.debug("nix config: \n{s}", .{nix_config_msg.items});
     }
 
-    var ifds_file = ifds_file: {
-        const builders = nix_config.get("builders").?;
-        if (builders.len == 0) {
-            std.log.err("expected path to write IFDs to in nix config entry `builders` but it is empty", .{});
-            return error.NoBuilders;
-        }
-        if (!std.fs.path.isAbsolute(builders)) {
-            std.log.err("path in nix config entry `builders` is not absolute: {s}", .{builders});
-            return error.AccessDenied;
-        }
-        break :ifds_file std.fs.openFileAbsolute(builders, .{ .mode = .write_only }) catch |err| {
-            std.log.err("failed to open path in nix config entry `builders`: {s}", .{builders});
-            return err;
+    var drv = drv: {
+        var ifds_file = ifds_file: {
+            defer nix_config.deinit();
+
+            const builders = nix_config.get("builders").?;
+            if (builders.len == 0) {
+                std.log.err("expected path to write IFDs to in nix config entry `builders` but it is empty", .{});
+                return error.NoBuilders;
+            }
+            if (!std.fs.path.isAbsolute(builders)) {
+                std.log.err("path to write IFDs to is not absolute: {s}", .{builders});
+                return error.AccessDenied;
+            }
+            break :ifds_file std.fs.openFileAbsolute(builders, .{ .mode = .write_only }) catch |err| {
+                std.log.err("failed to open path to write IFDs to: {s}", .{builders});
+                return err;
+            };
         };
-    };
-    defer ifds_file.close();
+        defer ifds_file.close();
 
-    const ifds_writer = ifds_file.writer();
+        if (try ifds_file.getEndPos() != 0) break :drv try connection.readDerivation(allocator);
 
-    var drvs = std.StringHashMapUnmanaged(build_hook.Derivation){};
-    defer {
-        // No need to free the keys explicitly
-        // because `Drv.drv_path` is used as the key
-        // and that is already freed by `Drv.deinit()`.
-        var iter = drvs.valueIterator();
-        while (iter.next()) |drv|
-            drv.deinit(allocator);
+        const ifds_writer = ifds_file.writer();
 
-        drvs.deinit(allocator);
-    }
+        var drvs = std.StringHashMapUnmanaged(build_hook.Derivation){};
+        defer {
+            // No need to free the keys explicitly
+            // because `build_hook.Derivation.drv_path` is used as the key
+            // and that is already freed by `build_hook.Derivation.deinit()`.
+            var iter = drvs.valueIterator();
+            while (iter.next()) |drv|
+                drv.deinit(allocator);
 
-    while (true) {
-        const drv = blk: {
-            const drv = try connection.readDerivation(allocator);
+            drvs.deinit(allocator);
+        }
 
-            const gop = try drvs.getOrPut(allocator, drv.drv_path);
+        while (true) {
+            const drv = connection.readDerivation(allocator) catch |err| switch (err) {
+                error.EndOfStream => return,
+                else => return err,
+            };
 
+            const gop = gop: {
+                errdefer drv.deinit(allocator);
+
+                break :gop try drvs.getOrPut(allocator, drv.drv_path);
+            };
             if (gop.found_existing) {
                 std.debug.assert(drv.am_willing == gop.value_ptr.am_willing);
 
@@ -100,29 +115,29 @@ fn innerMain(allocator: std.mem.Allocator) !void {
                 for (drv.required_features, gop.value_ptr.required_features) |a, b|
                     std.debug.assert(std.mem.eql(u8, a, b));
 
-                std.log.debug("known drv: {s}", .{drv.drv_path});
+                std.log.debug("received postponed drv: {s}", .{drv.drv_path});
+
+                if (accept_after_collecting) break :drv drv;
+
+                drv.deinit(allocator);
             } else {
                 gop.value_ptr.* = drv;
 
-                const drv_json = try std.json.stringifyAlloc(allocator, gop.value_ptr.*, .{});
-                defer allocator.free(drv_json);
+                if (comptime std.log.defaultLogEnabled(.debug)) {
+                    const drv_json = try std.json.stringifyAlloc(allocator, drv, .{});
+                    defer allocator.free(drv_json);
 
-                std.log.debug("new drv: {s}", .{drv_json});
+                    std.log.debug("received new drv: {s}", .{drv_json});
+                }
+
+                try ifds_writer.writeAll(drv.drv_path);
+                try ifds_writer.writeByte('\n');
             }
 
-            break :blk gop.value_ptr;
-        };
-
-        try ifds_writer.writeAll(drv.drv_path);
-        try ifds_writer.writeByte('\n');
-
-        try connection.decline();
-    }
-
-    // The rest of this function is only implemented to demonstrate
-    // how a build hook would be expected to behave in principle.
-    // In practice we will never get here
-    // because we do not intend to accept any build.
+            try connection.postpone();
+        }
+    };
+    defer drv.deinit(allocator);
 
     const build_io = try connection.accept(allocator, "ssh://example.com");
     defer build_io.deinit(allocator);
