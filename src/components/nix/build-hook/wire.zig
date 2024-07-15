@@ -108,15 +108,8 @@ pub fn readPackets(allocator: std.mem.Allocator, reader: anytype) ReadError(@Typ
 }
 
 pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) ReadError(@TypeOf(reader), true)!std.BufMap {
-    // We build the `std.BufMap`'s underlying `.hash_map` directly
-    // so that we don't have to copy keys and values twice:
-    // Once when reading and once when inserting.
-
-    var hash_map = std.StringHashMap([]const u8).init(allocator);
-    errdefer {
-        var buf_map = std.BufMap{ .hash_map = hash_map };
-        buf_map.deinit();
-    }
+    var map = std.BufMap.init(allocator);
+    errdefer map.deinit();
 
     while (try readU64(reader) != 0) {
         const key = try readPacket(allocator, reader);
@@ -125,10 +118,12 @@ pub fn readStringStringMap(allocator: std.mem.Allocator, reader: anytype) ReadEr
         const value = try readPacket(allocator, reader);
         errdefer allocator.free(value);
 
-        try hash_map.put(key, value);
+        // XXX Why does `putMove()` not take const slices?
+        // Submit a PR upstream that makes them const?
+        try map.putMove(@constCast(key), @constCast(value));
     }
 
-    return std.BufMap{ .hash_map = hash_map };
+    return map;
 }
 
 /// Reads fields in declaration order.
