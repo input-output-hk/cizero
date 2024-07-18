@@ -105,15 +105,17 @@ fn innerMain(allocator: std.mem.Allocator) !void {
                 break :gop try drvs.getOrPut(allocator, drv.drv_path);
             };
             if (gop.found_existing) {
-                std.debug.assert(drv.am_willing == gop.value_ptr.am_willing);
+                if (std.debug.runtime_safety) {
+                    std.debug.assert(drv.am_willing == gop.value_ptr.am_willing);
 
-                std.debug.assert(std.mem.eql(u8, drv.needed_system, gop.value_ptr.needed_system));
+                    std.debug.assert(std.mem.eql(u8, drv.needed_system, gop.value_ptr.needed_system));
 
-                std.debug.assert(std.mem.eql(u8, drv.drv_path, gop.value_ptr.drv_path));
+                    std.debug.assert(std.mem.eql(u8, drv.drv_path, gop.value_ptr.drv_path));
 
-                std.debug.assert(drv.required_features.len == gop.value_ptr.required_features.len);
-                for (drv.required_features, gop.value_ptr.required_features) |a, b|
-                    std.debug.assert(std.mem.eql(u8, a, b));
+                    std.debug.assert(drv.required_features.len == gop.value_ptr.required_features.len);
+                    for (drv.required_features, gop.value_ptr.required_features) |a, b|
+                        std.debug.assert(std.mem.eql(u8, a, b));
+                }
 
                 std.log.debug("received postponed drv: {s}", .{drv.drv_path});
 
