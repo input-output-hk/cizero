@@ -61,7 +61,7 @@ fn onWebhook(
     const flake_z = try allocator.dupeZ(u8, flake);
     defer allocator.free(flake_z);
 
-    if (cizero.nix.evalState(flake_z, &nix.hydraEvalJobs, .json) == null) try cizero.nix.onEval(
+    if (!cizero.nix.evalState(flake_z, &nix.hydraEvalJobs, .json)) try cizero.nix.onEval(
         cizero.user_data.Shallow([]const u8),
         allocator,
         struct {
@@ -96,16 +96,15 @@ fn onEval(
     switch (result) {
         .ok, .failed => |case| try file_writer.writeAll(case),
         .ifd_failed => |case| {
-            for (case.ifds, 1..) |ifd, i| {
+            for (case.builds, 1..) |ifd, i| {
                 try file_writer.writeAll(ifd);
-                if (i != case.ifds.len) try file_writer.writeByte(' ');
+                if (i != case.builds.len) try file_writer.writeByte(' ');
             }
             try file_writer.writeByte('\n');
-            for (case.deps, 1..) |dep, i| {
+            for (case.dependents, 1..) |dep, i| {
                 try file_writer.writeAll(dep);
-                if (i != case.deps.len) try file_writer.writeByte(' ');
+                if (i != case.dependents.len) try file_writer.writeByte(' ');
             }
         },
-        .ifd_too_deep => {},
     }
 }

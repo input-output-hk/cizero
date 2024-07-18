@@ -44,7 +44,7 @@ const externs = struct {
         flake: ?[*:0]const u8,
         expression: [*:0]const u8,
         format: @This().EvalFormat,
-    ) meta.EnsurePowBits(std.meta.Tag(std.meta.Tag(cizero.components.Nix.EvalState)), 8);
+    ) bool;
 };
 
 pub fn OnBuildCallback(comptime UserData: type) type {
@@ -159,17 +159,15 @@ export fn @"pdk.nix.onEval.callback"(
         .{ .ok = std.mem.span(r) }
     else if (err_msg) |em|
         .{ .failed = std.mem.span(em) }
-    else if (failed_ifds_ptr == null and failed_ifd_deps_ptr == null)
-        .ifd_too_deep
     else
         .{ .ifd_failed = .{
-            .ifds = if (failed_ifds_ptr) |fip| ifds: {
+            .builds = if (failed_ifds_ptr) |fip| ifds: {
                 const ifds = arena_allocator.alloc([]const u8, failed_ifds_len) catch |err| @panic(@errorName(err));
                 for (ifds, fip[0..failed_ifds_len]) |*ifd, failed_ifd|
                     ifd.* = std.mem.span(failed_ifd);
                 break :ifds ifds;
             } else &.{},
-            .deps = if (failed_ifd_deps_ptr) |fidp| deps: {
+            .dependents = if (failed_ifd_deps_ptr) |fidp| deps: {
                 const deps = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
                 for (deps, fidp[0..failed_ifd_deps_len]) |*dep, failed_ifd_dep|
                     dep.* = std.mem.span(failed_ifd_dep);
@@ -190,13 +188,8 @@ pub fn evalState(
     flake: ?[:0]const u8,
     expression: [:0]const u8,
     format: @This().EvalFormat,
-) ?std.meta.Tag(cizero.components.Nix.EvalState) {
-    const state = externs.nix_eval_state(
-        if (flake) |f| f else null,
-        expression,
-        format,
-    );
-    return if (state == 0) null else @enumFromInt(state - 1);
+) bool {
+    return externs.nix_eval_state(if (flake) |f| f else null, expression, format);
 }
 
 pub fn onEvalBuild(

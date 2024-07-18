@@ -26,10 +26,10 @@ allocator: std.mem.Allocator,
 registry: *const Registry,
 wait_group: *std.Thread.WaitGroup,
 
-build_hook: []const u8,
 allowed_uris: []const []const u8,
 
 build_jobs_mutex: std.Thread.Mutex = .{},
+// XXX store `Job.Build` instead of `[]const []const u8`
 build_jobs: std.HashMapUnmanaged([]const []const u8, void, struct {
     pub fn hash(_: @This(), key: []const []const u8) u64 {
         var hasher = std.hash.Wyhash.init(0);
@@ -46,7 +46,7 @@ build_jobs: std.HashMapUnmanaged([]const []const u8, void, struct {
 }, std.hash_map.default_max_load_percentage) = .{},
 
 eval_jobs_mutex: std.Thread.Mutex = .{},
-eval_jobs: std.HashMapUnmanaged(Job.Eval, EvalState, struct {
+eval_jobs: std.HashMapUnmanaged(Job.Eval, void, struct {
     pub fn hash(_: @This(), key: Job.Eval) u64 {
         var hasher = std.hash.Wyhash.init(0);
         std.hash.autoHashStrat(&hasher, key, .Deep);
@@ -134,20 +134,7 @@ pub const Job = union(enum) {
             try writer.writeByte('`');
         }
 
-        pub const Result = union(enum) {
-            /// evaluation result
-            ok: []const u8,
-            /// evaluation error message
-            failed: []const u8,
-            ifd_failed: struct {
-                /// IFD derivations that failed
-                ifds: []const []const u8,
-                /// dependency derivations that failed
-                deps: []const []const u8,
-            },
-            /// max eval attempts exceeded
-            ifd_too_deep,
-        };
+        pub const Result = EvalResult;
     };
 
     pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
@@ -164,8 +151,6 @@ pub const Job = union(enum) {
 };
 
 pub fn deinit(self: *@This()) void {
-    self.allocator.free(self.build_hook);
-
     for (self.allowed_uris) |allowed_uri| self.allocator.free(allowed_uri);
     self.allocator.free(self.allowed_uris);
 
@@ -206,22 +191,6 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
         }
     }
 
-    const build_hook = build_hook: {
-        const exe_path = try c.whereami.getExecutablePath(allocator);
-        defer exe_path.deinit(allocator);
-
-        break :build_hook try std.fs.path.join(allocator, &.{
-            std.fs.path.dirname(exe_path.path).?,
-            "..",
-            "libexec",
-            "cizero",
-            "components",
-            name,
-            "build-hook",
-        });
-    };
-    errdefer allocator.free(build_hook);
-
     const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
         const nix_config = nix_config: {
             var diagnostics: ?nix.ChildProcessDiagnostics = null;
@@ -258,7 +227,6 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
         .allocator = allocator,
         .registry = registry,
         .wait_group = wait_group,
-        .build_hook = build_hook,
         .allowed_uris = allowed_uris,
     };
 }
@@ -331,20 +299,18 @@ fn evalState(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, 
         .output_format = @as(EvalFormat, @enumFromInt(inputs[2].i32)),
     };
 
-    const state = state: {
+    const evaluating = evaluating: {
         self.eval_jobs_mutex.lock();
         defer self.eval_jobs_mutex.unlock();
 
-        const state = self.eval_jobs.getPtr(.{
+        break :evaluating self.eval_jobs.contains(.{
             .flake = params.flake,
             .expr = params.expr,
             .output_format = params.output_format,
         });
-
-        break :state if (state) |s| std.meta.activeTag(s.*) else null;
     };
 
-    outputs[0] = .{ .i32 = if (state) |s| @intFromEnum(s) + 1 else 0 };
+    outputs[0] = .{ .i32 = @intFromBool(evaluating) };
 }
 
 fn onBuild(self: *@This(), plugin_name: []const u8, memory: []u8, _: std.mem.Allocator, inputs: []const wasm.Value, outputs: []wasm.Value) !void {
@@ -527,12 +493,7 @@ fn startJob(self: *@This(), job: Job) (std.Thread.SpawnError || std.Thread.SetNa
             self.eval_jobs_mutex.lock();
             defer self.eval_jobs_mutex.unlock();
 
-            const gop = try self.eval_jobs.getOrPut(self.allocator, eval_job);
-            if (gop.found_existing) break :running true;
-
-            gop.value_ptr.* = .{ .ifds = std.BufSet.init(self.allocator) };
-
-            break :running false;
+            break :running try self.eval_jobs.fetchPut(self.allocator, eval_job, {}) != null;
         },
     }) {
         log.debug("job is already running: {}", .{job});
@@ -559,11 +520,11 @@ fn runJob(self: *@This(), job: Job) void {
     (switch (job) {
         .build => |build_job| self.runBuildJob(build_job),
         .eval => |eval_job| self.runEvalJob(eval_job),
-    }) catch |err| log.err("job {} failed: {s}", .{ job, @errorName(err) });
+    }) catch |err| log.err("failed to run job {}: {s}", .{ job, @errorName(err) });
 }
 
 fn runBuildJob(self: *@This(), job: Job.Build) !void {
-    const result = result: {
+    var result = result: {
         errdefer self.removeBuildJob(job);
 
         const result = try build(self.allocator, job.installables);
@@ -594,116 +555,26 @@ fn removeBuildJob(self: *@This(), job: Job.Build) void {
 }
 
 fn runEvalJob(self: *@This(), job: Job.Eval) !void {
-    var arena = std.heap.ArenaAllocator.init(self.allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
+    var result = result: {
+        errdefer self.removeEvalJob(job);
 
-    const result: Job.Eval.Result = eval: {
-        errdefer {
-            var eval_state = self.removeEvalJob(job);
-            eval_state.deinit();
+        const result = try self.eval(job.flake, job.expr, job.output_format);
+        errdefer result.deinit();
+
+        switch (result) {
+            .ok => |evalutated| log.debug("job {} succeeded: {s}", .{ job, evalutated }),
+            .failed => |msg| log.debug("job {} failed: {s}", .{ job, msg }),
+            .ifd_failed => |ifd_failed| log.debug(
+                "job {} failed to build IFD\nIFDs: {s}\nIFD dependencies: {s}",
+                .{ job, ifd_failed.builds, ifd_failed.dependents },
+            ),
         }
 
-        const max_eval_attempts = 100;
-        var eval_attempts: usize = 0;
-        while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
-            var eval_state = self.eval(job.flake, job.expr, job.output_format) catch |err| {
-                log.err("failed to evaluate job {}: {s}", .{ job, @errorName(err) });
-                return err;
-            };
-            errdefer eval_state.deinit();
-
-            {
-                self.eval_jobs_mutex.lock();
-                defer self.eval_jobs_mutex.unlock();
-
-                const job_state = self.eval_jobs.getPtr(job).?;
-                job_state.deinit();
-                job_state.* = eval_state;
-            }
-
-            switch (eval_state) {
-                .ok => |evaluated| break :eval .{ .ok = evaluated.items },
-                .failure => |msg| break :eval .{ .failed = msg.items },
-                .ifds => |ifds| {
-                    // This is `ifds` as a list, only really needed for logging.
-                    var ifds_all = try std.ArrayListUnmanaged([]const u8).initCapacity(self.allocator, ifds.count());
-                    defer ifds_all.deinit(self.allocator);
-
-                    var ifds_failed = std.ArrayListUnmanaged([]const u8){};
-                    errdefer ifds_failed.deinit(arena_allocator);
-
-                    var ifd_deps_failed = std.ArrayListUnmanaged([]const u8){};
-                    errdefer ifd_deps_failed.deinit(arena_allocator);
-
-                    const build_result = build_result: {
-                        var installables = try std.ArrayListUnmanaged([]const u8).initCapacity(self.allocator, ifds.count());
-                        defer {
-                            for (installables.items) |installable| self.allocator.free(installable);
-                            installables.deinit(self.allocator);
-                        }
-
-                        var iter = ifds.iterator();
-                        while (iter.next()) |ifd| {
-                            if (std.debug.runtime_safety) std.debug.assert(std.mem.endsWith(u8, ifd.*, ".drv"));
-
-                            try ifds_all.append(self.allocator, ifd.*);
-
-                            // XXX improve `build-hook` to return the needed outputs so that we don't have to build them all here
-                            const installable = try std.mem.concat(self.allocator, u8, &.{ ifd.*, "^*" });
-                            errdefer self.allocator.free(installable);
-
-                            try installables.append(self.allocator, installable);
-                        }
-
-                        break :build_result build(arena_allocator, installables.items) catch |err| {
-                            log.err("failed to build IFDs {s} for job {}: {s}", .{ ifds_all.items, job, @errorName(err) });
-                            return err;
-                        };
-                    };
-                    errdefer build_result.deinit(arena_allocator);
-
-                    switch (build_result) {
-                        .outputs => |outputs| {
-                            defer build_result.deinit(arena_allocator);
-                            log.debug("built IFDs {s} producing {s} for job {}", .{ ifds_all.items, outputs, job });
-                        },
-                        .failed => |failed| {
-                            inline for (.{ failed.builds, failed.dependents }) |drvs|
-                                for (drvs) |drv|
-                                    for (ifds_all.items) |ifd| {
-                                        if (std.mem.eql(u8, ifd, drv)) {
-                                            try ifds_failed.append(arena_allocator, ifd);
-                                            break;
-                                        }
-                                    } else try ifd_deps_failed.append(arena_allocator, drv);
-
-                            log.debug("could not build IFDs for job {}\nIFDs: {s}\nIFD dependencies: {s}", .{
-                                job,
-                                ifds_failed.items,
-                                ifd_deps_failed.items,
-                            });
-                            break :eval .{ .ifd_failed = .{
-                                .ifds = try ifds_failed.toOwnedSlice(arena_allocator),
-                                .deps = try ifd_deps_failed.toOwnedSlice(arena_allocator),
-                            } };
-                        },
-                    }
-
-                    ifds_failed.deinit(arena_allocator);
-                    ifd_deps_failed.deinit(arena_allocator);
-                },
-            }
-        } else {
-            log.warn("max eval attempts exceeded for job {}", .{job});
-            break :eval .ifd_too_deep;
-        }
+        break :result result;
     };
+    defer result.deinit(self.allocator);
 
-    var eval_state = self.removeEvalJob(job);
-
-    // same as last `eval_state` from loop above, owns memory referenced by `result`
-    defer eval_state.deinit();
+    self.removeEvalJob(job);
 
     self.runEvalJobCallbacks(job, result) catch |err| {
         log.err("failed to run callbacks for job {}: {s}", .{ job, @errorName(err) });
@@ -711,11 +582,11 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
     };
 }
 
-fn removeEvalJob(self: *@This(), job: Job.Eval) EvalState {
+fn removeEvalJob(self: *@This(), job: Job.Eval) void {
     self.eval_jobs_mutex.lock();
     defer self.eval_jobs_mutex.unlock();
 
-    return self.eval_jobs.fetchRemove(job).?.value;
+    std.debug.assert(self.eval_jobs.fetchRemove(job) != null);
 }
 
 fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result) !void {
@@ -818,19 +689,19 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.ifds)),
+                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.builds)),
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(ifd_failed.ifds.len),
+                .ifd_failed => |ifd_failed| @intCast(ifd_failed.builds.len),
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.deps)),
+                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.dependents)),
                 else => 0,
             } },
             .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(ifd_failed.deps.len),
+                .ifd_failed => |ifd_failed| @intCast(ifd_failed.dependents.len),
                 else => 0,
             } },
         }, &.{});
@@ -844,20 +715,23 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
 
 pub const EvalFormat = enum { nix, json, raw };
 
-pub const EvalState = union(enum) {
-    ok: std.ArrayList(u8),
-    ifds: std.BufSet,
+pub const EvalResult = union(enum) {
+    ok: []const u8,
     /// error message
-    failure: std.ArrayList(u8),
+    failed: []const u8,
+    ifd_failed: nix.FailedBuilds,
 
-    pub fn deinit(self: *@This()) void {
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         switch (self.*) {
-            inline else => |*case| case.deinit(),
+            .ok => |evaluated| allocator.free(evaluated),
+            .failed => |msg| allocator.free(msg),
+            .ifd_failed => |*ifd_failed| ifd_failed.deinit(allocator),
         }
+        self.* = undefined;
     }
 };
 
-fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalFormat) !EvalState {
+fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalFormat) !EvalResult {
     if (flake) |f| {
         inline for (.{ "/", ".", "path:", "file:" }) |prefix|
             if (std.mem.startsWith(u8, f, prefix))
@@ -870,23 +744,16 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
                 } else {
                     log.debug("flake URL {s} denied", .{f});
                     return .{
-                        .failure = std.ArrayList(u8).fromOwnedSlice(
-                            self.allocator,
-                            try self.allocator.dupe(u8, "flake URL with prefix \"" ++ prefix ++ "\" must be in allowed-uris to be allowed"),
+                        .failed = try self.allocator.dupe(
+                            u8,
+                            "flake URL with prefix \"" ++ prefix ++ "\" must be in allowed-uris to be allowed",
                         ),
                     };
                 };
 
-        if (std.mem.indexOfScalar(u8, f, '#') != null) return .{
-            .failure = std.ArrayList(u8).fromOwnedSlice(
-                self.allocator,
-                try self.allocator.dupe(u8, "flake URL must not have an attribute path"),
-            ),
-        };
+        if (std.mem.indexOfScalar(u8, f, '#') != null)
+            return .{ .failed = try self.allocator.dupe(u8, "flake URL must not have an attribute path") };
     }
-
-    const ifds_tmp = try fs.tmpFile(self.allocator, .{ .read = true });
-    defer ifds_tmp.deinit(self.allocator);
 
     const flake_ref = if (flake) |f| try std.mem.concat(self.allocator, u8, &.{ f, "#." }) else null;
     defer if (flake_ref) |ref| self.allocator.free(ref);
@@ -896,7 +763,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
             var diagnostics: ?nix.ChildProcessDiagnostics = null;
             errdefer if (diagnostics) |d| d.deinit(self.allocator);
             break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
-                error.FlakePrefetchFailed => .{ .failure = std.ArrayList(u8).fromOwnedSlice(self.allocator, diagnostics.?.stderr) },
+                error.FlakePrefetchFailed => .{ .failed = diagnostics.?.stderr },
                 else => err,
             };
         }) |locks| allowed_uris: {
@@ -923,18 +790,9 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
 
     const args = try std.mem.concat(self.allocator, []const u8, &.{
         &.{
-            "nix",
-            "eval",
-            "--quiet",
-            "--restrict-eval",
-            "--allow-import-from-derivation",
-            "--no-write-lock-file",
-            "--build-hook",
-            self.build_hook,
-            "--max-jobs",
-            "0",
-            "--builders",
-            ifds_tmp.path,
+            "nix",                            "eval",
+            "--quiet",                        "--restrict-eval",
+            "--allow-import-from-derivation", "--no-write-lock-file",
         },
         if (allowed_uris) |uris| &.{
             "--extra-allowed-uris",
@@ -957,8 +815,8 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     defer self.allocator.free(args);
 
     const result = try std.process.Child.run(.{
-        .allocator = self.allocator,
         .argv = args,
+        .allocator = self.allocator,
         .max_output_bytes = 1024 * 1024 * 8,
     });
     errdefer {
@@ -966,67 +824,43 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
         self.allocator.free(result.stderr);
     }
 
-    var ifds = std.BufSet.init(self.allocator);
-    errdefer ifds.deinit();
-
-    {
-        const ifds_tmp_reader = ifds_tmp.file.reader();
-
-        var ifd = std.ArrayListUnmanaged(u8){};
-        defer ifd.deinit(self.allocator);
-
-        const ifd_writer = ifd.writer(self.allocator);
-
-        while (ifds_tmp_reader.streamUntilDelimiter(ifd_writer, '\n', null)) {
-            try ifds.insert(ifd.items);
-            ifd.clearRetainingCapacity();
-        } else |err| if (err != error.EndOfStream) return err;
-    }
-
-    if (comptime std.log.logEnabled(.debug, log_scope)) {
-        var iter = ifds.iterator();
-        while (iter.next()) |ifd| log.debug("found IFD: {s}", .{ifd.*});
-    }
-
-    if (ifds.count() != 0) {
-        self.allocator.free(result.stdout);
-        self.allocator.free(result.stderr);
-        return .{ .ifds = ifds };
-    } else ifds.deinit();
-
     if (result.term == .Exited and result.term.Exited == 0) {
         self.allocator.free(result.stderr);
-        return .{ .ok = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stdout) };
-    } else log.debug("command {s} terminated with {}", .{ args, result.term });
+        return .{ .ok = result.stdout };
+    }
 
+    log.debug("command {s} terminated with {}", .{ args, result.term });
     self.allocator.free(result.stdout);
-    return .{ .failure = std.ArrayList(u8).fromOwnedSlice(self.allocator, result.stderr) };
+
+    {
+        var failed_ifds = try nix.FailedBuilds.fromErrorMessage(self.allocator, result.stderr);
+        errdefer failed_ifds.deinit(self.allocator);
+
+        if (failed_ifds.builds.len != 0 or failed_ifds.dependents.len != 0) {
+            self.allocator.free(result.stderr);
+            return .{ .ifd_failed = failed_ifds };
+        }
+
+        failed_ifds.deinit(self.allocator);
+    }
+
+    return .{ .failed = result.stderr };
 }
 
 pub const BuildResult = union(enum) {
     /// output paths produced
     outputs: []const []const u8,
-    failed: struct {
-        /// derivations that failed to build
-        builds: []const []const u8,
-        /// derivations that have dependencies that failed
-        dependents: []const []const u8,
-    },
+    failed: nix.FailedBuilds,
 
-    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
-        switch (self) {
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        switch (self.*) {
             .outputs => |outputs| {
                 for (outputs) |output| allocator.free(output);
                 allocator.free(outputs);
             },
-            .failed => |failed| {
-                for (failed.builds) |drv| allocator.free(drv);
-                allocator.free(failed.builds);
-
-                for (failed.dependents) |drv| allocator.free(drv);
-                allocator.free(failed.dependents);
-            },
+            .failed => |*failed| failed.deinit(allocator),
         }
+        self.* = undefined;
     }
 };
 
@@ -1073,97 +907,15 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
                 }
             },
             1 => {
-                var builds = std.ArrayListUnmanaged([]const u8){};
-                errdefer {
-                    for (builds.items) |drv| allocator.free(drv);
-                    builds.deinit(allocator);
-                }
+                const failed_builds = try nix.FailedBuilds.fromErrorMessage(allocator, result.stderr);
+                errdefer failed_builds.deinit(allocator);
 
-                var dependents = std.ArrayListUnmanaged([]const u8){};
-                errdefer {
-                    for (dependents.items) |drv| allocator.free(drv);
-                    dependents.deinit(allocator);
-                }
+                log.debug(
+                    "build of {s} failed to build derivations {s} preventing builds {s}",
+                    .{ installables, failed_builds.builds, failed_builds.dependents },
+                );
 
-                var iter = std.mem.splitScalar(u8, result.stderr, '\n');
-                while (iter.next()) |line| {
-                    const readExpected = struct {
-                        fn call(reader: anytype, comptime slice: []const u8) !bool {
-                            var buf: [slice.len]u8 = undefined;
-                            const len = reader.readAll(&buf) catch |err|
-                                return if (err == error.EndOfStream) false else err;
-                            return std.mem.eql(u8, buf[0..len], slice);
-                        }
-                    }.call;
-
-                    builds: {
-                        var line_stream = std.io.fixedBufferStream(line);
-                        const line_reader = line_stream.reader();
-
-                        var drv_list = std.ArrayListUnmanaged(u8){};
-                        errdefer drv_list.deinit(allocator);
-
-                        if (!try readExpected(line_reader, "error: builder for '")) break :builds;
-                        line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :builds;
-                        if (!try readExpected(line_reader, " failed")) break :builds;
-
-                        const drv = try drv_list.toOwnedSlice(allocator);
-                        errdefer allocator.free(drv);
-
-                        try builds.append(allocator, drv);
-                    }
-
-                    foreign_builds: {
-                        var line_stream = std.io.fixedBufferStream(line);
-                        const line_reader = line_stream.reader();
-
-                        var drv_list = std.ArrayListUnmanaged(u8){};
-                        errdefer drv_list.deinit(allocator);
-
-                        if (!try readExpected(line_reader, "error: a '")) break :foreign_builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :foreign_builds;
-                        if (!try readExpected(line_reader, " with features {")) break :foreign_builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :foreign_builds;
-                        if (!try readExpected(line_reader, " is required to build '")) break :foreign_builds;
-                        line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :foreign_builds;
-                        if (!try readExpected(line_reader, ", but I am a '")) break :foreign_builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '\'', null) catch break :foreign_builds;
-                        if (!try readExpected(line_reader, " with features {")) break :foreign_builds;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, '}', null) catch break :foreign_builds;
-                        if (line_reader.readByte() != error.EndOfStream) break :foreign_builds;
-
-                        const drv = try drv_list.toOwnedSlice(allocator);
-                        errdefer allocator.free(drv);
-
-                        try builds.append(allocator, drv);
-                    }
-
-                    dependents: {
-                        var line_stream = std.io.fixedBufferStream(line);
-                        const line_reader = line_stream.reader();
-
-                        var drv_list = std.ArrayListUnmanaged(u8){};
-                        errdefer drv_list.deinit(allocator);
-
-                        if (!try readExpected(line_reader, "error: ")) break :dependents;
-                        line_reader.streamUntilDelimiter(std.io.null_writer, ' ', null) catch break :dependents;
-                        if (!try readExpected(line_reader, "dependencies of derivation '")) break :dependents;
-                        line_reader.streamUntilDelimiter(drv_list.writer(allocator), '\'', null) catch break :dependents;
-                        if (!try readExpected(line_reader, " failed to build")) break :dependents;
-
-                        const drv = try drv_list.toOwnedSlice(allocator);
-                        errdefer allocator.free(drv);
-
-                        try dependents.append(allocator, drv);
-                    }
-                }
-
-                log.debug("build of {s} failed to build derivations {s} preventing builds {s}", .{ installables, builds.items, dependents.items });
-
-                return .{ .failed = .{
-                    .builds = try builds.toOwnedSlice(allocator),
-                    .dependents = try dependents.toOwnedSlice(allocator),
-                } };
+                return .{ .failed = failed_builds };
             },
             else => log.debug("build of {s} exited with {d}", .{ installables, exited }),
         },
