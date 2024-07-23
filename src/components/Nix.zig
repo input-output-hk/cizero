@@ -604,7 +604,7 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
             eval_state.deinit();
         }
 
-        const max_eval_attempts = 10;
+        const max_eval_attempts = 100;
         var eval_attempts: usize = 0;
         while (eval_attempts < max_eval_attempts) : (eval_attempts += 1) {
             var eval_state = self.eval(job.flake, job.expr, job.output_format) catch |err| {
