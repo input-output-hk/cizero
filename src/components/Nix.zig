@@ -959,7 +959,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     const result = try std.process.Child.run(.{
         .allocator = self.allocator,
         .argv = args,
-        .max_output_bytes = 512 * 1024,
+        .max_output_bytes = 1024 * 1024 * 8,
     });
     errdefer {
         self.allocator.free(result.stdout);
