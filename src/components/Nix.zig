@@ -668,26 +668,26 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
                             defer build_result.deinit(arena_allocator);
                             log.debug("built IFDs {s} producing {s} for job {}", .{ ifds_all.items, outputs, job });
                         },
-                        .failed => |failed| inline for (.{ failed.builds, failed.dependents }) |drvs|
-                            for (drvs) |drv|
-                                for (ifds_all.items) |ifd| {
-                                    if (std.mem.eql(u8, ifd, drv)) {
-                                        try ifds_failed.append(arena_allocator, ifd);
-                                        break;
-                                    }
-                                } else try ifd_deps_failed.append(arena_allocator, drv),
-                    }
+                        .failed => |failed| {
+                            inline for (.{ failed.builds, failed.dependents }) |drvs|
+                                for (drvs) |drv|
+                                    for (ifds_all.items) |ifd| {
+                                        if (std.mem.eql(u8, ifd, drv)) {
+                                            try ifds_failed.append(arena_allocator, ifd);
+                                            break;
+                                        }
+                                    } else try ifd_deps_failed.append(arena_allocator, drv);
 
-                    if (ifds_failed.items.len != 0 or ifd_deps_failed.items.len != 0) {
-                        log.debug("could not build IFDs for job {}\nIFDs: {s}\nIFD dependencies: {s}", .{
-                            job,
-                            ifds_failed.items,
-                            ifd_deps_failed.items,
-                        });
-                        break :eval .{ .ifd_failed = .{
-                            .ifds = try ifds_failed.toOwnedSlice(arena_allocator),
-                            .deps = try ifd_deps_failed.toOwnedSlice(arena_allocator),
-                        } };
+                            log.debug("could not build IFDs for job {}\nIFDs: {s}\nIFD dependencies: {s}", .{
+                                job,
+                                ifds_failed.items,
+                                ifd_deps_failed.items,
+                            });
+                            break :eval .{ .ifd_failed = .{
+                                .ifds = try ifds_failed.toOwnedSlice(arena_allocator),
+                                .deps = try ifd_deps_failed.toOwnedSlice(arena_allocator),
+                            } };
+                        },
                     }
 
                     ifds_failed.deinit(arena_allocator);
