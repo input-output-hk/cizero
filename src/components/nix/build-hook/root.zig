@@ -78,9 +78,10 @@ pub fn startAdvanced(
 }
 
 pub fn parseArgs(args: *std.process.ArgIterator) !log.Action.Verbosity {
-    _ = args.next();
+    var last_arg: ?[]const u8 = null;
+    while (args.next()) |arg| last_arg = arg;
 
-    return if (std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), args.next().?, 10)) |int|
+    return if (std.fmt.parseUnsigned(std.meta.Tag(log.Action.Verbosity), last_arg orelse return error.BadProcessArguments, 10)) |int|
         @enumFromInt(int)
     else |err| switch (err) {
         error.Overflow => .vomit,
