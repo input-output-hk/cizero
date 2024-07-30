@@ -4,8 +4,8 @@
 
 const std = @import("std");
 
-pub const log = @import("log.zig");
-pub const wire = @import("wire.zig");
+const log = @import("log.zig");
+const wire = @import("wire.zig");
 
 pub fn Connection(comptime Reader: type, comptime Writer: type) type {
     return struct {

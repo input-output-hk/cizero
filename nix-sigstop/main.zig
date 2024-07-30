@@ -1,13 +1,15 @@
 const std = @import("std");
 const known_folders = @import("known-folders");
-const build_hook = @import("nix-build-hook");
+const lib = @import("lib");
+
+const nix = lib.nix;
 
 pub const std_options = .{
     .logFn = struct {
         fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
             switch (mode) {
                 .wrapper => std.log.defaultLog(message_level, scope, format, args),
-                .build_hook => build_hook.log.logFn(message_level, scope, format, args),
+                .build_hook => nix.log.logFn(message_level, scope, format, args),
             }
         }
     }.logFn,
@@ -43,7 +45,7 @@ pub fn main() !void {
 
     const state_dir_path = if (try known_folders.getPath(allocator, .data)) |known_folder_path| state_dir_path: {
         defer allocator.free(known_folder_path);
-        break :state_dir_path try std.fs.path.join(allocator, &.{known_folder_path, "nix-sigstop"});
+        break :state_dir_path try std.fs.path.join(allocator, &.{ known_folder_path, "nix-sigstop" });
     } else {
         std.log.err("no data folder available", .{});
         return error.NoDataDir;
@@ -54,7 +56,7 @@ pub fn main() !void {
 
     const store = if (try known_folders.getPath(allocator, .cache)) |known_folder_path| store: {
         defer allocator.free(known_folder_path);
-        break :store try std.fs.path.join(allocator, &.{known_folder_path, "nix-sigstop"});
+        break :store try std.fs.path.join(allocator, &.{ known_folder_path, "nix-sigstop" });
     } else {
         std.log.err("no cache folder available", .{});
         return error.NoCacheDir;
@@ -96,7 +98,7 @@ pub fn main() !void {
         done_pipe_write.close();
     }
 
-    var nix = nix: {
+    var nix_process = nix_process: {
         const args = try std.process.argsAlloc(allocator);
         defer std.process.argsFree(allocator, args);
 
@@ -123,24 +125,24 @@ pub fn main() !void {
         @memcpy(nix_args[1 .. 1 + extra_nix_args.len], extra_nix_args);
         @memcpy(nix_args[1 + extra_nix_args.len .. 1 + extra_nix_args.len + args.len - 1], args[1..]);
 
-        var nix = std.process.Child.init(nix_args, allocator);
-        nix.request_resource_usage_statistics = true;
+        var nix_process = std.process.Child.init(nix_args, allocator);
+        nix_process.request_resource_usage_statistics = true;
 
-        try nix.spawn();
+        try nix_process.spawn();
 
-        break :nix nix;
+        break :nix_process nix_process;
     };
 
-    const process_messages_thread = try std.Thread.spawn(.{}, processMessages, .{ allocator, fifo_path, done_pipe_read, nix.id });
+    const process_messages_thread = try std.Thread.spawn(.{}, processMessages, .{ allocator, fifo_path, done_pipe_read, nix_process.id });
 
-    const term = try nix.wait();
+    const term = try nix_process.wait();
 
     if (term != .Exited or term.Exited != 0)
         std.log.debug("nix command terminated: {s} {d}", .{ @tagName(term), switch (term) {
             inline else => |v| v,
         } });
 
-    if (nix.resource_usage_statistics.getMaxRss()) |max_rss|
+    if (nix_process.resource_usage_statistics.getMaxRss()) |max_rss|
         std.log.info("max RSS: {d} bytes / {d:.2} MiB / {d:.2} GiB", .{
             max_rss,
             @as(f32, @floatFromInt(max_rss)) / 1024 / 1024,
@@ -212,7 +214,7 @@ fn processMessages(
                 std.log.info("{d} builds running", .{num_building});
 
                 if (num_building == 0) {
-                    std.log.info("continuing the nix eval process", .{});
+                    std.log.info("continuing the nix client process", .{});
                     try std.posix.kill(pid, std.posix.SIG.CONT);
                 }
             } else fifo_readable_checked_len = fifo_readable.len;
@@ -224,8 +226,8 @@ fn processMessages(
 
 const Message = union(enum) {
     start: struct {
-        derivation: build_hook.Derivation,
-        build_io: build_hook.BuildIo,
+        derivation: nix.build_hook.Derivation,
+        build_io: nix.build_hook.BuildIo,
     },
     /// the corresponding `start.derivation.drv_path`
     done: []const u8,
@@ -254,11 +256,11 @@ fn buildHook(allocator: std.mem.Allocator) !void {
         var args = try std.process.argsWithAllocator(allocator);
         defer args.deinit();
 
-        break :verbosity try build_hook.parseArgs(&args);
+        break :verbosity try nix.build_hook.parseArgs(&args);
     };
     std.log.debug("log verbosity: {s}", .{@tagName(verbosity)});
 
-    var nix_config, var connection = try build_hook.start(allocator);
+    var nix_config, var connection = try nix.build_hook.start(allocator);
     defer nix_config.deinit();
 
     if (std.log.defaultLogEnabled(.debug)) {
@@ -537,7 +539,7 @@ fn buildHook(allocator: std.mem.Allocator) !void {
     try (Message{ .done = drv.drv_path }).send(allocator, fifo, fifo_lock);
 }
 
-fn nixCli(allocator: std.mem.Allocator, verbosity: build_hook.log.Action.Verbosity, args: []const []const u8) ![]const []const u8 {
+fn nixCli(allocator: std.mem.Allocator, verbosity: nix.log.Action.Verbosity, args: []const []const u8) ![]const []const u8 {
     var cli = try std.ArrayListUnmanaged([]const u8).initCapacity(allocator, 4 + args.len);
     errdefer cli.deinit(allocator);
 

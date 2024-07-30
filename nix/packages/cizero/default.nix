@@ -48,8 +48,8 @@
                 ../../../pdk-test.zig
                 ../../../src
                 ../../../lib
-
                 ../../../pdk/zig
+                ../../../nix-sigstop
               ];
 
               buildZigZon = "build.zig.zon";

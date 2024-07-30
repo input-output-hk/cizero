@@ -29,35 +29,6 @@ pub fn build(b: *Build) !void {
     cizero_exe.root_module.addImport("cizero", cizero_mod);
     b.installArtifact(cizero_exe);
 
-    const nix_build_hook_mod = b.addModule("nix-build-hook", .{
-        .root_source_file = b.path("components/nix/build-hook/root.zig"),
-        .target = opts.target,
-        .optimize = opts.optimize,
-    });
-
-    const nix_build_hook_exe = b.addExecutable(.{
-        .name = "build-hook",
-        .root_source_file = b.path("components/nix/build-hook/main.zig"),
-        .target = opts.target,
-        .optimize = opts.optimize,
-    });
-    nix_build_hook_exe.root_module.addImport("nix-build-hook", nix_build_hook_mod);
-
-    const nix_sigstop_exe = b.addExecutable(.{
-        .name = "nix-sigstop",
-        .root_source_file = b.path("components/nix/nix-sigstop/main.zig"),
-        .target = opts.target,
-        .optimize = opts.optimize,
-    });
-    addDependencyImports(b, &nix_sigstop_exe.root_module, opts);
-    nix_sigstop_exe.root_module.addImport("nix-build-hook", nix_build_hook_mod);
-    b.installArtifact(nix_sigstop_exe);
-
-    {
-        const install_nix_build_hook_exe = b.addInstallArtifact(nix_build_hook_exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/components/nix" } } });
-        b.getInstallStep().dependOn(&install_nix_build_hook_exe.step);
-    }
-
     const run_step = b.step("run", "Run the app");
     {
         const run_exe = b.addRunArtifact(cizero_exe);
@@ -93,42 +64,6 @@ pub fn build(b: *Build) !void {
 
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
         test_step.dependOn(&run_cizero_exe_test.step);
-    }
-    {
-        const nix_build_hook_mod_test = b.addTest(.{
-            .name = "nix-build-hook (mod)",
-            .root_source_file = nix_build_hook_mod.root_source_file.?,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-
-        const run_nix_build_hook_mod_test = b.addRunArtifact(nix_build_hook_mod_test);
-        test_step.dependOn(&run_nix_build_hook_mod_test.step);
-    }
-    {
-        const nix_build_hook_exe_test = b.addTest(.{
-            .name = "nix-build-hook (exe)",
-            .root_source_file = nix_build_hook_exe.root_module.root_source_file.?,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-        nix_build_hook_exe_test.root_module.addImport("nix-build-hook", nix_build_hook_mod);
-
-        const run_nix_build_hook_exe_test = b.addRunArtifact(nix_build_hook_exe_test);
-        test_step.dependOn(&run_nix_build_hook_exe_test.step);
-    }
-    {
-        const nix_sigstop_exe_test = b.addTest(.{
-            .name = "nix-sigstop (exe)",
-            .root_source_file = nix_sigstop_exe.root_module.root_source_file.?,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-        addDependencyImports(b, &nix_sigstop_exe_test.root_module, opts);
-        nix_sigstop_exe_test.root_module.addImport("nix-build-hook", nix_build_hook_mod);
-
-        const run_nix_sigstop_exe_test = b.addRunArtifact(nix_sigstop_exe_test);
-        test_step.dependOn(&run_nix_sigstop_exe_test.step);
     }
 
     _ = lib.addCheckTls(b);
