@@ -1,6 +1,7 @@
 {
   imports = [
     ./cizero
+    ./nix-sigstop.nix
   ];
 
   perSystem = {
@@ -9,12 +10,14 @@
     ...
   }: {
     packages.default = pkgs.symlinkJoin {
-      name = "cizero-with-plugins";
+      name = "cizero-full";
       paths = with config.packages; [
         cizero
         cizero-plugin-hello-zig
         cizero-plugin-hello-crystal
         cizero-plugin-hydra-eval-jobs
+
+        nix-sigstop
       ];
     };
   };
