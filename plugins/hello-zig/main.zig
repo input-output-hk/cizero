@@ -196,11 +196,11 @@ const pdk_tests = struct {
                         else => null,
                     },
                     switch (eval_result) {
-                        .ifd_failed => |ifd_failed| ifd_failed.ifds,
+                        .ifd_failed => |ifd_failed| ifd_failed.builds,
                         else => null,
                     },
                     switch (eval_result) {
-                        .ifd_failed => |ifd_failed| ifd_failed.deps,
+                        .ifd_failed => |ifd_failed| ifd_failed.dependents,
                         else => null,
                     },
                 });

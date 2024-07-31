@@ -7,13 +7,13 @@ pub const TmpFile = struct {
     file: std.fs.File,
 
     /// Deletes the file.
-    pub fn deinit(self: @This(), alloc: std.mem.Allocator) void {
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
         self.file.close();
 
         std.fs.deleteFileAbsolute(self.path) catch |err|
             std.log.err("could not delete temporary file \"{s}\": {s}", .{ self.path, @errorName(err) });
 
-        alloc.free(self.path);
+        allocator.free(self.path);
     }
 };
 

@@ -21,6 +21,10 @@ pub fn build(b: *Build) !void {
         .@"cizero-pdk" = .{
             .release = opts.optimize != .Debug,
         },
+        .@"nix-sigstop" = .{
+            .target = opts.target,
+            .release = opts.optimize != .Debug,
+        },
     };
 
     {

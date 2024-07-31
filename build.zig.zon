@@ -5,6 +5,7 @@
         .lib = .{ .path = "lib" },
         .cizero = .{ .path = "src" },
         .@"cizero-pdk" = .{ .path = "pdk/zig" },
+        .@"nix-sigstop" = .{ .path = "nix-sigstop" },
     },
     .paths = .{
         "build.zig",
@@ -12,5 +13,6 @@
         "lib",
         "src",
         "pdk/zig",
+        "nix-sigstop",
     },
 }
