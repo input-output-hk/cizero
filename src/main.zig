@@ -75,7 +75,7 @@ fn registerPlugins(allocator: std.mem.Allocator) !void {
 
     const cwd = std.fs.cwd();
 
-    _ = args.next(); // discard executable (not a plugin)
+    std.debug.assert(args.skip()); // discard executable (not a plugin)
     while (args.next()) |arg| {
         const name = std.fs.path.stem(arg);
 
