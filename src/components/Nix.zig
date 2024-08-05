@@ -883,6 +883,7 @@ fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildR
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
+        .max_output_bytes = 1024 * 1024 * 8,
     });
     defer {
         allocator.free(result.stdout);
