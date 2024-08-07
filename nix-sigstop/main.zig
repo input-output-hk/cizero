@@ -11,7 +11,7 @@ pub const std_options = .{
         fn logFn(comptime message_level: std.log.Level, comptime scope: @Type(.EnumLiteral), comptime format: []const u8, args: anytype) void {
             switch (globals) {
                 .wrapper => std.log.defaultLog(message_level, scope, format, args),
-                .build_hook => nix.log.logFn(message_level, scope, format, args),
+                .build_hook => nix.log.logFn(.warn, scope, format, args),
             }
         }
     }.logFn,
