@@ -66,7 +66,7 @@ fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) ca
     std.debug.assert(ctx == null);
 
     const sql: [*:0]const u8 = @ptrCast(x.?);
-    log.debug("trace: {}", .{fmt.fmtOneline(std.mem.span(sql))});
+    log.debug("trace: {s}", .{fmt.fmtOneline(std.mem.span(sql))});
 
     return 0;
 }
@@ -79,7 +79,7 @@ fn logErr(conn: zqlite.Conn, comptime func_name: std.meta.DeclEnum(zqlite.Conn),
     const func = @field(zqlite.Conn, @tagName(func_name));
     return if (@call(.auto, func, .{conn} ++ args)) |result| result else |err| blk: {
         const sql: []const u8 = args.@"0";
-        log.err("{s}: {s}. Statement: {}", .{ @errorName(err), conn.lastError(), fmt.fmtOneline(sql) });
+        log.err("{s}: {s}. Statement: {s}", .{ @errorName(err), conn.lastError(), fmt.fmtOneline(sql) });
         break :blk err;
     };
 }
