@@ -123,7 +123,7 @@ pub const Job = union(enum) {
             });
 
             try writer.writeAll(if (self.flake != null) " --apply " else " --expr ");
-            try writer.print("{s}", .{fmt.oneline(self.expr)});
+            try writer.print("{s}", .{fmt.fmtOneline(self.expr)});
 
             if (self.flake) |f| {
                 try writer.writeByte(' ');
