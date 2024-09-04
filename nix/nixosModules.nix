@@ -36,6 +36,15 @@
           default = 5882;
           readOnly = true;
         };
+
+        nixSigstop = {
+          enable = lib.mkEnableOption "nix-sigstop";
+
+          package = lib.mkOption {
+            type = lib.types.package;
+            default = pkgs.nix-sigstop or perSystem.config.packages.nix-sigstop;
+          };
+        };
       };
 
       config = let
@@ -54,15 +63,22 @@
               Restart = "on-failure";
             };
 
-            path = [
-              cfg.package
-              config.nix.package
-            ];
+            path =
+              [
+                cfg.package
+                config.nix.package
+              ]
+              ++ (with cfg.nixSigstop; lib.optional enable package);
             script = ''
               export XDG_DATA_HOME=$STATE_DIRECTORY
               export XDG_CACHE_HOME=$CACHE_DIRECTORY
 
-              exec cizero ${toString (
+              exec cizero ${lib.escapeShellArgs (lib.cli.toGNUCommandLine {} {
+                nix-exe = with cfg.nixSigstop;
+                  if enable
+                  then lib.getExe package
+                  else null;
+              })} ${toString (
                 map
                 (plugin: "${plugin}/libexec/cizero/plugins/*.wasm")
                 cfg.plugins
