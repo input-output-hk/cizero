@@ -123,7 +123,7 @@ pub const Job = union(enum) {
             });
 
             try writer.writeAll(if (self.flake != null) " --apply " else " --expr ");
-            try writer.print("{s}", .{fmt.oneline(self.expr)});
+            try writer.print("{s}", .{fmt.fmtOneline(self.expr)});
 
             if (self.flake) |f| {
                 try writer.writeByte(' ');
@@ -193,15 +193,15 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
 
     const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
         const nix_config = nix_config: {
-            var diagnostics: ?nix.ChildProcessDiagnostics = null;
-            defer if (diagnostics) |d| d.deinit(allocator);
-            break :nix_config nix.config(allocator, &diagnostics) catch |err| return switch (err) {
-                error.CouldNotReadNixConfig => blk: {
-                    log.err("could not read nix config: {}, stderr: {s}", .{ diagnostics.?.term, diagnostics.?.stderr });
-                    break :blk err;
+            var diagnostics: nix.ChildProcessDiagnostics = undefined;
+            errdefer |err| switch (err) {
+                error.CouldNotReadNixConfig => {
+                    defer diagnostics.deinit(allocator);
+                    log.err("could not read nix config: {}, stderr: {s}", .{ diagnostics.term, diagnostics.stderr });
                 },
-                else => err,
+                else => {},
             };
+            break :nix_config try nix.config(allocator, &diagnostics);
         };
         defer nix_config.deinit();
 
@@ -760,10 +760,9 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
 
     const allowed_uris = if (flake) |f|
         if (locks: {
-            var diagnostics: ?nix.ChildProcessDiagnostics = null;
-            errdefer if (diagnostics) |d| d.deinit(self.allocator);
+            var diagnostics: nix.ChildProcessDiagnostics = undefined;
             break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
-                error.FlakePrefetchFailed => .{ .failed = diagnostics.?.stderr },
+                error.FlakePrefetchFailed => .{ .failed = diagnostics.stderr },
                 else => err,
             };
         }) |locks| allowed_uris: {
