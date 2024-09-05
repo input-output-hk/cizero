@@ -18,6 +18,7 @@
           zls
           wasm-tools
           inputs'.nix.packages.nix
+          config.packages.nix-sigstop
         ];
         inputsFrom = [
           config.mission-control.devShell
