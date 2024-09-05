@@ -1,4 +1,5 @@
 const std = @import("std");
+const s2s = @import("s2s");
 
 const cizero = @import("cizero");
 
@@ -39,21 +40,39 @@ fn onWebhook(
                 cwd.deleteFile(file_name) catch |err| @panic(@errorName(err));
             }
 
-            const file_reader = file.reader();
-
-            const file_contents = try file_reader.readAllAlloc(allocator, std.math.maxInt(usize));
-            defer allocator.free(file_contents);
-
-            const variant_separator_idx = std.mem.indexOfScalar(u8, file_contents, '\n').?;
-            const variant_str = file_contents[0..variant_separator_idx];
-            const variant = std.meta.stringToEnum(std.meta.Tag(cizero.nix.OnEvalResult), variant_str).?;
-
-            const body = try allocator.dupeZ(u8, file_contents[variant_separator_idx + 1 ..]);
-            errdefer allocator.free(body);
+            var result = try s2s.deserializeAlloc(file.reader(), cizero.nix.OnEvalResult, allocator);
+            defer s2s.free(allocator, cizero.nix.OnEvalResult, &result);
 
             return .{
-                .status = if (variant == .ok) 200 else 422,
-                .body = body,
+                .status = switch (result) {
+                    .err => 500,
+                    .ok => |payload| switch (payload) {
+                        .ok => 200,
+                        .failed, .ifd_failed => 422,
+                    },
+                },
+                .body = switch (result) {
+                    .err => |name| try allocator.dupeZ(u8, name),
+                    .ok => |payload| switch (payload) {
+                        .ok, .failed => |case| try allocator.dupeZ(u8, case),
+                        .ifd_failed => |ifd_failed| body: {
+                            var body = std.ArrayList(u8).init(allocator);
+                            errdefer body.deinit();
+
+                            for (ifd_failed.builds, 1..) |ifd, len| {
+                                try body.appendSlice(ifd);
+                                if (len != ifd_failed.builds.len) try body.append(' ');
+                            }
+                            try body.append('\n');
+                            for (ifd_failed.dependents, 1..) |dep, len| {
+                                try body.appendSlice(dep);
+                                if (len != ifd_failed.dependents.len) try body.append(' ');
+                            }
+
+                            break :body try body.toOwnedSliceSentinel(0);
+                        },
+                    },
+                },
             };
         } else |err| if (err != error.FileNotFound) return err;
     }
@@ -88,23 +107,5 @@ fn onEval(
     var file = try std.fs.cwd().createFile(name.deserialize(), .{ .exclusive = true });
     defer file.close();
 
-    const file_writer = file.writer();
-
-    try file_writer.writeAll(@tagName(result));
-    try file_writer.writeByte('\n');
-
-    switch (result) {
-        .ok, .failed => |case| try file_writer.writeAll(case),
-        .ifd_failed => |case| {
-            for (case.builds, 1..) |ifd, i| {
-                try file_writer.writeAll(ifd);
-                if (i != case.builds.len) try file_writer.writeByte(' ');
-            }
-            try file_writer.writeByte('\n');
-            for (case.dependents, 1..) |dep, i| {
-                try file_writer.writeAll(dep);
-                if (i != case.dependents.len) try file_writer.writeByte(' ');
-            }
-        },
-    }
+    try s2s.serialize(file.writer(), cizero.nix.OnEvalResult, result);
 }

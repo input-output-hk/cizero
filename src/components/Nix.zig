@@ -565,21 +565,23 @@ fn runEvalJob(self: *@This(), job: Job.Eval) !void {
     var result = result: {
         errdefer self.removeEvalJob(job);
 
-        const result = try self.eval(job.flake, job.expr, job.output_format);
-        errdefer result.deinit();
+        const result = self.eval(job.flake, job.expr, job.output_format);
+        errdefer if (result) |payload| payload.deinit() else |_| {};
 
-        switch (result) {
-            .ok => |evalutated| log.debug("job {} succeeded: {s}", .{ job, evalutated }),
-            .failed => |msg| log.debug("job {} failed: {s}", .{ job, msg }),
-            .ifd_failed => |ifd_failed| log.debug(
-                "job {} failed to build IFD\nIFDs: {s}\nIFD dependencies: {s}",
-                .{ job, ifd_failed.builds, ifd_failed.dependents },
-            ),
-        }
+        if (result) |payload|
+            switch (payload) {
+                .ok => |evalutated| log.debug("job {} succeeded: {s}", .{ job, evalutated }),
+                .failed => |msg| log.debug("job {} failed: {s}", .{ job, msg }),
+                .ifd_failed => |ifd_failed| log.debug(
+                    "job {} failed to build IFD\nIFDs: {s}\nIFD dependencies: {s}",
+                    .{ job, ifd_failed.builds, ifd_failed.dependents },
+                ),
+            }
+        else |_| {}
 
         break :result result;
     };
-    defer result.deinit(self.allocator);
+    defer if (result) |*payload| payload.deinit(self.allocator) else |_| {};
 
     self.removeEvalJob(job);
 
@@ -596,7 +598,7 @@ fn removeEvalJob(self: *@This(), job: Job.Eval) void {
     std.debug.assert(self.eval_jobs.fetchRemove(job) != null);
 }
 
-fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result) !void {
+fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: meta.FnErrorSet(@TypeOf(build))!Job.Build.Result) !void {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
 
@@ -624,33 +626,41 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
         defer runtime.deinit();
 
         const linear = try runtime.linearMemoryAllocator();
+        const linear_allocator = linear.allocator();
 
-        _ = try callback.run(self.allocator, runtime, &.{
-            .{ .i32 = switch (result) {
-                .outputs => |outputs| @intCast(try linear.dupeStringSliceAddr(outputs)),
-                .failed => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .outputs => |outputs| @intCast(outputs.len),
-                .failed => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .outputs => 0,
-                .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.builds)),
-            } },
-            .{ .i32 = switch (result) {
-                .outputs => 0,
-                .failed => |failed| @intCast(failed.builds.len),
-            } },
-            .{ .i32 = switch (result) {
-                .outputs => 0,
-                .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.dependents)),
-            } },
-            .{ .i32 = switch (result) {
-                .outputs => 0,
-                .failed => |failed| @intCast(failed.dependents.len),
-            } },
-        }, &.{});
+        _ = try callback.run(
+            self.allocator,
+            runtime,
+            &[_]wasm.Value{
+                .{ .i32 = if (result) |_| 0 else |err| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, @errorName(err))).ptr)) },
+            } ++ if (result) |payload| [_]wasm.Value{
+                .{ .i32 = switch (payload) {
+                    .outputs => |outputs| @intCast(try linear.dupeStringSliceAddr(outputs)),
+                    .failed => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .outputs => |outputs| @intCast(outputs.len),
+                    .failed => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .outputs => 0,
+                    .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.builds)),
+                } },
+                .{ .i32 = switch (payload) {
+                    .outputs => 0,
+                    .failed => |failed| @intCast(failed.builds.len),
+                } },
+                .{ .i32 = switch (payload) {
+                    .outputs => 0,
+                    .failed => |failed| @intCast(try linear.dupeStringSliceAddr(failed.dependents)),
+                } },
+                .{ .i32 = switch (payload) {
+                    .outputs => 0,
+                    .failed => |failed| @intCast(failed.dependents.len),
+                } },
+            } else |_| .{.{ .i32 = 0 }} ** 6,
+            &.{},
+        );
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);
@@ -659,7 +669,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: Job.Build.Result
     }
 }
 
-fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !void {
+fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: meta.FnErrorSet(@TypeOf(eval))!Job.Eval.Result) !void {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
 
@@ -686,32 +696,39 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: Job.Eval.Result) !
         const linear = try runtime.linearMemoryAllocator();
         const linear_allocator = linear.allocator();
 
-        _ = try callback.run(self.allocator, runtime, &.{
-            .{ .i32 = switch (result) {
-                .ok => |evaluated| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, evaluated)).ptr)),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .failed => |msg| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, msg)).ptr)),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.builds)),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(ifd_failed.builds.len),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.dependents)),
-                else => 0,
-            } },
-            .{ .i32 = switch (result) {
-                .ifd_failed => |ifd_failed| @intCast(ifd_failed.dependents.len),
-                else => 0,
-            } },
-        }, &.{});
+        _ = try callback.run(
+            self.allocator,
+            runtime,
+            &[_]wasm.Value{
+                .{ .i32 = if (result) |_| 0 else |err| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, @errorName(err))).ptr)) },
+            } ++ if (result) |payload| [_]wasm.Value{
+                .{ .i32 = switch (payload) {
+                    .ok => |evaluated| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, evaluated)).ptr)),
+                    else => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .failed => |msg| @intCast(linear.memory.offset((try linear_allocator.dupeZ(u8, msg)).ptr)),
+                    else => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.builds)),
+                    else => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .ifd_failed => |ifd_failed| @intCast(ifd_failed.builds.len),
+                    else => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .ifd_failed => |ifd_failed| @intCast(try linear.dupeStringSliceAddr(ifd_failed.dependents)),
+                    else => 0,
+                } },
+                .{ .i32 = switch (payload) {
+                    .ifd_failed => |ifd_failed| @intCast(ifd_failed.dependents.len),
+                    else => 0,
+                } },
+            } else |_| .{.{ .i32 = 0 }} ** 6,
+            &.{},
+        );
 
         const conn = self.registry.db_pool.acquire();
         defer self.registry.db_pool.release(conn);

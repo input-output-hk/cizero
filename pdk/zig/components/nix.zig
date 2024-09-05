@@ -51,7 +51,7 @@ pub fn OnBuildCallback(comptime UserData: type) type {
     return fn (UserData, OnBuildResult) void;
 }
 
-pub const OnBuildResult = cizero.components.Nix.Job.Build.Result;
+pub const OnBuildResult = cizero.components.CallbackResult(cizero.components.Nix.Job.Build.Result);
 
 pub fn onBuild(
     comptime UserData: type,
@@ -75,6 +75,7 @@ pub fn onBuild(
 export fn @"pdk.nix.onBuild.callback"(
     callback_data_ptr: [*]const u8,
     callback_data_len: usize,
+    err_name: ?[*:0]const u8,
     outputs_ptr: ?[*]const [*:0]const u8,
     outputs_len: usize,
     failed_builds_ptr: ?[*]const [*:0]const u8,
@@ -86,27 +87,33 @@ export fn @"pdk.nix.onBuild.callback"(
 
     const allocator = std.heap.wasm_allocator;
 
-    var build_result: OnBuildResult = if (outputs_len != 0) blk: {
-        const outputs = allocator.alloc([]const u8, outputs_len) catch |err| @panic(@errorName(err));
-        for (outputs, outputs_ptr.?[0..outputs_len]) |*output, output_ptr|
-            output.* = std.mem.span(output_ptr);
+    var build_result: OnBuildResult = if (err_name) |name|
+        .{ .err = std.mem.span(name) }
+    else
+        .{ .ok = if (outputs_len != 0) blk: {
+            const outputs = allocator.alloc([]const u8, outputs_len) catch |err| @panic(@errorName(err));
+            for (outputs, outputs_ptr.?[0..outputs_len]) |*output, output_ptr|
+                output.* = std.mem.span(output_ptr);
 
-        break :blk .{ .outputs = outputs };
-    } else blk: {
-        const builds = allocator.alloc([]const u8, failed_builds_len) catch |err| @panic(@errorName(err));
-        for (builds, failed_builds_ptr.?[0..failed_builds_len]) |*build, drv_ptr|
-            build.* = std.mem.span(drv_ptr);
+            break :blk .{ .outputs = outputs };
+        } else blk: {
+            const builds = allocator.alloc([]const u8, failed_builds_len) catch |err| @panic(@errorName(err));
+            for (builds, failed_builds_ptr.?[0..failed_builds_len]) |*build, drv_ptr|
+                build.* = std.mem.span(drv_ptr);
 
-        const dependents = allocator.alloc([]const u8, failed_dependents_len) catch |err| @panic(@errorName(err));
-        for (dependents, failed_dependents_ptr.?[0..failed_dependents_len]) |*dependent, drv_ptr|
-            dependent.* = std.mem.span(drv_ptr);
+            const dependents = allocator.alloc([]const u8, failed_dependents_len) catch |err| @panic(@errorName(err));
+            for (dependents, failed_dependents_ptr.?[0..failed_dependents_len]) |*dependent, drv_ptr|
+                dependent.* = std.mem.span(drv_ptr);
 
-        break :blk .{ .failed = .{
-            .builds = builds,
-            .dependents = dependents,
+            break :blk .{ .failed = .{
+                .builds = builds,
+                .dependents = dependents,
+            } };
         } };
+    defer switch (build_result) {
+        .err => |name| allocator.free(name),
+        .ok => |*result| result.deinit(allocator),
     };
-    defer build_result.deinit(allocator);
 
     abi.CallbackData
         .deserialize(callback_data_ptr[0..callback_data_len])
@@ -117,7 +124,7 @@ pub fn OnEvalCallback(comptime UserData: type) type {
     return fn (UserData, OnEvalResult) void;
 }
 
-pub const OnEvalResult = cizero.components.Nix.Job.Eval.Result;
+pub const OnEvalResult = cizero.components.CallbackResult(cizero.components.Nix.Job.Eval.Result);
 
 pub const EvalFormat = externs.EvalFormat;
 
@@ -139,7 +146,8 @@ pub fn onEval(
 export fn @"pdk.nix.onEval.callback"(
     callback_data_ptr: [*]const u8,
     callback_data_len: usize,
-    result: ?[*:0]const u8,
+    err_name: ?[*:0]const u8,
+    result_ok: ?[*:0]const u8,
     err_msg: ?[*:0]const u8,
     failed_ifds_ptr: ?[*]const [*:0]const u8,
     failed_ifds_len: usize,
@@ -155,25 +163,32 @@ export fn @"pdk.nix.onEval.callback"(
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    const eval_result: OnEvalResult = if (result) |r|
-        .{ .ok = std.mem.span(r) }
-    else if (err_msg) |em|
-        .{ .failed = std.mem.span(em) }
+    var eval_result: OnEvalResult = if (err_name) |name|
+        .{ .err = std.mem.span(name) }
     else
-        .{ .ifd_failed = .{
-            .builds = if (failed_ifds_ptr) |fip| ifds: {
-                const ifds = arena_allocator.alloc([]const u8, failed_ifds_len) catch |err| @panic(@errorName(err));
-                for (ifds, fip[0..failed_ifds_len]) |*ifd, failed_ifd|
-                    ifd.* = std.mem.span(failed_ifd);
-                break :ifds ifds;
-            } else &.{},
-            .dependents = if (failed_ifd_deps_ptr) |fidp| deps: {
-                const deps = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
-                for (deps, fidp[0..failed_ifd_deps_len]) |*dep, failed_ifd_dep|
-                    dep.* = std.mem.span(failed_ifd_dep);
-                break :deps deps;
-            } else &.{},
-        } };
+        .{ .ok = if (result_ok) |r|
+            .{ .ok = std.mem.span(r) }
+        else if (err_msg) |em|
+            .{ .failed = std.mem.span(em) }
+        else
+            .{ .ifd_failed = .{
+                .builds = if (failed_ifds_ptr) |fip| ifds: {
+                    const ifds = arena_allocator.alloc([]const u8, failed_ifds_len) catch |err| @panic(@errorName(err));
+                    for (ifds, fip[0..failed_ifds_len]) |*ifd, failed_ifd|
+                        ifd.* = std.mem.span(failed_ifd);
+                    break :ifds ifds;
+                } else &.{},
+                .dependents = if (failed_ifd_deps_ptr) |fidp| deps: {
+                    const deps = arena_allocator.alloc([]const u8, failed_ifd_deps_len) catch |err| @panic(@errorName(err));
+                    for (deps, fidp[0..failed_ifd_deps_len]) |*dep, failed_ifd_dep|
+                        dep.* = std.mem.span(failed_ifd_dep);
+                    break :deps deps;
+                } else &.{},
+            } } };
+    defer switch (eval_result) {
+        .err => |name| allocator.free(name),
+        .ok => |*result| result.deinit(allocator),
+    };
 
     abi.CallbackData
         .deserialize(callback_data_ptr[0..callback_data_len])
@@ -210,7 +225,7 @@ pub fn onEvalBuild(
 
             const ud_value = eval_callback(ud, arena.allocator(), result);
 
-            if (result != .ok) return;
+            if (result != .ok or result.ok != .ok) return;
 
             var installables = std.ArrayListUnmanaged([:0]const u8){};
             defer {
@@ -218,7 +233,7 @@ pub fn onEvalBuild(
                 installables.deinit(alloc);
             }
 
-            var lines = std.mem.tokenizeScalar(u8, result.ok, '\n');
+            var lines = std.mem.tokenizeScalar(u8, result.ok.ok, '\n');
             while (lines.next()) |line| {
                 const installable = std.mem.concatWithSentinel(alloc, u8, &.{ line, "^*" }, 0) catch |err| @panic(@errorName(err));
                 errdefer alloc.free(installable);

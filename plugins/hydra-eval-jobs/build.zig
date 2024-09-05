@@ -57,4 +57,5 @@ fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) voi
 
     step.root_module.addImport("cizero", pdk_mod);
     step.root_module.addImport("lib", pdk_mod.import_table.get("lib").?);
+    step.root_module.addImport("s2s", pdk_mod.import_table.get("s2s").?);
 }

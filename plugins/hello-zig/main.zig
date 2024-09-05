@@ -153,21 +153,24 @@ const pdk_tests = struct {
                 _: UserData,
                 build_result: cizero.nix.OnBuildResult,
             ) void {
-                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n", .{
-                    {},
-                    switch (build_result) {
-                        .outputs => |outputs| outputs,
-                        else => null,
-                    },
-                    switch (build_result) {
-                        .failed => |failed| failed.builds,
-                        else => null,
-                    },
-                    switch (build_result) {
-                        .failed => |failed| failed.dependents,
-                        else => null,
-                    },
-                });
+                switch (build_result) {
+                    .err => |name| std.debug.print("error.{s}\n", .{name}),
+                    .ok => |payload| std.debug.print("{}\n{?s}\n{?s}\n{?s}\n", .{
+                        {},
+                        switch (payload) {
+                            .outputs => |outputs| outputs,
+                            else => null,
+                        },
+                        switch (payload) {
+                            .failed => |failed| failed.builds,
+                            else => null,
+                        },
+                        switch (payload) {
+                            .failed => |failed| failed.dependents,
+                            else => null,
+                        },
+                    }),
+                }
             }
         }.callback;
 
@@ -185,25 +188,28 @@ const pdk_tests = struct {
                 _: UserData,
                 eval_result: cizero.nix.OnEvalResult,
             ) void {
-                std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{?s}\n", .{
-                    {},
-                    switch (eval_result) {
-                        .ok => |result| result,
-                        else => null,
-                    },
-                    switch (eval_result) {
-                        .failed => |err_msg| err_msg,
-                        else => null,
-                    },
-                    switch (eval_result) {
-                        .ifd_failed => |ifd_failed| ifd_failed.builds,
-                        else => null,
-                    },
-                    switch (eval_result) {
-                        .ifd_failed => |ifd_failed| ifd_failed.dependents,
-                        else => null,
-                    },
-                });
+                switch (eval_result) {
+                    .err => |name| std.debug.print("error.{s}\n", .{name}),
+                    .ok => |payload| std.debug.print("{}\n{?s}\n{?s}\n{?s}\n{?s}\n", .{
+                        {},
+                        switch (payload) {
+                            .ok => |result| result,
+                            else => null,
+                        },
+                        switch (payload) {
+                            .failed => |err_msg| err_msg,
+                            else => null,
+                        },
+                        switch (payload) {
+                            .ifd_failed => |ifd_failed| ifd_failed.builds,
+                            else => null,
+                        },
+                        switch (payload) {
+                            .ifd_failed => |ifd_failed| ifd_failed.dependents,
+                            else => null,
+                        },
+                    }),
+                }
             }
         }.callback;
 
@@ -233,22 +239,27 @@ const tests = struct {
         const UserData = cizero.user_data.S2S(?[]const u8);
 
         const fns = struct {
-            fn evalCallback(user_data: UserData, _: std.mem.Allocator, result: cizero.nix.OnEvalResult) UserData.Value {
-                var drv = user_data.deserializeAlloc(allocator) catch |err| @panic(@errorName(err));
+            fn evalCallback(user_data: UserData, arena_allocator: std.mem.Allocator, result: cizero.nix.OnEvalResult) UserData.Value {
+                var drv = user_data.deserializeAlloc(arena_allocator) catch |err| @panic(@errorName(err));
                 defer UserData.free(allocator, &drv);
 
-                return if (result == .ok) result.ok else drv;
+                std.testing.expect(drv == null) catch |err| @panic(@errorName(err));
+
+                return if (result == .ok and result.ok == .ok) result.ok.ok else null;
             }
 
             fn buildCallback(user_data: UserData, result: cizero.nix.OnBuildResult) void {
                 var drv = user_data.deserializeAlloc(allocator) catch |err| @panic(@errorName(err));
                 defer UserData.free(allocator, &drv);
 
+                std.testing.expectEqual(std.meta.Tag(cizero.nix.OnBuildResult).ok, std.meta.activeTag(result)) catch |err| @panic(@errorName(err));
+                const build_result = result.ok;
+
                 std.testing.expectEqualStrings(drv.?, "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv") catch |err| @panic(@errorName(err));
 
-                std.testing.expectEqual(std.meta.Tag(cizero.nix.OnBuildResult).outputs, std.meta.activeTag(result)) catch |err| @panic(@errorName(err));
-                std.testing.expectEqual(1, result.outputs.len) catch |err| @panic(@errorName(err));
-                std.testing.expectEqualStrings("/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1", result.outputs[0]) catch |err| @panic(@errorName(err));
+                std.testing.expectEqual(std.meta.Tag(cizero.nix.OnBuildResult.Ok).outputs, std.meta.activeTag(build_result)) catch |err| @panic(@errorName(err));
+                std.testing.expectEqual(1, build_result.outputs.len) catch |err| @panic(@errorName(err));
+                std.testing.expectEqualStrings("/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1", build_result.outputs[0]) catch |err| @panic(@errorName(err));
             }
         };
 

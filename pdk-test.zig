@@ -420,6 +420,7 @@ test "nix_on_build" {
             store_drv_outputs_wasm[0] = linear.memory.offset(store_drv_output_wasm.ptr);
 
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
+                .{ .i32 = 0 },
                 .{ .i32 = @intCast(linear.memory.offset(store_drv_outputs_wasm.ptr)) },
                 .{ .i32 = @intCast(store_drv_outputs_wasm.len) },
                 .{ .i32 = 0 },
@@ -509,6 +510,7 @@ test "nix_on_eval" {
             defer allocator.free(result_wasm);
 
             try testing.expect(try cb.run(testing.allocator, rt, &[_]wasm.Value{
+                .{ .i32 = 0 },
                 .{ .i32 = @intCast(linear.memory.offset(result_wasm.ptr)) },
                 .{ .i32 = 0 },
                 .{ .i32 = 0 },

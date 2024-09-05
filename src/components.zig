@@ -53,6 +53,19 @@ pub const CallbackDoneCondition = union(enum) {
     }
 };
 
+/// A fallible value passed into a callback.
+/// (Not the result of calling a callback.)
+pub fn CallbackResult(comptime T: type) type {
+    return union(enum) {
+        /// The name of the error that occured
+        /// trying to obtain a `T`.
+        err: []const u8,
+        ok: Ok,
+
+        pub const Ok = T;
+    };
+}
+
 pub fn rejectIfStopped(running: *const std.atomic.Value(bool)) error{ComponentStopped}!void {
     if (!running.load(.monotonic)) return error.ComponentStopped;
 }
