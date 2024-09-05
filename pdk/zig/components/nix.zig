@@ -269,7 +269,7 @@ pub fn lockFlakeRef(
     allocator: std.mem.Allocator,
     flake_ref: []const u8,
     opts: FlakeMetadataOptions,
-    diagnostics: *?ChildProcessDiagnostics,
+    diagnostics: ?*ChildProcessDiagnostics,
 ) ![]const u8 {
     const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts, diagnostics);
 
