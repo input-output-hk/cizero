@@ -1,7 +1,7 @@
 const std = @import("std");
 const args = @import("args");
 
-pub fn main() !void {
+pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
         .backing_allocator = std.heap.page_allocator,
     };
@@ -70,7 +70,7 @@ pub fn main() !void {
     while (true) : (request_count += 1) {
         if (request_count > options.options.@"max-requests") {
             std.log.err("max request count ({d}) exceeded", .{options.options.@"max-requests"});
-            std.process.exit(1);
+            return 1;
         }
 
         var response = std.ArrayList(u8).init(allocator);
@@ -94,17 +94,18 @@ pub fn main() !void {
                 std.log.info("evaluation successful", .{});
 
                 try std.io.getStdOut().writeAll(response.items);
-                std.process.cleanExit();
-                return;
+                break;
             },
             else => {
                 std.log.info("evaluation failed", .{});
 
                 try std.io.getStdErr().writeAll(response.items);
-                std.process.exit(1);
+                return 1;
             },
         }
     }
+
+    return 0;
 }
 
 fn warnOptionIgnored(comptime option: []const u8) void {
