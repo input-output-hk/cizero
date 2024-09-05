@@ -20,11 +20,13 @@ fn deinit(self: *@This()) void {
 
 fn init() !@This() {
     var cizero = try Cizero.init(testing.allocator, .{
-        .path = ":memory:",
+        .db = .{
+            .path = ":memory:",
 
-        // in-memory databases only get `PRAGMA journal_mode = MEMORY`
-        // which does not seem to work properly with multiple threads
-        .size = 1,
+            // in-memory databases only get `PRAGMA journal_mode = MEMORY`
+            // which does not seem to work properly with multiple threads
+            .size = 1,
+        },
     });
     errdefer cizero.deinit();
 

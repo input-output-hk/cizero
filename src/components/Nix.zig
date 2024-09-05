@@ -23,6 +23,8 @@ const log = std.log.scoped(log_scope);
 
 allocator: std.mem.Allocator,
 
+config: Config,
+
 registry: *const Registry,
 wait_group: *std.Thread.WaitGroup,
 
@@ -77,6 +79,10 @@ mock_start_job: if (builtin.is_test) ?meta.Closure(
     ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool,
     true,
 ) else void = if (builtin.is_test) null,
+
+pub const Config = struct {
+    exe: []const u8 = "nix",
+};
 
 pub const Job = union(enum) {
     build: Build,
@@ -178,7 +184,7 @@ pub const InitError = error{
     std.process.Child.RunError ||
     std.json.ParseError(std.json.Scanner);
 
-pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
+pub fn init(allocator: std.mem.Allocator, config: Config, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
     if (!builtin.is_test) {
         // we need #. flake syntax
         const min_nix_version = std.SemanticVersion{ .major = 2, .minor = 19, .patch = 0 };
@@ -225,6 +231,7 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
 
     return .{
         .allocator = allocator,
+        .config = config,
         .registry = registry,
         .wait_group = wait_group,
         .allowed_uris = allowed_uris,
@@ -527,7 +534,7 @@ fn runBuildJob(self: *@This(), job: Job.Build) !void {
     var result = result: {
         errdefer self.removeBuildJob(job);
 
-        const result = try build(self.allocator, job.installables);
+        const result = try build(self.allocator, self.config.exe, job.installables);
         errdefer result.deinit(self.allocator);
 
         switch (result) {
@@ -789,7 +796,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
 
     const args = try std.mem.concat(self.allocator, []const u8, &.{
         &.{
-            "nix",                            "eval",
+            self.config.exe,                  "eval",
             "--quiet",                        "--restrict-eval",
             "--allow-import-from-derivation", "--no-write-lock-file",
         },
@@ -863,12 +870,12 @@ pub const BuildResult = union(enum) {
     }
 };
 
-fn build(allocator: std.mem.Allocator, installables: []const []const u8) !BuildResult {
+fn build(allocator: std.mem.Allocator, nix_exe: []const u8, installables: []const []const u8) !BuildResult {
     log.debug("building {s}", .{installables});
 
     const argv = try std.mem.concat(allocator, []const u8, &.{
         &.{
-            "nix",
+            nix_exe,
             "build",
             "--restrict-eval",
             "--no-link",

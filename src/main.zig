@@ -1,11 +1,20 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const flags = @import("flags");
 const zqlite = @import("zqlite");
 
 const Cizero = @import("cizero");
 
 var cizero: *Cizero = undefined;
 var shell_fg: ?bool = null;
+
+const Flags = struct {
+    nix_exe: []const u8 = "nix",
+
+    pub const descriptions = .{
+        .nix_exe = "Nix executable name. Useful to run a wrapper like nix-sigstop.",
+    };
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -14,6 +23,15 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) std.log.err("leaked memory", .{});
     const allocator = gpa.allocator();
 
+    const args = args: {
+        var args_iter = try std.process.argsWithAllocator(allocator);
+        defer args_iter.deinit();
+
+        break :args flags.parseWithAllocator(allocator, &args_iter, Flags, .{ .command_name = "cizero" }) catch |err|
+            flags.fatal("{s}: failed to parse command line", .{@errorName(err)});
+    };
+    defer args.trailing.deinit();
+
     cizero = cizero: {
         const db_path = try Cizero.fs.dbPathZ(allocator);
         defer allocator.free(db_path);
@@ -21,8 +39,13 @@ pub fn main() !void {
         if (std.fs.path.dirname(db_path)) |path| try std.fs.cwd().makePath(path);
 
         break :cizero try Cizero.init(allocator, .{
-            .path = db_path,
-            .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
+            .db = .{
+                .path = db_path,
+                .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
+            },
+            .nix = .{
+                .exe = args.command.nix_exe,
+            },
         });
     };
     defer cizero.deinit();
@@ -59,31 +82,21 @@ pub fn main() !void {
         return err;
     };
 
-    registerPlugins(allocator) catch |err| {
-        std.log.err("failed to register plugins: {s}", .{@errorName(err)});
-        return err;
-    };
+    for (args.trailing.items) |plugin_path|
+        try registerPlugin(allocator, plugin_path);
 
     cizero.wait_group.wait();
 
     if (shell_fg) |fg| if (!fg) std.log.info("cizero exited", .{});
 }
 
-fn registerPlugins(allocator: std.mem.Allocator) !void {
-    var args = try std.process.argsWithAllocator(allocator);
-    defer args.deinit();
+fn registerPlugin(allocator: std.mem.Allocator, plugin_path: []const u8) !void {
+    const name = std.fs.path.stem(plugin_path);
 
-    const cwd = std.fs.cwd();
+    errdefer |err| std.log.err("failed to register plugin {s}: {s}", .{ name, @errorName(err) });
 
-    std.debug.assert(args.skip()); // discard executable (not a plugin)
-    while (args.next()) |arg| {
-        const name = std.fs.path.stem(arg);
+    const wasm = try std.fs.cwd().readFileAlloc(allocator, plugin_path, std.math.maxInt(usize));
+    defer allocator.free(wasm);
 
-        errdefer |err| std.log.err("failed to register plugin {s}: {s}", .{ name, @errorName(err) });
-
-        const wasm = try cwd.readFileAlloc(allocator, arg, std.math.maxInt(usize));
-        defer allocator.free(wasm);
-
-        try cizero.registry.registerPlugin(name, wasm);
-    }
+    try cizero.registry.registerPlugin(name, wasm);
 }

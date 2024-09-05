@@ -11,6 +11,10 @@
             .url = "https://github.com/frmdstryr/zig-datetime/archive/a9c75242dfc119a305c1381c2352d2fc16b2e0aa.tar.gz",
             .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
         },
+        .flags = .{
+            .url = "https://github.com/n0s4/flags/archive/refs/tags/v0.8.0.tar.gz",
+            .hash = "122049577c4fdee25050cd2d88dc9b3b3484bb3459a1d6efa488de9ac34d089c7fd7",
+        },
         .httpz = .{
             .url = "https://github.com/karlseguin/http.zig/archive/6946917979ec263574cb5586032f655e8c6728d9.tar.gz",
             .hash = "1220141aeed687703aa42ed5b219715e33fc8805c8bbb5617f638b4974fd20d57d67",

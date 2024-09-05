@@ -48,23 +48,29 @@ pub fn deinit(self: *@This()) void {
     self.registry.allocator.destroy(self);
 }
 
-pub const DbConfig = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
+pub const Config = struct {
+    db: Db,
 
-pub fn init(allocator: std.mem.Allocator, db_config: DbConfig) (error{DbInitError} || zqlite.Error || Components.InitError)!*@This() {
+    nix: components.Nix.Config = .{},
+
+    pub const Db = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
+};
+
+pub fn init(allocator: std.mem.Allocator, config: Config) (error{DbInitError} || zqlite.Error || Components.InitError)!*@This() {
     var self = try allocator.create(@This());
     errdefer allocator.destroy(self);
 
     var http = try components.Http.init(allocator, &self.registry, &self.wait_group);
     errdefer http.deinit();
 
-    var nix = try components.Nix.init(allocator, &self.registry, &self.wait_group);
+    var nix = try components.Nix.init(allocator, config.nix, &self.registry, &self.wait_group);
     errdefer nix.deinit();
 
     self.* = .{
         .db_pool = zqlite.Pool.init(allocator, .{
-            .path = db_config.path,
-            .flags = db_config.flags,
-            .size = db_config.size,
+            .path = config.db.path,
+            .flags = config.db.flags,
+            .size = config.db.size,
             .on_connection = initDbConn,
         }) catch |err| {
             std.log.err("could not initialize database: {s}", .{@errorName(err)});
