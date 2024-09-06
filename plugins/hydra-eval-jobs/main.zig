@@ -48,28 +48,21 @@ fn onWebhook(
                     .err => .internal_server_error,
                     .ok => |payload| switch (payload) {
                         .ok => .ok,
-                        .failed, .ifd_failed => .unprocessable_entity,
+                        .failed => .unprocessable_entity,
+                        .ifd_failed => .failed_dependency,
                     },
                 },
                 .body = switch (result) {
                     .err => |name| try allocator.dupeZ(u8, name),
                     .ok => |payload| switch (payload) {
                         .ok, .failed => |case| try allocator.dupeZ(u8, case),
-                        .ifd_failed => |ifd_failed| body: {
+                        .ifd_failed => |ifd_failed| ifd_failed: {
                             var body = std.ArrayList(u8).init(allocator);
                             errdefer body.deinit();
 
-                            for (ifd_failed.builds, 1..) |ifd, len| {
-                                try body.appendSlice(ifd);
-                                if (len != ifd_failed.builds.len) try body.append(' ');
-                            }
-                            try body.append('\n');
-                            for (ifd_failed.dependents, 1..) |dep, len| {
-                                try body.appendSlice(dep);
-                                if (len != ifd_failed.dependents.len) try body.append(' ');
-                            }
+                            try std.json.stringifyArbitraryDepth(allocator, ifd_failed, .{}, body.writer());
 
-                            break :body try body.toOwnedSliceSentinel(0);
+                            break :ifd_failed try body.toOwnedSliceSentinel(0);
                         },
                     },
                 },

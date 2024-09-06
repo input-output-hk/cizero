@@ -94,12 +94,25 @@ pub fn main() !u8 {
                 std.log.info("evaluation successful", .{});
 
                 try std.io.getStdOut().writeAll(response.items);
+
                 break;
             },
-            else => {
-                std.log.info("evaluation failed", .{});
+            else => |status| {
+                switch (status) {
+                    .unprocessable_entity => std.log.info("evaluation failed", .{}),
+                    .failed_dependency => std.log.info("evaluation could not finish due to failed IFD build", .{}),
+                    else => std.log.info("evaluation failed due to unknown reason ({d}{s}{s})", .{
+                        @intFromEnum(status),
+                        if (status.phrase() != null) " " else "",
+                        if (status.phrase()) |phrase| phrase else "",
+                    }),
+                }
+
+                std.debug.getStderrMutex().lock();
+                defer std.debug.getStderrMutex().unlock();
 
                 try std.io.getStdErr().writeAll(response.items);
+
                 return 1;
             },
         }
