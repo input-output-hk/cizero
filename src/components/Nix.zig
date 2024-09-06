@@ -4,6 +4,7 @@ const zqlite = @import("zqlite");
 
 const lib = @import("lib");
 const fmt = lib.fmt;
+const mem = lib.mem;
 const meta = lib.meta;
 const nix = lib.nix;
 const wasm = lib.wasm;
@@ -840,7 +841,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     const result = try std.process.Child.run(.{
         .argv = args,
         .allocator = self.allocator,
-        .max_output_bytes = 1024 * 1024 * 8,
+        .max_output_bytes = 8 * mem.b_per_mib,
     });
     errdefer {
         self.allocator.free(result.stdout);
@@ -906,7 +907,7 @@ fn build(allocator: std.mem.Allocator, nix_exe: []const u8, installables: []cons
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
-        .max_output_bytes = 1024 * 1024 * 8,
+        .max_output_bytes = 8 * mem.b_per_mib,
     });
     defer {
         allocator.free(result.stdout);

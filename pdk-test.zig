@@ -238,7 +238,7 @@ test "process_exec" {
             try testing.expect(args.cwd == null);
             try testing.expect(args.cwd_dir == null);
 
-            try testing.expectEqual(@as(usize, 50 * 1024), args.max_output_bytes);
+            try testing.expectEqual(@as(usize, 50 * lib.mem.b_per_kib), args.max_output_bytes);
 
             try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
         }
