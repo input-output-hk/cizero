@@ -1,6 +1,8 @@
 const std = @import("std");
 const args = @import("args");
 
+const lib = @import("lib");
+
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
         .backing_allocator = std.heap.page_allocator,
@@ -97,10 +99,52 @@ pub fn main() !u8 {
 
                 break;
             },
+            .failed_dependency => {
+                std.log.info("evaluation could not finish due to failed IFD build", .{});
+
+                var stderr_buffered = std.io.bufferedWriter(std.io.getStdErr().writer());
+                const stderr = stderr_buffered.writer();
+                const stderr_mutex = std.debug.getStderrMutex();
+
+                const failed_dependencies = try std.json.parseFromSlice(lib.nix.FailedBuilds, allocator, response.items, .{});
+                defer failed_dependencies.deinit();
+
+                if (failed_dependencies.value.dependents.len != 0)
+                    std.log.info("IFD build failure prevented build of dependents {s}", .{failed_dependencies.value.dependents});
+
+                for (failed_dependencies.value.builds) |drv| {
+                    const installable = try std.mem.concat(allocator, u8, &.{ drv, "^*" });
+                    defer allocator.free(installable);
+
+                    stderr_mutex.lock();
+                    defer stderr_mutex.unlock();
+
+                    try stderr.print("\nnix log {s}\n", .{installable});
+
+                    var nix_log_process = std.process.Child.init(&.{ "nix", "log", installable }, allocator);
+                    nix_log_process.stdin_behavior = .Close;
+                    nix_log_process.stdout_behavior = .Pipe;
+                    try nix_log_process.spawn();
+
+                    {
+                        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4 * lib.mem.b_per_kib }).init();
+                        defer fifo.deinit();
+
+                        try fifo.pump(nix_log_process.stdout.?.reader(), stderr);
+                    }
+
+                    _ = try nix_log_process.wait();
+
+                    try stderr.writeByte('\n');
+                }
+
+                try stderr_buffered.flush();
+
+                return 1;
+            },
             else => |status| {
                 switch (status) {
                     .unprocessable_entity => std.log.info("evaluation failed", .{}),
-                    .failed_dependency => std.log.info("evaluation could not finish due to failed IFD build", .{}),
                     else => std.log.info("evaluation failed due to unknown reason ({d}{s}{s})", .{
                         @intFromEnum(status),
                         if (status.phrase() != null) " " else "",

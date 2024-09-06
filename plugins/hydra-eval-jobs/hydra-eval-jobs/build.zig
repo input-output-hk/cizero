@@ -43,5 +43,6 @@ pub fn build(b: *std.Build) void {
 }
 
 fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void {
+    module.addImport("lib", b.dependency("lib", opts).module("lib"));
     module.addImport("args", b.dependency("args", opts).module("args"));
 }
