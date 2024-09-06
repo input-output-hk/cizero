@@ -130,7 +130,7 @@ const pdk_tests = struct {
                 std.debug.print("{}\n{s}\n", .{ foo, body });
 
                 return .{
-                    .status = 200,
+                    .status = .ok,
                     .body = "response body",
                 };
             }

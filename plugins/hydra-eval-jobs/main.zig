@@ -45,10 +45,10 @@ fn onWebhook(
 
             return .{
                 .status = switch (result) {
-                    .err => 500,
+                    .err => .internal_server_error,
                     .ok => |payload| switch (payload) {
-                        .ok => 200,
-                        .failed, .ifd_failed => 422,
+                        .ok => .ok,
+                        .failed, .ifd_failed => .unprocessable_entity,
                     },
                 },
                 .body = switch (result) {

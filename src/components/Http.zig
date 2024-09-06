@@ -75,7 +75,7 @@ pub fn stop(self: *@This()) void {
 
 fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
     const plugin_name = req.param("plugin") orelse {
-        res.status = 404;
+        res.status = @intFromEnum(std.http.Status.not_found);
         return;
     };
 
@@ -85,12 +85,12 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
 
         break :row try sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data })
             .query(res.arena, conn, .{plugin_name}) orelse {
-            res.status = 404;
+            res.status = @intFromEnum(std.http.Status.not_found);
             return;
         };
     };
 
-    res.status = 204;
+    res.status = @intFromEnum(std.http.Status.no_content);
 
     const callback = components.CallbackUnmanaged{
         .func_name = try res.arena.dupeZ(u8, callback_row.function),
@@ -106,9 +106,9 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     const req_body = if (req.body()) |req_body| try allocator.dupeZ(u8, req_body) else null;
     defer if (req_body) |b| allocator.free(b);
 
-    const res_status = try allocator.create(u16);
+    const res_status = try allocator.create(std.http.Status);
     defer allocator.destroy(res_status);
-    res_status.* = res.status;
+    res_status.* = @enumFromInt(res.status);
 
     const res_body_addr = try allocator.create(wasm.usize);
     defer allocator.destroy(res_body_addr);
@@ -123,7 +123,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
     var outputs: [1]wasm.Value = undefined;
 
     const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
-    if (!success) res_status.* = 500;
+    if (!success) res_status.* = .internal_server_error;
 
     if (Callback.webhook.done().check(success, &outputs)) {
         const conn = self.registry.db_pool.acquire();
@@ -132,7 +132,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
     }
 
-    res.status = res_status.*;
+    res.status = @intFromEnum(res_status.*);
 
     if (res_body_addr.* != 0) {
         const res_body = wasm.span(linear.memory.slice(), res_body_addr.*);

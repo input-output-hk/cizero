@@ -317,9 +317,9 @@ test "http_on_webhook" {
                 const req_body_wasm = try allocator.dupeZ(u8, req_body);
                 defer allocator.free(req_body_wasm);
 
-                const res_status_wasm = try allocator.create(u16);
+                const res_status_wasm = try allocator.create(std.http.Status);
                 defer allocator.destroy(res_status_wasm);
-                res_status_wasm.* = 204;
+                res_status_wasm.* = .no_content;
 
                 const res_body_addr = try allocator.create(wasm.usize);
                 defer allocator.destroy(res_body_addr);
@@ -334,7 +334,7 @@ test "http_on_webhook" {
                 }, &outputs));
                 try testing.expectEqual(wasm.Value{ .i32 = @intFromBool(false) }, outputs[0]);
 
-                try testing.expectEqual(200, res_status_wasm.*);
+                try testing.expectEqual(.ok, res_status_wasm.*);
                 try testing.expect(res_body_addr.* != 0);
                 try testing.expectEqualStrings("response body", wasm.span(linear.memory.slice(), res_body_addr.*));
             }

@@ -23,7 +23,7 @@ pub fn OnWebhookCallback(comptime UserData: type) type {
 pub const OnWebhookCallbackResponse = struct {
     done: bool = false,
 
-    status: u16 = 204,
+    status: std.http.Status = .no_content,
     body: [:0]const u8 = "",
 };
 
@@ -43,11 +43,11 @@ export fn @"pdk.http.onWebhook.callback"(
     callback_data_ptr: [*]const u8,
     callback_data_len: usize,
     req_body_ptr: [*:0]const u8,
-    res_status: *u16,
+    res_status: *std.http.Status,
     res_body_ptr: *?[*:0]const u8,
     // TODO res_body_len: *usize,
 ) bool {
-    std.debug.assert(res_status.* == 204);
+    std.debug.assert(res_status.* == .no_content);
 
     const res = abi.CallbackData
         .deserialize(callback_data_ptr[0..callback_data_len])
