@@ -44,7 +44,7 @@ pub fn main() !u8 {
     };
     const options = args.parseForCurrentProcess(Options, allocator, .print) catch |err| if (err == error.InvalidArguments) {
         try args.printHelp(Options, "hydra-eval-jobs FLAKE", std.io.getStdErr().writer());
-        std.process.exit(1);
+        return 1;
     } else return err;
     defer options.deinit();
 
@@ -52,12 +52,12 @@ pub fn main() !u8 {
     if (options.options.@"dry-run") warnOptionIgnored("--dry-run");
     if (!options.options.flake) {
         std.log.err("--flake is needed (support for non-flakes is not implemented)", .{});
-        std.process.exit(1);
+        return 1;
     }
 
     const flake = if (options.positionals.len != 1) {
         std.log.err("need exactly one positional argument, got {d}", .{options.positionals.len});
-        std.process.exit(1);
+        return 1;
     } else options.positionals[0];
 
     var client = std.http.Client{ .allocator = allocator };
