@@ -3,6 +3,10 @@
     .version = "0.0.0",
     .dependencies = .{
         .lib = .{ .path = "../lib" },
+        .args = .{
+            .url = "https://github.com/masterQ32/zig-args/archive/01d72b9a0128c474aeeb9019edd48605fa6d95f7.tar.gz",
+            .hash = "12208a1de366740d11de525db7289345949f5fd46527db3f89eecc7bb49b012c0732",
+        },
         .cron = .{
             .url = "https://github.com/dying-will-bullet/cron/archive/4080f1f35616c9467117734c0cb30dd7591d6e09.tar.gz",
             .hash = "12208ab8c210795b499f6214bb15ecf09a113142360c05b5b20adde8990ba369a647",
@@ -10,10 +14,6 @@
         .datetime = .{
             .url = "https://github.com/frmdstryr/zig-datetime/archive/a9c75242dfc119a305c1381c2352d2fc16b2e0aa.tar.gz",
             .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
-        },
-        .flags = .{
-            .url = "https://github.com/n0s4/flags/archive/refs/tags/v0.8.0.tar.gz",
-            .hash = "122049577c4fdee25050cd2d88dc9b3b3484bb3459a1d6efa488de9ac34d089c7fd7",
         },
         .httpz = .{
             .url = "https://github.com/karlseguin/http.zig/archive/6946917979ec263574cb5586032f655e8c6728d9.tar.gz",

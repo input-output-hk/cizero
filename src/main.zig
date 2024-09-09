@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const flags = @import("flags");
+const args = @import("args");
 const zqlite = @import("zqlite");
 
 const Cizero = @import("cizero");
@@ -8,29 +8,28 @@ const Cizero = @import("cizero");
 var cizero: *Cizero = undefined;
 var shell_fg: ?bool = null;
 
-const Flags = struct {
-    nix_exe: []const u8 = "nix",
+const Options = struct {
+    @"nix-exe": []const u8 = "nix",
 
-    pub const descriptions = .{
-        .nix_exe = "Nix executable name. Useful to run a wrapper like nix-sigstop.",
+    pub const meta = .{
+        .option_docs = .{
+            .@"nix-exe" = "Nix executable name. Useful to run a wrapper like nix-sigstop.",
+        },
     };
 };
 
-pub fn main() !void {
+pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
         .backing_allocator = std.heap.c_allocator,
     };
     defer if (gpa.deinit() == .leak) std.log.err("leaked memory", .{});
     const allocator = gpa.allocator();
 
-    const args = args: {
-        var args_iter = try std.process.argsWithAllocator(allocator);
-        defer args_iter.deinit();
-
-        break :args flags.parseWithAllocator(allocator, &args_iter, Flags, .{ .command_name = "cizero" }) catch |err|
-            flags.fatal("{s}: failed to parse command line", .{@errorName(err)});
-    };
-    defer args.trailing.deinit();
+    const options = args.parseForCurrentProcess(Options, allocator, .print) catch |err| if (err == error.InvalidArguments) {
+        try args.printHelp(Options, "cizero PLUGIN...", std.io.getStdErr().writer());
+        return 1;
+    } else return err;
+    defer options.deinit();
 
     cizero = cizero: {
         const db_path = try Cizero.fs.dbPathZ(allocator);
@@ -44,7 +43,7 @@ pub fn main() !void {
                 .flags = zqlite.OpenFlags.Create | zqlite.OpenFlags.EXResCode | zqlite.OpenFlags.NoMutex,
             },
             .nix = .{
-                .exe = args.command.nix_exe,
+                .exe = options.options.@"nix-exe",
             },
         });
     };
@@ -82,12 +81,14 @@ pub fn main() !void {
         return err;
     };
 
-    for (args.trailing.items) |plugin_path|
+    for (options.positionals) |plugin_path|
         try registerPlugin(allocator, plugin_path);
 
     cizero.wait_group.wait();
 
     if (shell_fg) |fg| if (!fg) std.log.info("cizero exited", .{});
+
+    return 0;
 }
 
 fn registerPlugin(allocator: std.mem.Allocator, plugin_path: []const u8) !void {
