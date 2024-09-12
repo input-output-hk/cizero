@@ -104,7 +104,6 @@ pub fn main() !u8 {
 
                 var stderr_buffered = std.io.bufferedWriter(std.io.getStdErr().writer());
                 const stderr = stderr_buffered.writer();
-                const stderr_mutex = std.debug.getStderrMutex();
 
                 const failed_dependencies = try std.json.parseFromSlice(lib.nix.FailedBuilds, allocator, response.items, .{});
                 defer failed_dependencies.deinit();
@@ -116,8 +115,8 @@ pub fn main() !u8 {
                     const installable = try std.mem.concat(allocator, u8, &.{ drv, "^*" });
                     defer allocator.free(installable);
 
-                    stderr_mutex.lock();
-                    defer stderr_mutex.unlock();
+                    std.debug.lockStdErr();
+                    defer std.debug.unlockStdErr();
 
                     try stderr.print("\nnix log {s}\n", .{installable});
 
@@ -152,8 +151,8 @@ pub fn main() !u8 {
                     }),
                 }
 
-                std.debug.getStderrMutex().lock();
-                defer std.debug.getStderrMutex().unlock();
+                std.debug.lockStdErr();
+                defer std.debug.unlockStdErr();
 
                 try std.io.getStdErr().writeAll(response.items);
 
