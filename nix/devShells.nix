@@ -33,7 +33,7 @@
           # Set to `/build/tmp.XXXXXXXXXX` by the zig hook.
           unset ZIG_GLOBAL_CACHE_DIR
 
-          export ZIG_LOCAL_CACHE_DIR="$FLAKE_ROOT/zig-cache"
+          export ZIG_LOCAL_CACHE_DIR="$FLAKE_ROOT/.zig-cache"
         '';
       };
 
