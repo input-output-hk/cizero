@@ -139,6 +139,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-24.05": {
+      "locked": {
+        "lastModified": 1726170805,
+        "narHash": "sha256-OW0ppNudh1kem/NtYNIOrRMAUdmpn0BAh/6ojIXAzgc=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "5d09c06d05fe9ac35ea063ccc55c8f9bb522dcbf",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "release-24.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs-lib": {
       "locked": {
         "dir": "lib",
@@ -214,6 +230,7 @@
         "mission-control": "mission-control",
         "nix": "nix",
         "nixpkgs": "nixpkgs_2",
+        "nixpkgs-24.05": "nixpkgs-24.05",
         "parts": "parts",
         "treefmt-nix": "treefmt-nix",
         "zig2nix": "zig2nix"
