@@ -78,7 +78,7 @@ pub fn addDependencyImports(b: *Build, module: *Build.Module, opts: anytype) voi
     module.addImport("cron", b.dependency("cron", opts).module("cron"));
     module.addImport("datetime", b.dependency("datetime", opts).module("zig-datetime"));
     module.addImport("httpz", b.dependency("httpz", opts).module("httpz"));
-    module.addImport("known-folders", b.dependency("known-folders", .{}).module("known-folders"));
+    module.addImport("known-folders", b.dependency("known-folders", opts).module("known-folders"));
     module.addImport("zqlite", b.dependency("zqlite", opts).module("zqlite"));
 }
 

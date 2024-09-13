@@ -1,5 +1,5 @@
 /.direnv
 /.local.envrc
 /result
-/zig-cache
+/.zig-cache
 /zig-out

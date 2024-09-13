@@ -4,28 +4,28 @@
     .dependencies = .{
         .lib = .{ .path = "../lib" },
         .args = .{
-            .url = "https://github.com/masterQ32/zig-args/archive/01d72b9a0128c474aeeb9019edd48605fa6d95f7.tar.gz",
-            .hash = "12208a1de366740d11de525db7289345949f5fd46527db3f89eecc7bb49b012c0732",
+            .url = "https://github.com/ikskuh/zig-args/archive/1df15086e5d1b245acedadbec03440bb37871e5e.tar.gz",
+            .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
         },
         .cron = .{
-            .url = "https://github.com/dying-will-bullet/cron/archive/4080f1f35616c9467117734c0cb30dd7591d6e09.tar.gz",
-            .hash = "12208ab8c210795b499f6214bb15ecf09a113142360c05b5b20adde8990ba369a647",
+            .url = "https://github.com/dermetfan/cron/archive/1c909e4961e2293032825590dcf95da61693a36e.tar.gz",
+            .hash = "1220679f5224a838ce1079bd7238451eaad630acde87b8439c5f12be96ffb66aa7a9",
         },
         .datetime = .{
-            .url = "https://github.com/frmdstryr/zig-datetime/archive/a9c75242dfc119a305c1381c2352d2fc16b2e0aa.tar.gz",
-            .hash = "122038b4b5df08d2af6daf81e5f18d4c244d807c9323224db826cc107ce3894f6fa9",
+            .url = "https://github.com/frmdstryr/zig-datetime/archive/70aebf28fb3e137cd84123a9349d157a74708721.tar.gz",
+            .hash = "122077215ce36e125a490e59ec1748ffd4f6ba00d4d14f7308978e5360711d72d77f",
         },
         .httpz = .{
-            .url = "https://github.com/karlseguin/http.zig/archive/6946917979ec263574cb5586032f655e8c6728d9.tar.gz",
-            .hash = "1220141aeed687703aa42ed5b219715e33fc8805c8bbb5617f638b4974fd20d57d67",
+            .url = "https://github.com/karlseguin/http.zig/archive/5a681b4a34eb5f2c9dec37645f7742a61ffa9b76.tar.gz",
+            .hash = "122041d9c6961cd3c3436d7d47568855577365f35a5edf6ced3b9b29cae4a811998e",
         },
         .@"known-folders" = .{
-            .url = "https://github.com/ziglibs/known-folders/archive/bf79988adcfce166f848e4b11e718c1966365329.tar.gz",
-            .hash = "12201314cffeb40c5e4e3da166217d2c74628c74486414aaf97422bcd2279915b9fd",
+            .url = "https://github.com/ziglibs/known-folders/archive/1cceeb70e77dec941a4178160ff6c8d05a74de6f.tar.gz",
+            .hash = "12205f5e7505c96573f6fc5144592ec38942fb0a326d692f9cddc0c7dd38f9028f29",
         },
         .zqlite = .{
-            .url = "https://github.com/karlseguin/zqlite.zig/archive/2415644448f878fc6c79a2c2e40498616361ef5c.tar.gz",
-            .hash = "12206659ecd84862173c7ea89f32904f2416dabe4aaf84a9d12f34eb266c5e2a7797",
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/997d3ac5156bcc9990168ad92caec6ed0cd5cbd8.tar.gz",
+            .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
         },
     },
     .paths = .{

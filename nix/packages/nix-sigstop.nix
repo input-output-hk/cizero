@@ -6,7 +6,7 @@
         ../../lib
       ];
 
-      zigDepsHash = "sha256-qlJqP2rac/xxQzOekUi9aYYCAdQj81ce7L90f1Rvzzk=";
+      zigDepsHash = "sha256-30+6mA5JwgQnajrl0/LcFhPrTom+J/6cL0EaybM9p0k=";
 
       buildZigZon = "nix-sigstop/build.zig.zon";
 
