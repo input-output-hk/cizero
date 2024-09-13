@@ -24,7 +24,7 @@ pub fn main() !u8 {
 
         url: []const u8 = "http://127.0.0.1:5882/webhook/hydra-eval-jobs",
         /// milliseconds
-        delay: u32 = 5 * std.time.ms_per_s,
+        interval: u32 = 5 * std.time.ms_per_s,
         @"max-requests": u16 = 8 * std.time.s_per_hour / 5,
 
         pub const meta = .{
@@ -37,7 +37,7 @@ pub fn main() !u8 {
                 .@"max-jobs" = "passed through to nix (ignored, only for compatibility)",
 
                 .url = "webhook endpoint URL of the cizero plugin",
-                .delay = "duration in milliseconds to wait between requests while waiting for evaluation",
+                .interval = "duration in milliseconds to wait between requests while waiting for evaluation",
                 .@"max-requests" = "maximum number of requests while waiting for evaluation",
             },
         };
@@ -88,9 +88,9 @@ pub fn main() !u8 {
         switch (result.status) {
             .no_content => {
                 std.log.info("waiting for evaluation...", .{});
-                std.log.debug("sending request in {d} ms", .{options.options.delay});
+                std.log.debug("sending request in {d} ms", .{options.options.interval});
 
-                std.time.sleep(@as(u64, options.options.delay) * std.time.ns_per_ms);
+                std.time.sleep(@as(u64, options.options.interval) * std.time.ns_per_ms);
             },
             .ok => {
                 std.log.info("evaluation successful", .{});
