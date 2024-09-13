@@ -69,7 +69,7 @@ pub fn main() !u8 {
     try client.initDefaultProxies(client_arena.allocator());
 
     var request_count: u16 = 0;
-    while (true) : (request_count += 1) {
+    poll: while (true) : (request_count += 1) {
         if (request_count > options.options.@"max-requests") {
             std.log.err("max request count ({d}) exceeded", .{options.options.@"max-requests"});
             return 1;
@@ -87,76 +87,94 @@ pub fn main() !u8 {
 
         switch (result.status) {
             .no_content => {
-                std.log.info("waiting for evaluation...", .{});
-                std.log.debug("sending request in {d} ms", .{options.options.interval});
-
-                std.time.sleep(@as(u64, options.options.interval) * std.time.ns_per_ms);
-            },
-            .ok => {
-                std.log.info("evaluation successful", .{});
-
-                try std.io.getStdOut().writeAll(response.items);
-
-                break;
-            },
-            .failed_dependency => {
-                std.log.info("evaluation could not finish due to failed IFD build", .{});
-
-                var stderr_buffered = std.io.bufferedWriter(std.io.getStdErr().writer());
-                const stderr = stderr_buffered.writer();
-
-                const failed_dependencies = try std.json.parseFromSlice(lib.nix.FailedBuilds, allocator, response.items, .{});
-                defer failed_dependencies.deinit();
-
-                if (failed_dependencies.value.dependents.len != 0)
-                    std.log.info("IFD build failure prevented build of dependents {s}", .{failed_dependencies.value.dependents});
-
-                for (failed_dependencies.value.builds) |drv| {
-                    const installable = try std.mem.concat(allocator, u8, &.{ drv, "^*" });
-                    defer allocator.free(installable);
-
+                if (std.log.defaultLogEnabled(.info) and request_count != 0) {
                     std.debug.lockStdErr();
                     defer std.debug.unlockStdErr();
 
-                    try stderr.print("\nnix log {s}\n", .{installable});
-
-                    var nix_log_process = std.process.Child.init(&.{ "nix", "log", installable }, allocator);
-                    nix_log_process.stdin_behavior = .Close;
-                    nix_log_process.stdout_behavior = .Pipe;
-                    try nix_log_process.spawn();
-
-                    {
-                        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4 * lib.mem.b_per_kib }).init();
-                        defer fifo.deinit();
-
-                        try fifo.pump(nix_log_process.stdout.?.reader(), stderr);
-                    }
-
-                    _ = try nix_log_process.wait();
-
-                    try stderr.writeByte('\n');
+                    try std.io.getStdErr().writer().print(
+                        "\rstill evaluating after {d} seconds…",
+                        .{request_count * options.options.interval / std.time.ms_per_s},
+                    );
                 }
 
-                try stderr_buffered.flush();
-
-                return 1;
+                std.time.sleep(@as(u64, options.options.interval) * std.time.ns_per_ms);
             },
             else => |status| {
-                switch (status) {
-                    .unprocessable_entity => std.log.info("evaluation failed", .{}),
-                    else => std.log.info("evaluation failed due to unknown reason ({d}{s}{s})", .{
-                        @intFromEnum(status),
-                        if (status.phrase() != null) " " else "",
-                        if (status.phrase()) |phrase| phrase else "",
-                    }),
+                if (std.log.defaultLogEnabled(.info) and request_count > 1) {
+                    std.debug.lockStdErr();
+                    defer std.debug.unlockStdErr();
+
+                    try std.io.getStdErr().writer().writeByte('\n');
                 }
 
-                std.debug.lockStdErr();
-                defer std.debug.unlockStdErr();
+                switch (status) {
+                    .ok => {
+                        std.log.info("evaluation successful", .{});
 
-                try std.io.getStdErr().writeAll(response.items);
+                        try std.io.getStdOut().writeAll(response.items);
 
-                return 1;
+                        break :poll;
+                    },
+                    .failed_dependency => {
+                        std.log.info("evaluation could not finish due to failed IFD build", .{});
+
+                        var stderr_buffered = std.io.bufferedWriter(std.io.getStdErr().writer());
+                        const stderr = stderr_buffered.writer();
+
+                        const failed_dependencies = try std.json.parseFromSlice(lib.nix.FailedBuilds, allocator, response.items, .{});
+                        defer failed_dependencies.deinit();
+
+                        if (failed_dependencies.value.dependents.len != 0)
+                            std.log.info("IFD build failure prevented build of dependents {s}", .{failed_dependencies.value.dependents});
+
+                        for (failed_dependencies.value.builds) |drv| {
+                            const installable = try std.mem.concat(allocator, u8, &.{ drv, "^*" });
+                            defer allocator.free(installable);
+
+                            std.debug.lockStdErr();
+                            defer std.debug.unlockStdErr();
+
+                            try stderr.print("\nnix log {s}\n", .{installable});
+
+                            var nix_log_process = std.process.Child.init(&.{ "nix", "log", installable }, allocator);
+                            nix_log_process.stdin_behavior = .Close;
+                            nix_log_process.stdout_behavior = .Pipe;
+                            try nix_log_process.spawn();
+
+                            {
+                                var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4 * lib.mem.b_per_kib }).init();
+                                defer fifo.deinit();
+
+                                try fifo.pump(nix_log_process.stdout.?.reader(), stderr);
+                            }
+
+                            _ = try nix_log_process.wait();
+
+                            try stderr.writeByte('\n');
+                        }
+
+                        try stderr_buffered.flush();
+
+                        return 1;
+                    },
+                    else => |status_err| {
+                        switch (status_err) {
+                            .unprocessable_entity => std.log.info("evaluation failed", .{}),
+                            else => std.log.info("evaluation failed due to unknown reason ({d}{s}{s})", .{
+                                @intFromEnum(status_err),
+                                if (status_err.phrase() != null) " " else "",
+                                if (status_err.phrase()) |phrase| phrase else "",
+                            }),
+                        }
+
+                        std.debug.lockStdErr();
+                        defer std.debug.unlockStdErr();
+
+                        try std.io.getStdErr().writeAll(response.items);
+
+                        return 1;
+                    },
+                }
             },
         }
     }
