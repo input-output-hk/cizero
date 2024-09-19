@@ -2,6 +2,7 @@
   imports = with inputs; [
     mission-control.flakeModule
     flake-root.flakeModule
+    make-shell.flakeModules.default
   ];
 
   perSystem = {
@@ -10,23 +11,23 @@
     lib,
     pkgs,
     ...
-  }: {
-    devShells = {
-      default = pkgs.mkShell {
-        name = "devShell";
-        packages = with pkgs; [
-          zls
-          wasm-tools
-          inputs'.nix.packages.nix
-          config.packages.nix-sigstop
-        ];
+  }: rec {
+    devShells.default = config.make-shells.cizero.finalPackage;
+
+    make-shell.imports = [
+      ({name, ...}: {
+        name = "devShell-${name}";
+
         inputsFrom = [
           config.mission-control.devShell
           config.flake-root.devShell
-          config.packages.cizero
         ];
+      })
+    ];
 
-        env.WASMTIME_BACKTRACE_DETAILS = 1;
+    make-shells = {
+      zig = {
+        packages = with pkgs; [zls];
 
         shellHook = ''
           # TODO remove once merged: https://github.com/NixOS/nixpkgs/pull/310588
@@ -37,10 +38,32 @@
         '';
       };
 
-      crystal = pkgs.mkShell {
-        name = "${config.devShells.default.name}-crystal";
+      wasm = {
+        packages = with pkgs; [wasm-tools];
+
+        env.WASMTIME_BACKTRACE_DETAILS = 1;
+      };
+
+      cizero = {
+        imports = with make-shells; [
+          zig
+          wasm
+        ];
+
+        packages = [
+          inputs'.nix.packages.nix
+          config.packages.nix-sigstop
+        ];
+
+        inputsFrom = [
+          config.packages.cizero
+        ];
+      };
+
+      "cizero/crystal" = {
+        imports = with make-shells; [cizero];
+
         packages = with pkgs; [crystal crystalline];
-        inputsFrom = [config.devShells.default];
       };
     };
 

@@ -6,6 +6,7 @@
     parts.url = github:hercules-ci/flake-parts;
     mission-control.url = github:Platonic-Systems/mission-control;
     flake-root.url = github:srid/flake-root;
+    make-shell.url = github:nicknovitski/make-shell;
     treefmt-nix = {
       url = github:numtide/treefmt-nix;
       inputs.nixpkgs.follows = "nixpkgs";
