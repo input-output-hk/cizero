@@ -41,10 +41,6 @@ pub fn build(b: *Build) !void {
         }
     }
 
-    const test_step = b.step("test", "Run unit tests");
-
-    const check_step = b.step("check", "Check compilation for errors");
-
     inline for (comptime std.meta.fieldNames(@TypeOf(deps_opts))) |dep_name| {
         const dep_opts = @field(deps_opts, dep_name);
 
@@ -72,26 +68,41 @@ pub fn build(b: *Build) !void {
         }
 
         {
-            const pkg_test_step = &pkg.builder.top_level_steps.get("test").?.step;
-            pkg_test_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_test_step.name }) catch @panic("OOM");
-
-            test_step.dependOn(pkg_test_step);
-        }
-
-        {
-            const pkg_check_step = &pkg.builder.top_level_steps.get("check").?.step;
-            pkg_check_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_check_step.name }) catch @panic("OOM");
-
-            check_step.dependOn(pkg_check_step);
-        }
-
-        {
             var pkg_mod_iter = pkg.builder.modules.iterator();
             while (pkg_mod_iter.next()) |pkg_mod_entry|
                 b.modules.put(
                     pkg_mod_entry.key_ptr.*,
                     pkg_mod_entry.value_ptr.*,
                 ) catch @panic("OOM");
+        }
+    }
+
+    {
+        var tls_names = allTopLevelStepNames(b, deps_opts) catch @panic("OOM");
+        defer tls_names.deinit();
+
+        tls_names.remove("install");
+        tls_names.remove("run");
+
+        var tls_names_iter = tls_names.iterator();
+        while (tls_names_iter.next()) |tls_name| {
+            const aggregate_step = if (b.top_level_steps.get(tls_name.*)) |tls|
+                &tls.step
+            else
+                b.step(tls_name.*, std.mem.concat(b.allocator, u8, &.{ "Run all subprojects' `", tls_name.*, "` top-level steps" }) catch @panic("OOM"));
+
+            inline for (comptime std.meta.fieldNames(@TypeOf(deps_opts))) |dep_name| {
+                const dep_opts = @field(deps_opts, dep_name);
+
+                const pkg = b.dependency(dep_name, dep_opts);
+
+                if (pkg.builder.top_level_steps.get(tls_name.*)) |pkg_tls| {
+                    const pkg_tls_step = &pkg_tls.step;
+                    pkg_tls_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_tls_step.name }) catch @panic("OOM");
+
+                    aggregate_step.dependOn(pkg_tls_step);
+                }
+            }
         }
     }
 
@@ -116,4 +127,20 @@ pub fn build(b: *Build) !void {
         const run_pdk_test = b.addRunArtifact(pdk_test);
         test_pdk_step.dependOn(&run_pdk_test.step);
     }
+}
+
+fn allTopLevelStepNames(b: *Build, deps_opts: anytype) std.mem.Allocator.Error!std.BufSet {
+    var names = std.BufSet.init(b.allocator);
+    errdefer names.deinit();
+
+    inline for (comptime std.meta.fieldNames(@TypeOf(deps_opts))) |dep_name| {
+        const dep_opts = @field(deps_opts, dep_name);
+
+        const pkg = b.dependency(dep_name, dep_opts);
+
+        for (pkg.builder.top_level_steps.keys()) |name|
+            try names.insert(name);
+    }
+
+    return names;
 }
