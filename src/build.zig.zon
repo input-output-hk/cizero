@@ -8,7 +8,7 @@
             .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
         },
         .cron = .{
-            .url = "https://github.com/dermetfan/cron/archive/1c909e4961e2293032825590dcf95da61693a36e.tar.gz",
+            .url = "https://github.com/dying-will-bullet/cron/archive/85183419e421cce235119204abf3f9b387ed7599.tar.gz",
             .hash = "1220679f5224a838ce1079bd7238451eaad630acde87b8439c5f12be96ffb66aa7a9",
         },
         .datetime = .{
