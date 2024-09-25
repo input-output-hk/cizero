@@ -14,7 +14,7 @@
 
       buildZigZon = "plugins/hydra-eval-jobs/build.zig.zon";
 
-      zigDepsHash = "sha256-tsRpEvkmgGI/aMTPkzXulrh2xRvfUt/8Y2v7eqvuK3k=";
+      zigDepsHash = "sha256-RZ2e02HBVvIYdqwG1JMrAnhhndYmr04I88hYAZpB38E=";
 
       zigTarget = null;
 
