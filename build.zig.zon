@@ -1,18 +1,15 @@
 .{
-    .name = "cizero-pkgs",
+    .name = "lib",
     .version = "0.0.0",
     .dependencies = .{
-        .lib = .{ .path = "lib" },
-        .cizero = .{ .path = "src" },
-        .@"cizero-pdk" = .{ .path = "pdk/zig" },
-        .@"nix-sigstop" = .{ .path = "nix-sigstop" },
+        .trait = .{
+            .url = "https://github.com/wrongnull/zigtrait/archive/4b431169c9226b3fe2bbba89f451e5c8bca4c5a3.tar.gz",
+            .hash = "12208d1a1be506a77528120e9a485ba9d610f435d601b897eb5bfd9a3596d2e740a4",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
-        "lib",
         "src",
-        "pdk/zig",
-        "nix-sigstop",
     },
 }

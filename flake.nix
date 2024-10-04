@@ -1,7 +1,6 @@
 {
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixpkgs-unstable;
-    "nixpkgs-24.05".url = github:NixOS/nixpkgs/release-24.05;
     nix.url = github:NixOS/nix/2.19-maintenance;
     parts.url = github:hercules-ci/flake-parts;
     mission-control.url = github:Platonic-Systems/mission-control;
@@ -26,13 +25,9 @@
       systems = ["x86_64-linux"];
 
       imports = [
-        nix/checks
-        nix/packages
-        nix/overlays
         nix/devShells.nix
         nix/formatter.nix
-        nix/hydraJobs.nix
-        nix/nixosModules.nix
+        nix/overlays/zig
       ];
 
       perSystem = {
@@ -44,10 +39,6 @@
           inputs'.nixpkgs.legacyPackages.appendOverlays
           [
             parts.config.flake.overlays.zig
-            (_final: prev: {
-              # Must use older wasmtime until the fix for https://github.com/bytecodealliance/wasmtime/issues/8890 lands in nixpkgs.
-              inherit (inputs."nixpkgs-24.05".legacyPackages.${prev.system}) wasmtime;
-            })
           ];
       };
     });
