@@ -2,7 +2,6 @@
     .name = "cizero",
     .version = "0.0.0",
     .dependencies = .{
-        .lib = .{ .path = "../lib" },
         .args = .{
             .url = "https://github.com/ikskuh/zig-args/archive/1df15086e5d1b245acedadbec03440bb37871e5e.tar.gz",
             .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
@@ -23,15 +22,22 @@
             .url = "https://github.com/ziglibs/known-folders/archive/1cceeb70e77dec941a4178160ff6c8d05a74de6f.tar.gz",
             .hash = "12205f5e7505c96573f6fc5144592ec38942fb0a326d692f9cddc0c7dd38f9028f29",
         },
+        .trait = .{
+            .url = "https://github.com/wrongnull/zigtrait/archive/4b431169c9226b3fe2bbba89f451e5c8bca4c5a3.tar.gz",
+            .hash = "12208d1a1be506a77528120e9a485ba9d610f435d601b897eb5bfd9a3596d2e740a4",
+        },
         .zqlite = .{
             .url = "https://github.com/karlseguin/zqlite.zig/archive/997d3ac5156bcc9990168ad92caec6ed0cd5cbd8.tar.gz",
             .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
+        },
+        .utils = .{
+            .url = "https://github.com/dermetfan/utils.zig/archive/c1c8e7ed6e1f610af3bf5e4de677c19482e0deba.tar.gz",
+            .hash = "122061dbc38c8c05e5c50bd51f35598c0fc2863efd4ef207af6079bc9c16792c2ead",
         },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
-        "../lib",
     },
 }

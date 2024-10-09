@@ -2,11 +2,11 @@ const std = @import("std");
 
 const cizero = @import("cizero");
 
-const lib = @import("lib");
-const enums = lib.enums;
-const mem = lib.mem;
-const meta = lib.meta;
-const nix = lib.nix;
+const utils = @import("utils");
+const enums = utils.enums;
+const mem = utils.mem;
+const meta = utils.meta;
+const nix = utils.nix;
 
 const abi = @import("../abi.zig");
 

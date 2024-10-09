@@ -1,6 +1,5 @@
 {
   imports = [
-    ./zig
     ./cizero.nix
   ];
 }

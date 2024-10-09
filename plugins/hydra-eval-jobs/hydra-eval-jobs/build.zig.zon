@@ -2,16 +2,18 @@
     .name = "hydra-eval-jobs",
     .version = "0.0.0",
     .dependencies = .{
-        .lib = .{ .path = "../../../lib" },
         .args = .{
             .url = "https://github.com/ikskuh/zig-args/archive/1df15086e5d1b245acedadbec03440bb37871e5e.tar.gz",
             .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
+        },
+        .utils = .{
+            .url = "https://github.com/dermetfan/utils.zig/archive/c1c8e7ed6e1f610af3bf5e4de677c19482e0deba.tar.gz",
+            .hash = "122061dbc38c8c05e5c50bd51f35598c0fc2863efd4ef207af6079bc9c16792c2ead",
         },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "main.zig",
-        "../../../lib",
     },
 }

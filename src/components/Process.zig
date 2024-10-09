@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const lib = @import("lib");
-const meta = lib.meta;
-const wasm = lib.wasm;
+const utils = @import("utils");
+const meta = utils.meta;
+const wasm = utils.wasm;
 
 const Runtime = @import("../Runtime.zig");
 

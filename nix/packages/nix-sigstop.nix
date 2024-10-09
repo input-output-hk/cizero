@@ -1,14 +1,9 @@
-{inputs, ...}: {
+{
   perSystem = {pkgs, ...}: {
     packages.nix-sigstop = pkgs.buildZigPackage {
-      src = inputs.inclusive.lib.inclusive ../.. [
-        ../../nix-sigstop
-        ../../lib
-      ];
+      src = ../../nix-sigstop;
 
-      zigDepsHash = "sha256-30+6mA5JwgQnajrl0/LcFhPrTom+J/6cL0EaybM9p0k=";
-
-      buildZigZon = "nix-sigstop/build.zig.zon";
+      zigDepsHash = "sha256-JB2gaSv+GI4SzXWSuGjYkgKr8Tx3DdYZJvT3eyu8Bnc=";
 
       meta.mainProgram = "nix-sigstop";
     };

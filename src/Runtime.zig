@@ -1,8 +1,8 @@
 const std = @import("std");
 
-const lib = @import("lib");
-const mem = lib.mem;
-const wasm = lib.wasm;
+const utils = @import("utils");
+const mem = utils.mem;
+const wasm = utils.wasm;
 
 const c = @import("c.zig");
 const fs = @import("fs.zig");

@@ -3,9 +3,9 @@ const testing = std.testing;
 const build_options = @import("build_options");
 
 const Cizero = @import("cizero");
-const lib = @import("lib");
-const meta = lib.meta;
-const wasm = lib.wasm;
+const utils = @import("utils");
+const meta = utils.meta;
+const wasm = utils.wasm;
 
 fn pluginName() []const u8 {
     return std.fs.path.stem(build_options.plugin_path);
@@ -238,7 +238,7 @@ test "process_exec" {
             try testing.expect(args.cwd == null);
             try testing.expect(args.cwd_dir == null);
 
-            try testing.expectEqual(@as(usize, 50 * lib.mem.b_per_kib), args.max_output_bytes);
+            try testing.expectEqual(@as(usize, 50 * utils.mem.b_per_kib), args.max_output_bytes);
 
             try testing.expectEqual(std.process.Child.Arg0Expand.no_expand, args.expand_arg0);
         }

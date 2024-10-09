@@ -15,14 +15,20 @@
       url = github:input-output-hk/nix-inclusive;
       inputs.stdlib.follows = "parts/nixpkgs-lib";
     };
-    zig2nix = {
-      url = github:Cloudef/zig2nix;
-      inputs.nixpkgs.follows = "nixpkgs";
+    utils = {
+      url = github:dermetfan/utils.zig;
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        parts.follows = "parts";
+        make-shell.follows = "make-shell";
+        treefmt-nix.follows = "treefmt-nix";
+        inclusive.follows = "inclusive";
+      };
     };
   };
 
   outputs = inputs:
-    inputs.parts.lib.mkFlake {inherit inputs;} (parts: {
+    inputs.parts.lib.mkFlake {inherit inputs;} (_: {
       systems = ["x86_64-linux"];
 
       imports = [
@@ -35,15 +41,11 @@
         nix/nixosModules.nix
       ];
 
-      perSystem = {
-        inputs',
-        config,
-        ...
-      }: {
+      perSystem = {inputs', ...}: {
         _module.args.pkgs =
           inputs'.nixpkgs.legacyPackages.appendOverlays
           [
-            parts.config.flake.overlays.zig
+            inputs.utils.overlays.zig
             (_final: prev: {
               # Must use older wasmtime until the fix for https://github.com/bytecodealliance/wasmtime/issues/8890 lands in nixpkgs.
               inherit (inputs."nixpkgs-24.05".legacyPackages.${prev.system}) wasmtime;

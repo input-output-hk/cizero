@@ -5,6 +5,10 @@ const zqlite = @import("zqlite");
 
 const Cizero = @import("cizero");
 
+pub const utils_zqlite_options = .{
+    .log_scope = .sql,
+};
+
 var cizero: *Cizero = undefined;
 var shell_fg: ?bool = null;
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const lib = @import("lib");
-const mem = lib.mem;
+const utils = @import("utils");
+const mem = utils.mem;
 
 const abi = @import("../abi.zig");
 

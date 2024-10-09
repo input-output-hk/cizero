@@ -5,12 +5,11 @@
         ../../../../plugins/hello-zig
         ../../../../pdk/zig
         ../../../../src
-        ../../../../lib
       ];
 
       buildZigZon = "plugins/hello-zig/build.zig.zon";
 
-      zigDepsHash = "sha256-RZ2e02HBVvIYdqwG1JMrAnhhndYmr04I88hYAZpB38E=";
+      zigDepsHash = "sha256-rC1dq+c+r5GxBu6BJn7ZVy3x7JtOg4vpNeYwiKdFvEg=";
 
       zigTarget = null;
 

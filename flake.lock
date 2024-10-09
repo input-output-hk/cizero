@@ -52,11 +52,11 @@
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1705309234,
-        "narHash": "sha256-uNRRNRKmJyCRC/8y1RqBkqWBLM034y4qN7EprSdmgyA=",
+        "lastModified": 1710146030,
+        "narHash": "sha256-SZ5L6eA7HJ/nmkzGG7/ISclqe6oZdOZTNoesiInkXPQ=",
         "owner": "numtide",
         "repo": "flake-utils",
-        "rev": "1ef2e671c3b0c19053962c07dbda38332dcebf26",
+        "rev": "b1d9ab70662946ef0850d488da1c9019f3a9752a",
         "type": "github"
       },
       "original": {
@@ -268,7 +268,7 @@
         "nixpkgs-24.05": "nixpkgs-24.05",
         "parts": "parts",
         "treefmt-nix": "treefmt-nix",
-        "zig2nix": "zig2nix"
+        "utils": "utils"
       }
     },
     "systems": {
@@ -306,19 +306,53 @@
         "type": "github"
       }
     },
+    "utils": {
+      "inputs": {
+        "inclusive": [
+          "inclusive"
+        ],
+        "make-shell": [
+          "make-shell"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "parts": [
+          "parts"
+        ],
+        "treefmt-nix": [
+          "treefmt-nix"
+        ],
+        "zig2nix": "zig2nix"
+      },
+      "locked": {
+        "lastModified": 1729687805,
+        "narHash": "sha256-A4IoMhuUJ7ufL4mA3Yx1ZwYi5C9QU7DJaNK7xJQCYvk=",
+        "owner": "dermetfan",
+        "repo": "utils.zig",
+        "rev": "c1c8e7ed6e1f610af3bf5e4de677c19482e0deba",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dermetfan",
+        "repo": "utils.zig",
+        "type": "github"
+      }
+    },
     "zig2nix": {
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": [
+          "utils",
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1715130891,
-        "narHash": "sha256-6KFus3/FjabK3XVD9+WsSEUxb0XckRNnXKavmtSCwXM=",
+        "lastModified": 1728437366,
+        "narHash": "sha256-zZF5drwqCC41UpQddNKC6nhAmE2DcON61th+xf1k6n8=",
         "owner": "Cloudef",
         "repo": "zig2nix",
-        "rev": "9b70765e7e02fcf2d89e19bae0178719cc1fd2d1",
+        "rev": "8231ceb8258475093336cac0e8706baf0d634037",
         "type": "github"
       },
       "original": {

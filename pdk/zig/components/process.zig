@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const lib = @import("lib");
+const utils = @import("utils");
 
 const abi = @import("../abi.zig");
 
@@ -24,7 +24,7 @@ pub fn exec(args: struct {
     allocator: std.mem.Allocator,
     argv: []const []const u8,
     env_map: ?*const std.process.EnvMap = null,
-    max_output_bytes: usize = 50 * lib.mem.b_per_kib,
+    max_output_bytes: usize = 50 * utils.mem.b_per_kib,
     expand_arg0: std.process.Child.Arg0Expand = .no_expand,
 }) std.process.Child.RunError!std.process.Child.RunResult {
     const argv = try abi.CStringArray.initDupe(args.allocator, args.argv);

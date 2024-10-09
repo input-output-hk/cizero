@@ -1,7 +1,7 @@
 const std = @import("std");
 const args = @import("args");
 
-const lib = @import("lib");
+const utils = @import("utils");
 
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){
@@ -121,7 +121,7 @@ pub fn main() !u8 {
                         var stderr_buffered = std.io.bufferedWriter(std.io.getStdErr().writer());
                         const stderr = stderr_buffered.writer();
 
-                        const failed_dependencies = try std.json.parseFromSlice(lib.nix.FailedBuilds, allocator, response.items, .{});
+                        const failed_dependencies = try std.json.parseFromSlice(utils.nix.FailedBuilds, allocator, response.items, .{});
                         defer failed_dependencies.deinit();
 
                         if (failed_dependencies.value.dependents.len != 0)
@@ -142,7 +142,7 @@ pub fn main() !u8 {
                             try nix_log_process.spawn();
 
                             {
-                                var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4 * lib.mem.b_per_kib }).init();
+                                var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4 * utils.mem.b_per_kib }).init();
                                 defer fifo.deinit();
 
                                 try fifo.pump(nix_log_process.stdout.?.reader(), stderr);

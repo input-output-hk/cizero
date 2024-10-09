@@ -1,10 +1,8 @@
 const std = @import("std");
 const Build = std.Build;
 
-const lib_build = @import("lib");
+const utils = @import("utils").utils;
 const cizero_build = @import("cizero");
-
-pub const lib = lib_build.lib;
 
 pub fn build(b: *Build) !void {
     const opts = .{
@@ -13,7 +11,6 @@ pub fn build(b: *Build) !void {
     };
 
     const deps_opts = .{
-        .lib = opts,
         .cizero = .{
             .target = opts.target,
             .release = opts.optimize != .Debug,
@@ -57,7 +54,7 @@ pub fn build(b: *Build) !void {
             pkg_install_step.name = std.mem.concat(b.allocator, u8, &.{ dep_name, " TLS ", pkg_install_step.name }) catch @panic("OOM");
 
             // Move the output of the `pkg`'s step into our install directory to produce one top-level merged `zig-out`.
-            const install_dir_lenient = lib.InstallDirLenientStep.create(b, .{
+            const install_dir_lenient = utils.InstallDirLenientStep.create(b, .{
                 .source_dir = b.path(std.fs.path.relative(b.allocator, b.build_root.path.?, pkg.builder.install_path) catch @panic("OOM")),
                 .install_dir = .prefix,
                 .install_subdir = "",

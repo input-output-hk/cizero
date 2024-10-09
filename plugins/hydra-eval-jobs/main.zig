@@ -3,8 +3,8 @@ const s2s = @import("s2s");
 
 const cizero = @import("cizero");
 
-const lib = @import("lib");
-const nix = lib.nix;
+const utils = @import("utils");
+const nix = utils.nix;
 
 const allocator = std.heap.wasm_allocator;
 

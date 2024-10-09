@@ -1,7 +1,7 @@
 const std = @import("std");
 const Build = std.Build;
 
-const lib = @import("lib").lib;
+const utils = @import("utils").utils;
 
 pub fn build(b: *Build) !void {
     b.enable_wasmtime = true;
@@ -43,7 +43,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_tests.step);
     }
 
-    _ = lib.addCheckTls(b);
+    _ = utils.addCheckTls(b);
 }
 
 fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) void {
@@ -56,6 +56,7 @@ fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) voi
     }).module("cizero-pdk");
 
     step.root_module.addImport("cizero", pdk_mod);
-    step.root_module.addImport("lib", pdk_mod.import_table.get("lib").?);
-    step.root_module.addImport("s2s", pdk_mod.import_table.get("s2s").?);
+    // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
+    step.root_module.addImport("utils", pdk_mod.import_table.get("utils").?);
+    step.root_module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 }

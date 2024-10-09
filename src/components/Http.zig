@@ -1,9 +1,9 @@
 const std = @import("std");
 const httpz = @import("httpz");
 
-const lib = @import("lib");
-const meta = lib.meta;
-const wasm = lib.wasm;
+const utils = @import("utils");
+const meta = utils.meta;
+const wasm = utils.wasm;
 
 const components = @import("../components.zig");
 const sql = @import("../sql.zig");

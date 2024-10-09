@@ -12,10 +12,7 @@
     ...
   }: {
     packages.cizero = pkgs.buildZigPackage {
-      src = inputs.inclusive.lib.inclusive ../../.. [
-        ../../../src
-        ../../../lib
-      ];
+      src = ../../../src;
 
       buildInputs = with pkgs; [
         wasmtime.dev
@@ -23,11 +20,9 @@
         whereami
       ];
 
-      zigDepsHash = "sha256-9oScZC7w8r1TNodXPotkx+f7ssH4ija5DOFxENSWyzs=";
+      zigDepsHash = "sha256-LVTp3agb6dkYeMGZ9uDCEoG82FhaI2g34m55M/kOSQk=";
 
       zigTarget = null;
-
-      buildZigZon = "src/build.zig.zon";
 
       preCheck = ''
         # for wasmtime cache
@@ -47,14 +42,13 @@
                 ../../../build.zig.zon
                 ../../../pdk-test.zig
                 ../../../src
-                ../../../lib
                 ../../../pdk/zig
                 ../../../nix-sigstop
               ];
 
               buildZigZon = "build.zig.zon";
 
-              zigDepsHash = "sha256-RZ2e02HBVvIYdqwG1JMrAnhhndYmr04I88hYAZpB38E=";
+              zigDepsHash = "sha256-rC1dq+c+r5GxBu6BJn7ZVy3x7JtOg4vpNeYwiKdFvEg=";
 
               zigRelease = "Debug";
             })

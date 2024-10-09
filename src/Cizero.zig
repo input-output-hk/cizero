@@ -2,8 +2,8 @@ const std = @import("std");
 const trait = @import("trait");
 const zqlite = @import("zqlite");
 
-const lib = @import("lib");
-const meta = lib.meta;
+const utils = @import("utils");
+const meta = utils.meta;
 
 pub const components = @import("components.zig");
 pub const fs = @import("fs.zig");

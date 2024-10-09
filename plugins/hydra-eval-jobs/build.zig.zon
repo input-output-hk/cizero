@@ -3,7 +3,14 @@
     .version = "0.0.0",
     .dependencies = .{
         .pdk = .{ .path = "../../pdk/zig" },
-        .lib = .{ .path = "../../lib" },
+        .utils = .{
+            .url = "https://github.com/dermetfan/utils.zig/archive/c1c8e7ed6e1f610af3bf5e4de677c19482e0deba.tar.gz",
+            .hash = "122061dbc38c8c05e5c50bd51f35598c0fc2863efd4ef207af6079bc9c16792c2ead",
+        },
+        .s2s = .{
+            .url = "https://github.com/dermetfan/s2s/archive/36f2b0828f4f23ce27ab762028e367eec27564f3.tar.gz",
+            .hash = "1220e4c3ec0c493c15cd0252b6918a442878ee8b3ff5e667497e7e39e864dcfb8bfb",
+        },
     },
     .paths = .{
         "build.zig",
@@ -11,6 +18,5 @@
         "main.zig",
         "../../pdk/zig",
         "../../src",
-        "../../lib",
     },
 }

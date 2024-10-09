@@ -2,12 +2,12 @@ const builtin = @import("builtin");
 const std = @import("std");
 const zqlite = @import("zqlite");
 
-const lib = @import("lib");
-const fmt = lib.fmt;
-const mem = lib.mem;
-const meta = lib.meta;
-const nix = lib.nix;
-const wasm = lib.wasm;
+const utils = @import("utils");
+const fmt = utils.fmt;
+const mem = utils.mem;
+const meta = utils.meta;
+const nix = utils.nix;
+const wasm = utils.wasm;
 
 const c = @import("../c.zig");
 const components = @import("../components.zig");

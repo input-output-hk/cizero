@@ -1,7 +1,7 @@
 const std = @import("std");
 const Build = std.Build;
 
-const lib = @import("lib").lib;
+const utils = @import("utils").utils;
 
 pub fn build(b: *Build) !void {
     b.enable_wasmtime = true;
@@ -43,18 +43,16 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_tests.step);
     }
 
-    _ = lib.addCheckTls(b);
+    _ = utils.addCheckTls(b);
 }
 
 fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
 
-    const pdk_mod = b.dependency("pdk", .{
+    step.root_module.addImport("cizero", b.dependency("pdk", .{
         .target = opts.target,
         .release = opts.optimize != .Debug,
-    }).module("cizero-pdk");
-
-    step.root_module.addImport("cizero", pdk_mod);
-    step.root_module.addImport("lib", pdk_mod.import_table.get("lib").?);
+    }).module("cizero-pdk"));
+    step.root_module.addImport("utils", b.dependency("utils", opts).module("utils"));
 }

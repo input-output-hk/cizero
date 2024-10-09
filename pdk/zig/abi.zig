@@ -2,9 +2,9 @@ const std = @import("std");
 const trait = @import("trait");
 const s2s = @import("s2s");
 
-const lib = @import("lib");
-const mem = lib.mem;
-const meta = lib.meta;
+const utils = @import("utils");
+const mem = utils.mem;
+const meta = utils.meta;
 
 pub const CallbackData = struct {
     /// type-erased function pointer

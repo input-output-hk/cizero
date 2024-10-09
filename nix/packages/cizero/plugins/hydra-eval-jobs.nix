@@ -9,12 +9,11 @@
         ../../../../plugins/hydra-eval-jobs
         ../../../../pdk/zig
         ../../../../src
-        ../../../../lib
       ];
 
       buildZigZon = "plugins/hydra-eval-jobs/build.zig.zon";
 
-      zigDepsHash = "sha256-RZ2e02HBVvIYdqwG1JMrAnhhndYmr04I88hYAZpB38E=";
+      zigDepsHash = "sha256-rC1dq+c+r5GxBu6BJn7ZVy3x7JtOg4vpNeYwiKdFvEg=";
 
       zigTarget = null;
 
@@ -30,12 +29,11 @@
       passthru.hydra-eval-jobs = pkgs.buildZigPackage {
         src = inputs.inclusive.lib.inclusive ../../../.. [
           ../../../../plugins/hydra-eval-jobs
-          ../../../../lib
         ];
 
         buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
 
-        zigDepsHash = "sha256-iuniM64D/SEUe00/7dKKfUGPTGE3WNCiGrQN2EX3ZfI=";
+        zigDepsHash = "sha256-uyCJp9pIE+R5ytuAIEoyOiA2ThPN3adOh4UFTlLe3S0=";
 
         meta.mainProgram = "hydra-eval-jobs";
       };

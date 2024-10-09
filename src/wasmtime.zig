@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const lib = @import("lib");
-const wasm = lib.wasm;
+const utils = @import("utils");
+const wasm = utils.wasm;
 
 const c = @import("c.zig");
 

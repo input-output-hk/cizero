@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const lib = @import("lib").lib;
+const utils = @import("utils").utils;
 
 pub fn build(b: *std.Build) !void {
     b.enable_wasmtime = true;
@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&run_tests.step);
     }
 
-    _ = lib.addCheckTls(b);
+    _ = utils.addCheckTls(b);
 }
 
 fn configureCompileStep(b: *std.Build, step: *std.Build.Step.Compile, opts: anytype) void {
@@ -45,8 +45,12 @@ fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void
         .release = opts.optimize != .Debug,
     }).module("cizero");
 
+    // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
+    const utils_mod = cizero_mod.import_table.get("utils").?;
+    const trait_mod = utils_mod.import_table.get("trait").?;
+
     module.addImport("cizero", cizero_mod);
-    module.addImport("lib", cizero_mod.import_table.get("lib").?);
-    module.addImport("trait", cizero_mod.import_table.get("trait").?);
+    module.addImport("utils", utils_mod);
+    module.addImport("trait", trait_mod);
     module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 }

@@ -1,8 +1,8 @@
 const std = @import("std");
 const trait = @import("trait");
 
-const lib = @import("lib");
-const wasm = lib.wasm;
+const utils = @import("utils");
+const wasm = utils.wasm;
 
 const Runtime = @import("Runtime.zig");
 
