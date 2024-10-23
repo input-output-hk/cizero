@@ -46,7 +46,8 @@
           inputs'.nixpkgs.legacyPackages.appendOverlays
           [
             inputs.utils.overlays.zig
-            (_final: prev: {
+
+            (_: prev: {
               # Must use older wasmtime until the fix for https://github.com/bytecodealliance/wasmtime/issues/8890 lands in nixpkgs.
               inherit (inputs."nixpkgs-24.05".legacyPackages.${prev.system}) wasmtime;
             })
