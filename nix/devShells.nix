@@ -52,7 +52,7 @@
 
         packages = [
           inputs'.nix.packages.nix
-          config.packages.nix-sigstop
+          inputs'.nix-sigstop.packages.default
         ];
 
         inputsFrom = [

@@ -1,7 +1,6 @@
 {
   imports = [
     ./cizero
-    ./nix-sigstop.nix
   ];
 
   perSystem = {
@@ -16,8 +15,6 @@
         cizero-plugin-hello-zig
         cizero-plugin-hello-crystal
         cizero-plugin-hydra-eval-jobs
-
-        nix-sigstop
       ];
     };
   };

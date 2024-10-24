@@ -25,6 +25,16 @@
         inclusive.follows = "inclusive";
       };
     };
+    nix-sigstop = {
+      url = github:input-output-hk/nix-sigstop;
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        parts.follows = "parts";
+        treefmt-nix.follows = "treefmt-nix";
+        inclusive.follows = "inclusive";
+        utils.follows = "utils";
+      };
+    };
   };
 
   outputs = inputs:

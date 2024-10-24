@@ -157,6 +157,38 @@
         "type": "github"
       }
     },
+    "nix-sigstop": {
+      "inputs": {
+        "inclusive": [
+          "inclusive"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "parts": [
+          "parts"
+        ],
+        "treefmt-nix": [
+          "treefmt-nix"
+        ],
+        "utils": [
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1729777546,
+        "narHash": "sha256-DmH2zZ/QZmkBAJFTZSk1zxpyVcK1NEs2RFoX6IaZ3vY=",
+        "owner": "input-output-hk",
+        "repo": "nix-sigstop",
+        "rev": "a65d448b418da8c96c8c12c29bdd10abc4e4cd89",
+        "type": "github"
+      },
+      "original": {
+        "owner": "input-output-hk",
+        "repo": "nix-sigstop",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1700748986,
@@ -264,6 +296,7 @@
         "make-shell": "make-shell",
         "mission-control": "mission-control",
         "nix": "nix",
+        "nix-sigstop": "nix-sigstop",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-24.05": "nixpkgs-24.05",
         "parts": "parts",

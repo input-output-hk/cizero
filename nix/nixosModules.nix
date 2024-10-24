@@ -6,7 +6,10 @@
   flake.nixosModules = {
     default = config.flake.nixosModules.cizero;
 
-    cizero = moduleWithSystem (perSystem @ {config}: {
+    cizero = moduleWithSystem (perSystem @ {
+      inputs',
+      config,
+    }: {
       config,
       lib,
       pkgs,
@@ -42,7 +45,7 @@
 
           package = lib.mkOption {
             type = lib.types.package;
-            default = pkgs.nix-sigstop or perSystem.config.packages.nix-sigstop;
+            default = pkgs.nix-sigstop or inputs'.nix-sigstop.packages.default;
           };
         };
       };
