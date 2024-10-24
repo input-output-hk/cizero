@@ -17,6 +17,7 @@
           "unquoted_uri"
         ];
       };
+      zig.enable = true;
     };
   };
 }
