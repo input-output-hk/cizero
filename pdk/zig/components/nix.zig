@@ -83,7 +83,13 @@ export fn @"pdk.nix.onBuild.callback"(
     failed_dependents_ptr: ?[*]const [*:0]const u8,
     failed_dependents_len: usize,
 ) void {
-    std.debug.assert((outputs_len == 0) == (failed_builds_len != 0 or failed_dependents_len != 0));
+    {
+        const none_failed = failed_builds_len == 0 and failed_dependents_len == 0;
+        std.debug.assert(if (err_name != null)
+            outputs_len == 0 and none_failed
+        else
+            outputs_len == 0 or none_failed);
+    }
 
     const allocator = std.heap.wasm_allocator;
 
@@ -98,12 +104,16 @@ export fn @"pdk.nix.onBuild.callback"(
             break :blk .{ .outputs = outputs };
         } else blk: {
             const builds = allocator.alloc([]const u8, failed_builds_len) catch |err| @panic(@errorName(err));
-            for (builds, failed_builds_ptr.?[0..failed_builds_len]) |*build, drv_ptr|
-                build.* = std.mem.span(drv_ptr);
+            if (failed_builds_ptr) |failed_builds| {
+                for (builds, failed_builds[0..failed_builds_len]) |*build, drv_ptr|
+                    build.* = std.mem.span(drv_ptr);
+            }
 
             const dependents = allocator.alloc([]const u8, failed_dependents_len) catch |err| @panic(@errorName(err));
-            for (dependents, failed_dependents_ptr.?[0..failed_dependents_len]) |*dependent, drv_ptr|
-                dependent.* = std.mem.span(drv_ptr);
+            if (failed_dependents_ptr) |failed_dependents| {
+                for (dependents, failed_dependents[0..failed_dependents_len]) |*dependent, drv_ptr|
+                    dependent.* = std.mem.span(drv_ptr);
+            }
 
             break :blk .{ .failed = .{
                 .builds = builds,
