@@ -68,6 +68,8 @@ pub fn main() !u8 {
 
     try client.initDefaultProxies(client_arena.allocator());
 
+    const is_tty = std.io.getStdErr().isTty();
+
     var request_count: u16 = 0;
     poll: while (true) : (request_count += 1) {
         if (request_count > options.options.@"max-requests") {
@@ -91,10 +93,19 @@ pub fn main() !u8 {
                     std.debug.lockStdErr();
                     defer std.debug.unlockStdErr();
 
-                    try std.io.getStdErr().writer().print(
-                        "\rstill evaluating after {d} seconds…",
-                        .{request_count * options.options.interval / std.time.ms_per_s},
-                    );
+                    const elapsed_s = request_count * options.options.interval / std.time.ms_per_s;
+
+                    if (is_tty)
+                        try std.io.getStdErr().writer().print(
+                            "\rstill evaluating after {d} seconds…",
+                            .{elapsed_s},
+                        )
+                    else {
+                        if (request_count == 1)
+                            try std.io.getStdErr().writer().writeAll("still evaluating after ");
+
+                        try std.io.getStdErr().writer().print("{d}s… ", .{elapsed_s});
+                    }
                 }
 
                 std.time.sleep(@as(u64, options.options.interval) * std.time.ns_per_ms);
