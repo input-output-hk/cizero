@@ -841,7 +841,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     const result = try std.process.Child.run(.{
         .argv = args,
         .allocator = self.allocator,
-        .max_output_bytes = 8 * mem.b_per_mib,
+        .max_output_bytes = mem.b_per_gib / 8,
     });
     errdefer {
         self.allocator.free(result.stdout);
@@ -907,7 +907,7 @@ fn build(allocator: std.mem.Allocator, nix_exe: []const u8, installables: []cons
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv,
-        .max_output_bytes = 8 * mem.b_per_mib,
+        .max_output_bytes = mem.b_per_gib / 8,
     });
     defer {
         allocator.free(result.stdout);
