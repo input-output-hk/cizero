@@ -5,8 +5,8 @@
         .cizero = .{ .path = "src" },
         .@"cizero-pdk" = .{ .path = "pdk/zig" },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/49c7f0013473a618f5bd4dd750a21d852d5480d0.tar.gz",
-            .hash = "12201c200a2ec30f1e5c52dd5a77a6eb171b8aaf339163fb420d20b142ee9de193a0",
+            .url = "https://github.com/dermetfan/utils.zig/archive/961abad973a8674bb0366a93fd671dd23bbd51e4.tar.gz",
+            .hash = "1220f637c445d9dfe0510561842740b6927f34c7214a1fadffad4d2e7d9c98972bb0",
         },
     },
     .paths = .{

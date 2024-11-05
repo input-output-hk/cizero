@@ -857,7 +857,9 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     self.allocator.free(result.stdout);
 
     {
-        var failed_ifds = try nix.FailedBuilds.fromErrorMessage(self.allocator, result.stderr);
+        var stderr_stream = std.io.fixedBufferStream(result.stderr);
+
+        var failed_ifds = try nix.FailedBuilds.fromErrorMessage(self.allocator, stderr_stream.reader());
         errdefer failed_ifds.deinit(self.allocator);
 
         if (failed_ifds.builds.len != 0 or failed_ifds.dependents.len != 0) {
@@ -932,7 +934,9 @@ fn build(allocator: std.mem.Allocator, nix_exe: []const u8, installables: []cons
                 }
             },
             1 => {
-                const failed_builds = try nix.FailedBuilds.fromErrorMessage(allocator, result.stderr);
+                var stderr_stream = std.io.fixedBufferStream(result.stderr);
+
+                const failed_builds = try nix.FailedBuilds.fromErrorMessage(allocator, stderr_stream.reader());
                 errdefer failed_builds.deinit(allocator);
 
                 log.debug(

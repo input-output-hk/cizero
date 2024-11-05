@@ -12,7 +12,7 @@
 
       buildZigZon = "pdk/zig/build.zig.zon";
 
-      zigDepsHash = "sha256-58zfTjxx0OUN6w12QaJRgabP4bec7mH4lKaG3AJR0PU=";
+      zigDepsHash = "sha256-0l8Fb8m0TwmyP5yEskKf6Yd4vDFpgdaIIFmwZ75gIQw=";
 
       zigTarget = null;
 
