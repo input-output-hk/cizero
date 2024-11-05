@@ -19,8 +19,7 @@ const Runtime = @import("../Runtime.zig");
 
 pub const name = "nix";
 
-const log_scope = .nix;
-const log = std.log.scoped(log_scope);
+const log = std.log.scoped(.nix);
 
 allocator: std.mem.Allocator,
 

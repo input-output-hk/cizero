@@ -12,8 +12,7 @@ const abi = @import("../abi.zig");
 
 const process = @import("process.zig");
 
-const log_scope = .nix;
-const log = std.log.scoped(log_scope);
+const log = utils.log.scoped(.nix);
 
 const externs = struct {
     extern "cizero" fn nix_on_build(
@@ -264,7 +263,7 @@ pub fn onEvalBuild(
 
 const nix_impl = nix.impl(
     process.exec,
-    log_scope,
+    log.scope,
 );
 
 pub const ChildProcessDiagnostics = nix.ChildProcessDiagnostics;
@@ -283,7 +282,7 @@ pub fn lockFlakeRef(
 ) ![]const u8 {
     const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts, diagnostics);
 
-    if (comptime std.log.logEnabled(.debug, log_scope)) {
+    if (comptime log.scopeLogEnabled(.debug)) {
         if (std.mem.eql(u8, flake_ref_locked, flake_ref))
             log.debug("flake reference {s} is already locked", .{flake_ref})
         else

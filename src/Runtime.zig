@@ -8,8 +8,7 @@ const c = @import("c.zig");
 const fs = @import("fs.zig");
 const wasmtime = @import("wasmtime.zig");
 
-const log_scope = .rt;
-const log = std.log.scoped(log_scope);
+const log = utils.log.scoped(.rt);
 
 wasm_engine: *c.wasm_engine_t,
 wasm_store: *c.wasmtime_store,
@@ -766,7 +765,7 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
     if (self.wasi_config) |wc| try self.configureWasi(wc.*);
 
     const wasi_collect: ?WasiConfig.CollectOutput = if (self.wasi_config) |wc| blk: {
-        if (!comptime std.log.logEnabled(.debug, log_scope)) break :blk null;
+        if (!comptime log.scopeLogEnabled(.debug)) break :blk null;
 
         if (wc.stdout != null and wc.stdout.? == .inherit or
             wc.stderr != null and wc.stderr.? == .inherit)
