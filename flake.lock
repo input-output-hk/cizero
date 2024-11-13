@@ -176,11 +176,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1730298177,
-        "narHash": "sha256-0hm+rsYrz2OIXu9VFRpWTi0eqB8H8I1639bcgfA1Kg8=",
+        "lastModified": 1731503192,
+        "narHash": "sha256-uIAZtMopqEK7XeeeTd4Oia0f9HUAeMPDTtxcwnXGgHU=",
         "owner": "input-output-hk",
         "repo": "nix-sigstop",
-        "rev": "9325294c0d44c2d3aadd81f8d3fef257e6b3cbc5",
+        "rev": "390678300a665e9f09cb7eabe823a0393af15aad",
         "type": "github"
       },
       "original": {
