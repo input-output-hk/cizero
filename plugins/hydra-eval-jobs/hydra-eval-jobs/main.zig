@@ -138,12 +138,12 @@ pub fn main() !u8 {
                         if (failed_dependencies.value.dependents.len != 0)
                             std.log.info("IFD build failure prevented build of dependents {s}", .{failed_dependencies.value.dependents});
 
+                        std.debug.lockStdErr();
+                        defer std.debug.unlockStdErr();
+
                         for (failed_dependencies.value.builds) |drv| {
                             const installable = try std.mem.concat(allocator, u8, &.{ drv, "^*" });
                             defer allocator.free(installable);
-
-                            std.debug.lockStdErr();
-                            defer std.debug.unlockStdErr();
 
                             try stderr.print("\nnix log {s}\n", .{installable});
 
