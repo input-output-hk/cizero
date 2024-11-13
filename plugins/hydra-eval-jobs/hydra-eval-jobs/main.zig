@@ -81,11 +81,25 @@ pub fn main() !u8 {
         defer response.deinit();
 
         std.log.debug("sending request to {s}", .{options.options.url});
-        const result = try client.fetch(.{
+        const result = client.fetch(.{
             .location = .{ .url = options.options.url },
             .response_storage = .{ .dynamic = &response },
+            // This defaults to 2 MiB but that is undocumented!
+            .max_append_size = utils.mem.b_per_gib / 8,
             .payload = flake,
-        });
+        }) catch |err| switch (err) {
+            error.StreamTooLong => |e| {
+                std.log.warn("{s}: ignoring remaining response bytes and dumping incomplete response to stderr", .{@errorName(e)});
+
+                std.debug.lockStdErr();
+                defer std.debug.unlockStdErr();
+
+                try std.io.getStdErr().writeAll(response.items);
+
+                return 1;
+            },
+            else => |e| return e,
+        };
 
         switch (result.status) {
             .no_content => {
