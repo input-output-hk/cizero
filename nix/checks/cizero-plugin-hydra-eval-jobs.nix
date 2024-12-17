@@ -40,7 +40,7 @@ parts @ {inputs, ...}: {
         nixpkgs.overlays = [
           parts.config.flake.overlays.cizero-plugin-hydra-eval-jobs
           # Let's skip the tests as they take a long time and fail randomly.
-          (_: prev: {hydra_unstable = prev.hydra_unstable.overrideAttrs {doCheck = false;};})
+          (_: prev: {hydra = prev.hydra.overrideAttrs {doCheck = false;};})
         ];
 
         environment.systemPackages =
