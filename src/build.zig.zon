@@ -31,8 +31,8 @@
             .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
         },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/961abad973a8674bb0366a93fd671dd23bbd51e4.tar.gz",
-            .hash = "1220f637c445d9dfe0510561842740b6927f34c7214a1fadffad4d2e7d9c98972bb0",
+            .url = "https://github.com/dermetfan/utils.zig/archive/61cd1a9be0313d3d949c3cd705f14dbefddf5222.tar.gz",
+            .hash = "122045930e90687452ce0d22a1f1708de8d72f68a18bc2953fa6b4ef84b9280fd912",
         },
     },
     .paths = .{

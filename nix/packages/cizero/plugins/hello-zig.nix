@@ -9,7 +9,7 @@
 
       buildZigZon = "plugins/hello-zig/build.zig.zon";
 
-      zigDepsHash = "sha256-0l8Fb8m0TwmyP5yEskKf6Yd4vDFpgdaIIFmwZ75gIQw=";
+      zigDepsHash = "sha256-ywiGyOnJBhOFYiqLIH+dpIMf9JG9TdvCeT0VVxzHCRI=";
 
       zigTarget = null;
 
