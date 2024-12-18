@@ -13,7 +13,7 @@
 
       buildZigZon = "plugins/hydra-eval-jobs/build.zig.zon";
 
-      zigDepsHash = "sha256-0l8Fb8m0TwmyP5yEskKf6Yd4vDFpgdaIIFmwZ75gIQw=";
+      zigDepsHash = "sha256-HHLFLPaq/b8dlmw9bz1y3rXhcjoQs4fThxEgOT7vHGc=";
 
       zigTarget = null;
 
@@ -33,7 +33,7 @@
 
         buildZigZon = "plugins/hydra-eval-jobs/hydra-eval-jobs/build.zig.zon";
 
-        zigDepsHash = "sha256-32T9laIQzEUXMTlff/KoBScaYpZH8n0KlZO6vVsK7Jc=";
+        zigDepsHash = "sha256-c9zOgwNvc7vsifOD44fEq4DhFgn9uSvm+lje31KZSYI=";
 
         meta.mainProgram = "hydra-eval-jobs";
       };

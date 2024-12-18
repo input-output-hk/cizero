@@ -28,6 +28,7 @@ config: Config,
 registry: *const Registry,
 wait_group: *std.Thread.WaitGroup,
 
+nix_version: std.SemanticVersion,
 allowed_uris: []const []const u8,
 
 build_jobs_mutex: std.Thread.Mutex = .{},
@@ -185,17 +186,19 @@ pub const InitError = error{
     std.json.ParseError(std.json.Scanner);
 
 pub fn init(allocator: std.mem.Allocator, config: Config, registry: *const Registry, wait_group: *std.Thread.WaitGroup) InitError!@This() {
-    if (!builtin.is_test) {
+    const nix_version = nix_version: {
         // we need #. flake syntax
         const min_nix_version = std.SemanticVersion{ .major = 2, .minor = 19, .patch = 0 };
 
-        const version = try nix.version(allocator);
+        const nix_version = if (builtin.is_test) min_nix_version else try nix.version(allocator);
 
-        if (version.order(min_nix_version) == .lt) {
-            log.err("nix version {} is too old, must be {} or newer", .{ version, min_nix_version });
+        if (nix_version.order(min_nix_version) == .lt) {
+            log.err("nix version {} is too old, must be {} or newer", .{ nix_version, min_nix_version });
             return error.IncompatibleNixVersion;
         }
-    }
+
+        break :nix_version nix_version;
+    };
 
     const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
         const nix_config = nix_config: {
@@ -234,6 +237,7 @@ pub fn init(allocator: std.mem.Allocator, config: Config, registry: *const Regis
         .config = config,
         .registry = registry,
         .wait_group = wait_group,
+        .nix_version = nix_version,
         .allowed_uris = allowed_uris,
     };
 }
@@ -800,7 +804,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
             for (locks.value.nodes.map.values()) |node| switch (node) {
                 .root => {},
                 inline else => |n| {
-                    try n.locked.writeAllowedUri(self.allocator, allowed_uris_writer);
+                    try n.locked.writeAllowedUri(self.allocator, self.nix_version, allowed_uris_writer);
                     try allowed_uris_writer.writeByte(' ');
                 },
             };

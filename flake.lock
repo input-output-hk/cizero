@@ -359,11 +359,11 @@
         "zig2nix": "zig2nix"
       },
       "locked": {
-        "lastModified": 1730799387,
-        "narHash": "sha256-K5yGN0EdQj2sCttgsw53tLHn+3GSvA75nOGmNXMFPI4=",
+        "lastModified": 1734546668,
+        "narHash": "sha256-o79v7CwJrPPkfRF0Yu8sjJj2qxB9CcAy+0+eeo3pRcg=",
         "owner": "dermetfan",
         "repo": "utils.zig",
-        "rev": "961abad973a8674bb0366a93fd671dd23bbd51e4",
+        "rev": "232ac01f454788eabee1ae5b1f48bb6e6c1dee2d",
         "type": "github"
       },
       "original": {

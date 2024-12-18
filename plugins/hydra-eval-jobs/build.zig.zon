@@ -4,8 +4,8 @@
     .dependencies = .{
         .pdk = .{ .path = "../../pdk/zig" },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/961abad973a8674bb0366a93fd671dd23bbd51e4.tar.gz",
-            .hash = "1220f637c445d9dfe0510561842740b6927f34c7214a1fadffad4d2e7d9c98972bb0",
+            .url = "https://github.com/dermetfan/utils.zig/archive/232ac01f454788eabee1ae5b1f48bb6e6c1dee2d.tar.gz",
+            .hash = "1220c01fcb326899c00de4e56b20b33e91ba0f1e0161d7bb64583dddbbf540a865a8",
         },
         .s2s = .{
             .url = "https://github.com/dermetfan/s2s/archive/36f2b0828f4f23ce27ab762028e367eec27564f3.tar.gz",
