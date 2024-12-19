@@ -761,6 +761,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
             if (std.mem.startsWith(u8, f, prefix))
                 for (self.allowed_uris) |allowed_uri| {
                     // XXX precisly check by the actual rules, see `nix show-config --json | jq '."allowed-uris".description'`
+                    // or https://github.com/NixOS/nix/blob/a4f978bd9b872f0d51aff95b83054358767ef193/src/libexpr/eval.cc#L397
                     if (std.mem.startsWith(u8, f, allowed_uri)) {
                         log.debug("flake URL {s} allowed because of allowed URI {s}", .{ f, allowed_uri });
                         break;
