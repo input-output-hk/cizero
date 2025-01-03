@@ -20,7 +20,7 @@
         whereami
       ];
 
-      zigDepsHash = "sha256-krmW2QFSeopgHnTUaVJg4T8BOI/FZVNNQ12yuY1qZoI=";
+      zigDepsHash = "sha256-bKf5WqBQHq29xqLoiJVyYNJVDf+hg0KgxHTaRUFPcpk=";
 
       zigTarget = null;
 
@@ -47,7 +47,7 @@
 
               buildZigZon = "build.zig.zon";
 
-              zigDepsHash = "sha256-ywiGyOnJBhOFYiqLIH+dpIMf9JG9TdvCeT0VVxzHCRI=";
+              zigDepsHash = "sha256-jvvYDZ8l3Km8C3lZgvqiMFv89JoUQjorsa3RZhd3MbI=";
 
               zigRelease = "Debug";
             })
