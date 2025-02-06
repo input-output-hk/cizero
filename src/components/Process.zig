@@ -13,7 +13,7 @@ const log = std.log.scoped(.process);
 
 allocator: std.mem.Allocator,
 
-mock_child_run: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.run), true) else void = if (builtin.is_test) null,
+mock_child_run: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.run)) else void = if (builtin.is_test) null,
 
 fn childRun(
     self: @This(),

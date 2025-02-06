@@ -45,27 +45,18 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const cizero_mod_test = b.addTest(.{
+        const cizero_mod_test = utils.addModuleTest(b, cizero_mod, .{
             .name = "cizero (mod)",
-            .root_source_file = cizero_mod.root_source_file.?,
-            .target = options.target,
-            .optimize = options.optimize,
         });
-        addDependencyImports(b, &cizero_mod_test.root_module, options);
         linkSystemLibraries(&cizero_mod_test.root_module);
 
         const run_cizero_mod_test = b.addRunArtifact(cizero_mod_test);
         test_step.dependOn(&run_cizero_mod_test.step);
     }
     {
-        const cizero_exe_test = b.addTest(.{
+        const cizero_exe_test = utils.addModuleTest(b, &cizero_exe.root_module, .{
             .name = "cizero (exe)",
-            .root_source_file = cizero_exe.root_module.root_source_file.?,
-            .target = options.target,
-            .optimize = options.optimize,
         });
-        addDependencyImports(b, &cizero_exe_test.root_module, options);
-        cizero_exe_test.root_module.addImport("cizero", cizero_mod);
 
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
         test_step.dependOn(&run_cizero_exe_test.step);

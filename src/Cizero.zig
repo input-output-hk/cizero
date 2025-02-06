@@ -53,7 +53,10 @@ pub const Config = struct {
 
     nix: components.Nix.Config = .{},
 
-    pub const Db = meta.SubStruct(zqlite.Pool.Config, &.{ .path, .flags, .size });
+    pub const Db = meta.SubStruct(
+        zqlite.Pool.Config,
+        std.enums.EnumSet(std.meta.FieldEnum(zqlite.Pool.Config)).initMany(&.{ .path, .flags, .size }),
+    );
 };
 
 pub fn init(allocator: std.mem.Allocator, config: Config) (error{DbInitError} || zqlite.Error || Components.InitError)!*@This() {

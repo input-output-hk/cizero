@@ -36,7 +36,7 @@ allocator: std.mem.Allocator,
 loop_run: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 loop_wait: std.Thread.ResetEvent = .{},
 
-mock_milli_timestamp: if (builtin.is_test) ?meta.Closure(@TypeOf(std.time.milliTimestamp), true) else void = if (builtin.is_test) null,
+mock_milli_timestamp: if (builtin.is_test) ?meta.Closure(@TypeOf(std.time.milliTimestamp)) else void = if (builtin.is_test) null,
 
 fn milliTimestamp(self: @This()) i64 {
     if (@TypeOf(self.mock_milli_timestamp) != void)

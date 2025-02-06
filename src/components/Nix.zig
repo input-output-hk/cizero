@@ -77,7 +77,6 @@ mock_start_job: if (builtin.is_test) ?meta.Closure(
         allocator: std.mem.Allocator,
         job: Job,
     ) (std.Thread.SpawnError || std.Thread.SetNameError || std.mem.Allocator.Error)!bool,
-    true,
 ) else void = if (builtin.is_test) null,
 
 pub const Config = struct {

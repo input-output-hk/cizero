@@ -14,29 +14,23 @@ pub fn build(b: *Build) !void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
     };
 
-    const source = b.path("main.zig");
+    const exe = b.addExecutable(.{
+        .name = "hello-zig",
+        .root_source_file = b.path("main.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .linkage = .dynamic,
+    });
+    configureCompileStep(b, exe, opts);
 
     {
-        const exe = b.addExecutable(.{
-            .name = "hello-zig",
-            .root_source_file = source,
-            .target = opts.target,
-            .optimize = opts.optimize,
-            .linkage = .dynamic,
-        });
-        configureCompileStep(b, exe, opts);
-
         const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
         b.getInstallStep().dependOn(&install_exe.step);
     }
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const tests = b.addTest(.{
-            .root_source_file = source,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
+        const tests = utils.addModuleTest(b, &exe.root_module, .{});
         configureCompileStep(b, tests, opts);
 
         const run_tests = b.addRunArtifact(tests);

@@ -14,30 +14,35 @@ pub fn build(b: *Build) !void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSmall }),
     };
 
-    const source = b.path("main.zig");
+    const exe = b.addExecutable(.{
+        .name = "hydra-eval-jobs",
+        .root_source_file = b.path("main.zig"),
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .linkage = .dynamic,
+    });
+    configureCompileStep(exe);
+    {
+        const pdk_mod = b.dependency("pdk", .{
+            .target = opts.target,
+            .release = opts.optimize != .Debug,
+        }).module("cizero-pdk");
+
+        exe.root_module.addImport("cizero", pdk_mod);
+        // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
+        exe.root_module.addImport("utils", pdk_mod.import_table.get("utils").?);
+    }
+    exe.root_module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 
     {
-        const exe = b.addExecutable(.{
-            .name = "hydra-eval-jobs",
-            .root_source_file = source,
-            .target = opts.target,
-            .optimize = opts.optimize,
-            .linkage = .dynamic,
-        });
-        configureCompileStep(b, exe, opts);
-
         const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
         b.getInstallStep().dependOn(&install_exe.step);
     }
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const tests = b.addTest(.{
-            .root_source_file = source,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-        configureCompileStep(b, tests, opts);
+        const tests = utils.addModuleTest(b, &exe.root_module, .{});
+        configureCompileStep(tests);
 
         const run_tests = b.addRunArtifact(tests);
         test_step.dependOn(&run_tests.step);
@@ -46,17 +51,7 @@ pub fn build(b: *Build) !void {
     _ = utils.addCheckTls(b);
 }
 
-fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) void {
+fn configureCompileStep(step: *Build.Step.Compile) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
-
-    const pdk_mod = b.dependency("pdk", .{
-        .target = opts.target,
-        .release = opts.optimize != .Debug,
-    }).module("cizero-pdk");
-
-    step.root_module.addImport("cizero", pdk_mod);
-    // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
-    step.root_module.addImport("utils", pdk_mod.import_table.get("utils").?);
-    step.root_module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 }

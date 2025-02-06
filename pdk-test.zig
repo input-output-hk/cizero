@@ -37,19 +37,19 @@ fn init() !@This() {
     };
     errdefer cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
 
-    cizero.components.timeout.mock_milli_timestamp = meta.disclosure(struct {
-        fn call() i64 {
+    cizero.components.timeout.mock_milli_timestamp = meta.closure(&{}, struct {
+        fn call(_: *const void) i64 {
             return std.time.ms_per_s;
         }
-    }.call, true);
+    }.call);
 
-    cizero.components.process.mock_child_run = meta.disclosure(struct {
+    cizero.components.process.mock_child_run = meta.closure(&{}, struct {
         const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
 
-        fn call(_: info.params[0].type.?) info.return_type.? {
+        fn call(_: *const void, _: info.params[0].type.?) info.return_type.? {
             return error.Unexpected;
         }
-    }.call, true);
+    }.call);
 
     const plugin_wasm = try std.fs.cwd().readFileAlloc(testing.allocator, build_options.plugin_path, std.math.maxInt(usize));
     defer testing.allocator.free(plugin_wasm);
@@ -245,7 +245,7 @@ test "process_exec" {
     };
     var mock_child_run = MockChildRun{};
 
-    self.cizero.components.process.mock_child_run = meta.closure(MockChildRun.run, &mock_child_run);
+    self.cizero.components.process.mock_child_run = meta.closure(&mock_child_run, MockChildRun.run);
 
     try self.expectEqualStdio("",
         \\term tag: Exited
@@ -350,6 +350,7 @@ test "nix_on_build" {
         const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
 
         fn call(
+            _: *const void,
             _: std.mem.Allocator,
             _: Cizero.components.Nix.Job,
         ) info.return_type.? {
@@ -357,7 +358,7 @@ test "nix_on_build" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job = meta.disclosure(MockStartJob.call, true);
+    self.cizero.components.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
 
     const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
     const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
@@ -440,6 +441,7 @@ test "nix_on_eval" {
         const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
 
         fn call(
+            _: *const void,
             _: std.mem.Allocator,
             _: Cizero.components.Nix.Job,
         ) info.return_type.? {
@@ -447,7 +449,7 @@ test "nix_on_eval" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job = meta.disclosure(MockStartJob.call, true);
+    self.cizero.components.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
 
     const flake = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e";
     const expr = "flake: flake.legacyPackages.x86_64-linux.hello.meta.description";

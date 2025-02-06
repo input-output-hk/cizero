@@ -14,7 +14,8 @@ pub fn build(b: *std.Build) void {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    configureModule(b, &exe.root_module, opts);
+    exe.root_module.addImport("utils", b.dependency("utils", opts).module("utils"));
+    exe.root_module.addImport("args", b.dependency("args", opts).module("args"));
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
@@ -28,21 +29,11 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const exe_test = b.addTest(.{
-            .root_source_file = exe.root_module.root_source_file.?,
-            .target = opts.target,
-            .optimize = opts.optimize,
-        });
-        configureModule(b, &exe_test.root_module, opts);
+        const exe_test = utils.addModuleTest(b, &exe.root_module, .{});
 
         const run_exe_test = b.addRunArtifact(exe_test);
         test_step.dependOn(&run_exe_test.step);
     }
 
     _ = utils.addCheckTls(b);
-}
-
-fn configureModule(b: *std.Build, module: *std.Build.Module, opts: anytype) void {
-    module.addImport("utils", b.dependency("utils", opts).module("utils"));
-    module.addImport("args", b.dependency("args", opts).module("args"));
 }

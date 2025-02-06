@@ -97,7 +97,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 false,
-                meta.SubStruct(@This(), columns),
+                meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
                 struct { []const u8 },
             );
         }
@@ -113,7 +113,10 @@ pub const queries = struct {
 
         pub const Column = std.meta.FieldEnum(@This());
 
-        pub const insert = SimpleInsert(table, meta.SubStruct(@This(), &.{ .plugin, .function, .user_data }));
+        pub const insert = SimpleInsert(
+            table,
+            meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(&.{ .plugin, .function, .user_data })),
+        );
 
         pub fn SelectById(comptime columns: []const Column) type {
             return Query(
@@ -182,9 +185,9 @@ pub const queries = struct {
                 false,
                 MergedTables(
                     null,
-                    meta.SubStruct(@This(), columns),
+                    meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
                     Callback.table,
-                    meta.SubStruct(Callback, callback_columns),
+                    meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(callback_columns)),
                 ),
                 @TypeOf(.{}),
             );
@@ -239,7 +242,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 false,
-                meta.SubStruct(Callback, columns),
+                meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),
                 struct { []const u8 },
             );
         }
@@ -265,7 +268,7 @@ pub const queries = struct {
                     \\"
             ,
                 true,
-                meta.SubStruct(@This(), columns),
+                meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
                 @TypeOf(.{}),
             );
         }
@@ -294,7 +297,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 true,
-                meta.SubStruct(Callback, columns),
+                meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),
                 struct { []const u8 },
             );
         }
@@ -346,7 +349,7 @@ pub const queries = struct {
                     \\"
             ,
                 true,
-                meta.SubStruct(@This(), columns),
+                meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
                 @TypeOf(.{}),
             );
         }
@@ -379,7 +382,7 @@ pub const queries = struct {
                     \\" = ?
             ,
                 true,
-                meta.SubStruct(Callback, columns),
+                meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),
                 struct { ?[]const u8, []const u8, i64 },
             );
         }
