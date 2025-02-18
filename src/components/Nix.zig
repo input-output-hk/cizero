@@ -790,7 +790,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
             var diagnostics: nix.FlakeMetadataLocksDiagnostics = undefined;
             break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
                 error.FlakePrefetchFailed => .{ .failed = diagnostics.FlakePrefetchFailed.stderr },
-                else => err,
+                else => |e| e,
             };
         }) |locks| allowed_uris: {
             defer locks.deinit();
