@@ -3,6 +3,8 @@ const std = @import("std");
 
 const cizero = @import("cizero");
 
+pub const utils_nix_options = cizero.utils_nix_options;
+
 const allocator = std.heap.wasm_allocator;
 
 usingnamespace if (builtin.is_test) struct {} else struct {
@@ -227,11 +229,17 @@ const pdk_tests = struct {
 const tests = struct {
     pub fn @"nix.lockFlakeRef"() !void {
         const flake_locked = flake_locked: {
-            var diagnostics: cizero.nix.ChildProcessDiagnostics = undefined;
-            errdefer {
-                defer diagnostics.deinit(allocator);
-                std.log.err("term: {}\nstderr: {s}", .{ diagnostics.term, diagnostics.stderr });
-            }
+            var diagnostics: cizero.nix.FlakeMetadataDiagnostics = undefined;
+            errdefer |err| switch (err) {
+                error.FlakeMetadataFailed => {
+                    defer diagnostics.FlakeMetadataFailed.deinit(allocator);
+                    std.log.err("term: {}\nstderr: {s}", .{
+                        diagnostics.FlakeMetadataFailed.term,
+                        diagnostics.FlakeMetadataFailed.stderr,
+                    });
+                },
+                else => {},
+            };
             break :flake_locked try cizero.nix.lockFlakeRef(allocator, "github:NixOS/nixpkgs/23.11", .{}, &diagnostics);
         };
         defer allocator.free(flake_locked);

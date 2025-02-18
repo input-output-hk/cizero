@@ -1,4 +1,35 @@
+const root = @import("root");
+const builtin = @import("builtin");
 const std = @import("std");
+const utils = @import("utils");
+
+comptime {
+    if (root != @This() and
+        !@hasDecl(root, "utils_nix_options") and
+        !builtin.is_test) @compileError(
+        \\The nix utils options are not configured so compilation will fail.
+        \\
+        \\Unfortunately I cannot do this for you.
+        \\Please set them in your root source file, for example like this:
+        \\
+        \\
+    ++ "\t" ++
+        \\pub const utils_nix_options = @import("cizero-pdk").utils_nix_options;
+    );
+}
+
+pub const utils_nix_options = utils.nix.Options{
+    .log_scope = .nix,
+    .runFn = utilsNixOptionsRunFn,
+};
+
+fn utilsNixOptionsRunFn(args: utils.nix.Options.RunFnArgs) @typeInfo(@TypeOf(std.process.Child.run)).Fn.return_type.? {
+    return @This().process.exec(.{
+        .allocator = args.allocator,
+        .max_output_bytes = args.max_output_bytes,
+        .argv = args.argv,
+    });
+}
 
 pub const user_data = @import("abi.zig").CallbackData.user_data;
 

@@ -198,11 +198,14 @@ pub fn init(allocator: std.mem.Allocator, config: Config, registry: *const Regis
 
     const allowed_uris = if (builtin.is_test) try allocator.alloc([]const u8, 0) else allowed_uris: {
         const nix_config = nix_config: {
-            var diagnostics: nix.ChildProcessDiagnostics = undefined;
+            var diagnostics: nix.ConfigDiagnostics = undefined;
             errdefer |err| switch (err) {
                 error.CouldNotReadNixConfig => {
-                    defer diagnostics.deinit(allocator);
-                    log.err("could not read nix config: {}, stderr: {s}", .{ diagnostics.term, diagnostics.stderr });
+                    defer diagnostics.CouldNotReadNixConfig.deinit(allocator);
+                    log.err("could not read nix config: {}, stderr: {s}", .{
+                        diagnostics.CouldNotReadNixConfig.term,
+                        diagnostics.CouldNotReadNixConfig.stderr,
+                    });
                 },
                 else => {},
             };
@@ -784,9 +787,9 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
 
     const allowed_uris = if (flake) |f|
         if (locks: {
-            var diagnostics: nix.ChildProcessDiagnostics = undefined;
+            var diagnostics: nix.FlakeMetadataLocksDiagnostics = undefined;
             break :locks nix.flakeMetadataLocks(self.allocator, f, .{}, &diagnostics) catch |err| return switch (err) {
-                error.FlakePrefetchFailed => .{ .failed = diagnostics.stderr },
+                error.FlakePrefetchFailed => .{ .failed = diagnostics.FlakePrefetchFailed.stderr },
                 else => err,
             };
         }) |locks| allowed_uris: {

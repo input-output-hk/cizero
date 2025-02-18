@@ -6,6 +6,8 @@ const cizero = @import("cizero");
 const utils = @import("utils");
 const nix = utils.nix;
 
+pub const utils_nix_options = cizero.utils_nix_options;
+
 const allocator = std.heap.wasm_allocator;
 
 pub fn main() u8 {

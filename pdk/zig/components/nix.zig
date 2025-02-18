@@ -261,26 +261,21 @@ pub fn onEvalBuild(
     try onEval(UserData, allocator, evalCallback, user_data, flake, expression, .raw);
 }
 
-const nix_impl = nix.impl(
-    process.exec,
-    log.scope,
-);
-
 pub const ChildProcessDiagnostics = nix.ChildProcessDiagnostics;
 pub const FlakeMetadata = nix.FlakeMetadata;
 pub const FlakeMetadataOptions = nix.FlakeMetadataOptions;
 pub const FlakePrefetchOptions = nix.FlakePrefetchOptions;
-
-pub const flakeMetadata = nix_impl.flakeMetadata;
-pub const flakeMetadataLocks = nix_impl.flakeMetadataLocks;
+pub const FlakeMetadataDiagnostics = nix.FlakeMetadataDiagnostics;
+pub const flakeMetadata = nix.flakeMetadata;
+pub const flakeMetadataLocks = nix.flakeMetadataLocks;
 
 pub fn lockFlakeRef(
     allocator: std.mem.Allocator,
     flake_ref: []const u8,
     opts: FlakeMetadataOptions,
-    diagnostics: ?*ChildProcessDiagnostics,
+    diagnostics: ?*FlakeMetadataDiagnostics,
 ) ![]const u8 {
-    const flake_ref_locked = try nix_impl.lockFlakeRef(allocator, flake_ref, opts, diagnostics);
+    const flake_ref_locked = try nix.lockFlakeRef(allocator, flake_ref, opts, diagnostics);
 
     if (comptime log.scopeLogEnabled(.debug)) {
         if (std.mem.eql(u8, flake_ref_locked, flake_ref))
