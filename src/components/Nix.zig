@@ -9,9 +9,7 @@ const meta = utils.meta;
 const nix = utils.nix;
 const wasm = utils.wasm;
 
-const c = @import("../c.zig");
 const components = @import("../components.zig");
-const fs = @import("../fs.zig");
 const sql = @import("../sql.zig");
 
 const Registry = @import("../Registry.zig");
