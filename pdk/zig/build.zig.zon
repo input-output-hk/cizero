@@ -1,19 +1,20 @@
 .{
-    .name = "cizero-pdk-zig",
+    .name = .cizero_pdk_zig,
     .version = "0.0.0",
+    .fingerprint = 0x86f1a78a64707679,
     .dependencies = .{
         .cizero = .{ .path = "../../src" },
         .s2s = .{
-            .url = "https://github.com/dermetfan/s2s/archive/36f2b0828f4f23ce27ab762028e367eec27564f3.tar.gz",
-            .hash = "1220e4c3ec0c493c15cd0252b6918a442878ee8b3ff5e667497e7e39e864dcfb8bfb",
+            .url = "https://github.com/ziglibs/s2s/archive/76d7aea86c1d05afaddab9a1081b6dad68088756.tar.gz",
+            .hash = "s2s-0.0.1-qt8ajW97AADgZZjymAzXPnLV3sR2Fo0r4k7WGJkfftJ1",
         },
         .trait = .{
-            .url = "https://github.com/wrongnull/zigtrait/archive/4b431169c9226b3fe2bbba89f451e5c8bca4c5a3.tar.gz",
-            .hash = "12208d1a1be506a77528120e9a485ba9d610f435d601b897eb5bfd9a3596d2e740a4",
+            .url = "https://github.com/wrongnull/zigtrait/archive/876b92368e7594de7163c0b39a8d8357cff3bf22.tar.gz",
+            .hash = "zigtrait-1.4.0-AAAAAKhWAAAZSvEHrZVKgy0OrKro-52vqKHcFFo2znaU",
         },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/aeffcb4dd4e0c89dc1caaedb00b12d7b63e19f8e.tar.gz",
-            .hash = "12209d8c3b492cc63227fe1d3b476688495856fba93141a5bc23b166d9590446135a",
+            .url = "https://github.com/dermetfan/utils.zig/archive/bdb7367344e6b58d73d7afe3f705bef91116e189.tar.gz",
+            .hash = "utils-0.0.0-5JJlDzacAgCSU4sNF22ajSwlCfZNykWSVHbFuZ_JZ0hC",
         },
     },
     .paths = .{

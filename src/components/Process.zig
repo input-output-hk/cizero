@@ -15,10 +15,12 @@ allocator: std.mem.Allocator,
 
 mock_child_run: if (builtin.is_test) ?meta.Closure(@TypeOf(std.process.Child.run)) else void = if (builtin.is_test) null,
 
+const ChildRunArgs = @typeInfo(@TypeOf(std.process.Child.run)).@"fn".params[0].type.?;
+
 fn childRun(
     self: @This(),
-    args: @typeInfo(@TypeOf(std.process.Child.run)).Fn.params[0].type.?,
-) @typeInfo(@TypeOf(std.process.Child.run)).Fn.return_type.? {
+    args: ChildRunArgs,
+) @typeInfo(@TypeOf(std.process.Child.run)).@"fn".return_type.? {
     if (@TypeOf(self.mock_child_run) != void)
         if (self.mock_child_run) |mock| return mock.call(.{args});
     return std.process.Child.run(args);
@@ -61,7 +63,7 @@ fn exec(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, input
         .term_code = @as(*u32, @alignCast(@ptrCast(&memory[@intCast(inputs[10].i32)]))),
     };
 
-    var exec_args = .{
+    var exec_args = ChildRunArgs{
         .allocator = self.allocator,
         .argv = blk: {
             const argv = try self.allocator.alloc([]const u8, params.argc);
@@ -81,7 +83,7 @@ fn exec(self: *@This(), _: []const u8, memory: []u8, _: std.mem.Allocator, input
         .expand_arg0 = params.expand_arg0,
     };
     defer self.allocator.free(exec_args.argv);
-    defer if (exec_args.env_map) |m| m.hash_map.deinit();
+    defer if (exec_args.env_map) |m| @constCast(m).hash_map.deinit();
 
     const result = @call(.auto, childRun, .{ self.*, exec_args }) catch |err| {
         const E = std.process.Child.RunError;

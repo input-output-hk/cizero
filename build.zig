@@ -108,14 +108,17 @@ pub fn build(b: *Build) !void {
 
         const pdk_test = b.addTest(.{
             .name = "PDK",
-            .root_source_file = b.path("pdk-test.zig"),
-            .target = opts.target,
-            .optimize = opts.optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("pdk-test.zig"),
+                .target = opts.target,
+                .optimize = opts.optimize,
+                .imports = &.{
+                    .{ .name = "build_options", .module = build_options.createModule() },
+                    .{ .name = "cizero", .module = cizero_pkg.module("cizero") },
+                    .{ .name = "utils", .module = b.dependency("utils", opts).module("utils") },
+                },
+            }),
         });
-        cizero_build.addDependencyImports(cizero_pkg.builder, &pdk_test.root_module, opts);
-        cizero_build.linkSystemLibraries(&pdk_test.root_module);
-        pdk_test.root_module.addOptions("build_options", build_options);
-        pdk_test.root_module.addImport("cizero", cizero_pkg.module("cizero"));
 
         const run_pdk_test = b.addRunArtifact(pdk_test);
         test_pdk_step.dependOn(&run_pdk_test.step);

@@ -153,7 +153,7 @@ pub const WasiConfig = struct {
         const stderr: CollectOutput.StdioFile = if (keep_stderr) .{ .brw = self.stderr.?.file } else .{ .own = try fs.tmpFile(allocator, .{ .read = true }) };
         errdefer stderr.deinit(allocator);
 
-        const collect = .{
+        const collect = CollectOutput{
             .allocator = allocator,
             .stdout = stdout,
             .stderr = stderr,
@@ -445,13 +445,13 @@ pub const HostFunction = struct {
 
     pub fn init(callback: anytype, user_data: ?*anyopaque) @This() {
         comptime {
-            const T = @typeInfo(@TypeOf(callback)).Fn;
+            const T = @typeInfo(@TypeOf(callback)).@"fn";
             if (T.params[1].type.? != []const u8 or
                 T.params[2].type.? != []u8 or
                 T.params[3].type.? != std.mem.Allocator or
                 T.params[4].type.? != []const wasm.Value or
                 T.params[5].type.? != []wasm.Value or
-                @typeInfo(T.return_type.?).ErrorUnion.payload != void)
+                @typeInfo(T.return_type.?).error_union.payload != void)
                 @compileError("bad callback signature");
         }
         return .{
@@ -557,17 +557,19 @@ pub const Allocator = struct {
     memory: Memory,
     wasm_fn_alloc: c.wasmtime_func,
     wasm_fn_resize: c.wasmtime_func,
+    wasm_fn_remap: c.wasmtime_func,
     wasm_fn_free: c.wasmtime_func,
 
-    const export_names = .{ "cizero_mem_alloc", "cizero_mem_resize", "cizero_mem_free" };
+    const export_names = .{ "cizero_mem_alloc", "cizero_mem_resize", "cizero_mem_remap", "cizero_mem_free" };
 
     fn initFromCaller(memory: Memory, caller: *c.wasmtime_caller) !@This() {
         var item_fn_alloc: c.wasmtime_extern = undefined;
         var item_fn_resize: c.wasmtime_extern = undefined;
+        var item_fn_remap: c.wasmtime_extern = undefined;
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_remap, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_caller_export_get(caller, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -576,6 +578,7 @@ pub const Allocator = struct {
             memory,
             item_fn_alloc,
             item_fn_resize,
+            item_fn_remap,
             item_fn_free,
         );
     }
@@ -583,10 +586,11 @@ pub const Allocator = struct {
     fn initFromLinker(memory: Memory, linker: *const c.wasmtime_linker) !@This() {
         var item_fn_alloc: c.wasmtime_extern = undefined;
         var item_fn_resize: c.wasmtime_extern = undefined;
+        var item_fn_remap: c.wasmtime_extern = undefined;
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_remap, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_linker_get(linker, memory.wasm_context, null, 0, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -595,6 +599,7 @@ pub const Allocator = struct {
             memory,
             item_fn_alloc,
             item_fn_resize,
+            item_fn_remap,
             item_fn_free,
         );
     }
@@ -602,10 +607,11 @@ pub const Allocator = struct {
     fn initFromInstance(memory: Memory, instance: c.wasmtime_instance) !@This() {
         var item_fn_alloc: c.wasmtime_extern = undefined;
         var item_fn_resize: c.wasmtime_extern = undefined;
+        var item_fn_remap: c.wasmtime_extern = undefined;
         var item_fn_free: c.wasmtime_extern = undefined;
 
         inline for (
-            .{ &item_fn_alloc, &item_fn_resize, &item_fn_free },
+            .{ &item_fn_alloc, &item_fn_resize, &item_fn_remap, &item_fn_free },
             export_names,
         ) |item, export_name|
             if (!c.wasmtime_instance_export_get(memory.wasm_context, &instance, export_name, export_name.len, item)) return error.NoSuchItem;
@@ -614,6 +620,7 @@ pub const Allocator = struct {
             memory,
             item_fn_alloc,
             item_fn_resize,
+            item_fn_remap,
             item_fn_free,
         );
     }
@@ -622,6 +629,7 @@ pub const Allocator = struct {
         memory: Memory,
         item_fn_alloc: c.wasmtime_extern,
         item_fn_resize: c.wasmtime_extern,
+        item_fn_remap: c.wasmtime_extern,
         item_fn_free: c.wasmtime_extern,
     ) !@This() {
         inline for (.{ item_fn_alloc, item_fn_resize, item_fn_free }) |item|
@@ -631,6 +639,7 @@ pub const Allocator = struct {
             .memory = memory,
             .wasm_fn_alloc = item_fn_alloc.of.func,
             .wasm_fn_resize = item_fn_resize.of.func,
+            .wasm_fn_remap = item_fn_remap.of.func,
             .wasm_fn_free = item_fn_free.of.func,
         };
     }
@@ -641,15 +650,16 @@ pub const Allocator = struct {
             .vtable = &std.mem.Allocator.VTable{
                 .alloc = @ptrCast(&alloc),
                 .resize = @ptrCast(&resize),
+                .remap = @ptrCast(&remap),
                 .free = @ptrCast(&free),
             },
         };
     }
 
-    fn alloc(self: *const @This(), len: usize, ptr_align: u8, _: usize) ?[*]u8 {
+    fn alloc(self: *const @This(), len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
         var inputs = [_]c.wasmtime_val{
             wasmtime.val(.{ .i32 = std.math.cast(i32, len) orelse return null }),
-            wasmtime.val(.{ .i32 = ptr_align }), // XXX is ptr_align valid inside WASM runtime?
+            wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is ptr_align valid inside WASM runtime?
         };
         defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
 
@@ -670,11 +680,11 @@ pub const Allocator = struct {
         return self.memory.slice()[@intCast(output.of.i32)..].ptr;
     }
 
-    fn resize(self: *const @This(), buf: []u8, buf_align: u8, new_len: usize, _: usize) bool {
+    fn resize(self: *const @This(), memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
         var inputs = [_]c.wasmtime_val{
-            wasmtime.val(.{ .i32 = @intCast(self.memory.offset(buf.ptr)) }),
-            wasmtime.val(.{ .i32 = @intCast(buf.len) }),
-            wasmtime.val(.{ .i32 = buf_align }), // XXX is buf_align valid inside WASM runtime?
+            wasmtime.val(.{ .i32 = @intCast(self.memory.offset(memory.ptr)) }),
+            wasmtime.val(.{ .i32 = @intCast(memory.len) }),
+            wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
             wasmtime.val(.{ .i32 = @intCast(new_len) }),
         };
         defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
@@ -696,11 +706,37 @@ pub const Allocator = struct {
         return output.of.i32 == 1;
     }
 
-    fn free(self: *const @This(), buf: []u8, buf_align: u8, _: usize) void {
+    fn remap(self: *const @This(), memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) ?[*]u8 {
         var inputs = [_]c.wasmtime_val{
-            wasmtime.val(.{ .i32 = @intCast(self.memory.offset(buf.ptr)) }),
-            wasmtime.val(.{ .i32 = @intCast(buf.len) }),
-            wasmtime.val(.{ .i32 = buf_align }), // XXX is buf_align valid inside WASM runtime?
+            wasmtime.val(.{ .i32 = @intCast(self.memory.offset(memory.ptr)) }),
+            wasmtime.val(.{ .i32 = @intCast(memory.len) }),
+            wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
+            wasmtime.val(.{ .i32 = @intCast(new_len) }),
+        };
+        defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
+
+        var output: c.wasmtime_val = undefined;
+        defer c.wasmtime_val_delete(self.memory.wasm_context, &output);
+
+        {
+            var trap: ?*c.wasm_trap_t = null;
+            const err = c.wasmtime_func_call(self.memory.wasm_context, &self.wasm_fn_remap, &inputs, inputs.len, &output, 1, &trap);
+            if (err != null or trap != null) return null;
+        }
+
+        if (output.kind != c.WASMTIME_I32) {
+            log.warn(export_names[0] ++ "() returned unexpected type: {}", .{output});
+            return null;
+        }
+
+        return self.memory.slice()[@intCast(output.of.i32)..].ptr;
+    }
+
+    fn free(self: *const @This(), memory: []u8, alignment: std.mem.Alignment, _: usize) void {
+        var inputs = [_]c.wasmtime_val{
+            wasmtime.val(.{ .i32 = @intCast(self.memory.offset(memory.ptr)) }),
+            wasmtime.val(.{ .i32 = @intCast(memory.len) }),
+            wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
         };
         defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
 

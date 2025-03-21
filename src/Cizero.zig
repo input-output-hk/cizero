@@ -18,7 +18,7 @@ const Components = struct {
     process: components.Process,
     timeout: components.Timeout,
 
-    const fields = @typeInfo(@This()).Struct.fields;
+    const fields = @typeInfo(@This()).@"struct".fields;
 
     const InitError = blk: {
         var set = error{};
@@ -32,14 +32,14 @@ const Components = struct {
     fn register(self: *@This(), registry: *Registry) !void {
         inline for (fields) |field| {
             const value_ptr = &@field(self, field.name);
-            try registry.registerComponent(if (comptime trait.ptrOfSize(.One)(field.type)) value_ptr.* else value_ptr);
+            try registry.registerComponent(if (comptime trait.ptrOfSize(.one)(field.type)) value_ptr.* else value_ptr);
         }
     }
 };
 
-db_pool: zqlite.Pool,
+db_pool: *zqlite.Pool,
 registry: Registry,
-components: Components,
+comps: Components,
 wait_group: std.Thread.WaitGroup = .{},
 
 pub fn deinit(self: *@This()) void {
@@ -79,8 +79,8 @@ pub fn init(allocator: std.mem.Allocator, config: Config) (error{DbInitError} ||
             std.log.err("could not initialize database: {s}", .{@errorName(err)});
             return error.DbInitError;
         },
-        .registry = .{ .allocator = allocator, .db_pool = &self.db_pool },
-        .components = .{
+        .registry = .{ .allocator = allocator, .db_pool = self.db_pool },
+        .comps = .{
             .http = http,
             .nix = nix,
             .process = .{ .allocator = allocator },
@@ -96,7 +96,7 @@ pub fn init(allocator: std.mem.Allocator, config: Config) (error{DbInitError} ||
         try sql.migrate(conn);
     }
 
-    try self.components.register(&self.registry);
+    try self.comps.register(&self.registry);
 
     return self;
 }

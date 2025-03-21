@@ -18,19 +18,18 @@ pub fn build(b: *std.Build) !void {
         .target = opts.target,
         .optimize = opts.optimize,
         .imports = imports: {
-            const cizero_mod = b.dependency("cizero", .{
+            const cizero_types_mod = b.dependency("cizero", .{
                 .target = opts.target,
                 .release = opts.optimize != .Debug,
-            }).module("cizero");
+            }).module("cizero-types");
 
             // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
-            const utils_mod = cizero_mod.import_table.get("utils").?;
-            const trait_mod = utils_mod.import_table.get("trait").?;
+            const utils_mod = cizero_types_mod.import_table.get("utils").?;
 
             break :imports &.{
-                .{ .name = "cizero", .module = cizero_mod },
+                .{ .name = "cizero", .module = cizero_types_mod },
                 .{ .name = "utils", .module = utils_mod },
-                .{ .name = "trait", .module = trait_mod },
+                .{ .name = "trait", .module = b.dependency("trait", opts).module("zigtrait") },
                 .{ .name = "s2s", .module = b.dependency("s2s", opts).module("s2s") },
             };
         },
@@ -38,7 +37,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const tests = utils.addModuleTest(b, module, .{});
+        const tests = b.addTest(.{ .root_module = module });
         configureCompileStep(tests);
 
         const run_tests = b.addRunArtifact(tests);

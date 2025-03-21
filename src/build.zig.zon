@@ -1,38 +1,43 @@
 .{
-    .name = "cizero",
+    .name = .cizero,
     .version = "0.0.0",
+    .fingerprint = 0x211ae7e5ce040572,
     .dependencies = .{
         .args = .{
-            .url = "https://github.com/ikskuh/zig-args/archive/1df15086e5d1b245acedadbec03440bb37871e5e.tar.gz",
-            .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
+            .url = "https://github.com/ikskuh/zig-args/archive/9425b94c103a031777fdd272c555ce93a7dea581.tar.gz",
+            .hash = "args-0.0.0-CiLiqv_NAAC97fGpk9hS2K681jkiqPsWP6w3ucb_ctGH",
         },
         .cron = .{
-            .url = "https://github.com/dying-will-bullet/cron/archive/85183419e421cce235119204abf3f9b387ed7599.tar.gz",
-            .hash = "1220679f5224a838ce1079bd7238451eaad630acde87b8439c5f12be96ffb66aa7a9",
+            .url = "https://github.com/dying-will-bullet/cron/archive/1d6f236a426442a52aad6e63af4849364b029e90.tar.gz",
+            .hash = "cron-0.3.0-joDqxHLoAAD4Ym8AxxmpkklAIQ2WiSs5KPMNx8pkpmu5",
         },
         .datetime = .{
-            .url = "https://github.com/frmdstryr/zig-datetime/archive/70aebf28fb3e137cd84123a9349d157a74708721.tar.gz",
-            .hash = "122077215ce36e125a490e59ec1748ffd4f6ba00d4d14f7308978e5360711d72d77f",
+            .url = "https://github.com/frmdstryr/zig-datetime/archive/52d4fbe43a758589b74411ffec8ebcb1f12e2d13.tar.gz",
+            .hash = "datetime-0.8.0-cJNXzNiMAQBz4RV6Gz7qUNeE-xLDNLs_jNU5_zIZ48as",
         },
         .httpz = .{
-            .url = "https://github.com/karlseguin/http.zig/archive/5a681b4a34eb5f2c9dec37645f7742a61ffa9b76.tar.gz",
-            .hash = "122041d9c6961cd3c3436d7d47568855577365f35a5edf6ced3b9b29cae4a811998e",
+            .url = "https://github.com/karlseguin/http.zig/archive/0ce9038e13c138423f68d95a475159039458e798.tar.gz",
+            .hash = "httpz-0.0.0-PNVzrJ-0BgAp8WPkVfsFGNPRlRpBoU-8w0LxMDXBp37t",
         },
         .@"known-folders" = .{
-            .url = "https://github.com/ziglibs/known-folders/archive/1cceeb70e77dec941a4178160ff6c8d05a74de6f.tar.gz",
-            .hash = "12205f5e7505c96573f6fc5144592ec38942fb0a326d692f9cddc0c7dd38f9028f29",
+            .url = "https://github.com/ziglibs/known-folders/archive/aa24df42183ad415d10bc0a33e6238c437fc0f59.tar.gz",
+            .hash = "known_folders-0.0.0-Fy-PJtLDAADGDOwYwMkVydMSTp_aN-nfjCZw6qPQ2ECL",
         },
         .trait = .{
-            .url = "https://github.com/wrongnull/zigtrait/archive/4b431169c9226b3fe2bbba89f451e5c8bca4c5a3.tar.gz",
-            .hash = "12208d1a1be506a77528120e9a485ba9d610f435d601b897eb5bfd9a3596d2e740a4",
+            .url = "https://github.com/wrongnull/zigtrait/archive/876b92368e7594de7163c0b39a8d8357cff3bf22.tar.gz",
+            .hash = "zigtrait-1.4.0-AAAAAKhWAAAZSvEHrZVKgy0OrKro-52vqKHcFFo2znaU",
         },
         .zqlite = .{
-            .url = "https://github.com/karlseguin/zqlite.zig/archive/997d3ac5156bcc9990168ad92caec6ed0cd5cbd8.tar.gz",
-            .hash = "1220321cdb273d1f6e90b04fc747cae49dac1ae3d7db4125f590d2c0df5c4aadcc88",
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/d146898482a4c4bdcba487496f67a24afa12894d.tar.gz",
+            .hash = "zqlite-0.0.0-RWLaYxp7lQBh-o0STqzS1uZZb0tLTCGBDgzpG_dGjd2J",
+        },
+        .@"zqlite-typed" = .{
+            .url = "https://github.com/dermetfan/zqlite-typed.zig/archive/e6a5b8e3d5604cd3f928ae07bf02ad3499b32ff0.tar.gz",
+            .hash = "zqlite_typed-0.0.0-la1GaD5EAADy5ZVbfc1xod3OXI36B8h5PfnX4P9lu6uJ",
         },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/aeffcb4dd4e0c89dc1caaedb00b12d7b63e19f8e.tar.gz",
-            .hash = "12209d8c3b492cc63227fe1d3b476688495856fba93141a5bc23b166d9590446135a",
+            .url = "https://github.com/dermetfan/utils.zig/archive/bdb7367344e6b58d73d7afe3f705bef91116e189.tar.gz",
+            .hash = "utils-0.0.0-5JJlDzacAgCSU4sNF22ajSwlCfZNykWSVHbFuZ_JZ0hC",
         },
     },
     .paths = .{

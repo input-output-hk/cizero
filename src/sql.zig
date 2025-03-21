@@ -1,16 +1,17 @@
 const std = @import("std");
 const zqlite = @import("zqlite");
+const zqlite_typed = @import("zqlite-typed");
 
 const utils = @import("utils");
 const fmt = utils.fmt;
 const mem = utils.mem;
 const meta = utils.meta;
 
-const Query = utils.zqlite.Query;
-const Exec = utils.zqlite.Exec;
-const SimpleInsert = utils.zqlite.SimpleInsert;
-const MergedTables = utils.zqlite.MergedTables;
-const columnList = utils.zqlite.columnList;
+const Query = zqlite_typed.Query;
+const Exec = zqlite_typed.Exec;
+const SimpleInsert = zqlite_typed.SimpleInsert;
+const MergedTables = zqlite_typed.MergedTables;
+const columnList = zqlite_typed.columnList;
 
 const c = @import("c.zig");
 
@@ -30,11 +31,11 @@ pub fn migrate(conn: zqlite.Conn) !void {
 
         {
             const sql = @embedFile("sql/schema.sql");
-            try utils.zqlite.logErr(conn, .execNoArgs, .{sql});
+            try zqlite_typed.logErr(conn, .execNoArgs, .{sql});
         }
         {
             const sql = "PRAGMA user_version = 1";
-            try utils.zqlite.logErr(conn, .execNoArgs, .{sql});
+            try zqlite_typed.logErr(conn, .execNoArgs, .{sql});
         }
 
         try conn.commit();
@@ -50,16 +51,16 @@ pub fn setJournalMode(conn: zqlite.Conn, comptime mode: enum {
     OFF,
 }) !void {
     const sql = "PRAGMA journal_mode = " ++ @tagName(mode);
-    try utils.zqlite.logErr(conn, .execNoArgs, .{sql});
+    try zqlite_typed.logErr(conn, .execNoArgs, .{sql});
 }
 
 pub fn enableForeignKeys(conn: zqlite.Conn) !void {
     const sql = "PRAGMA foreign_keys = ON";
-    try utils.zqlite.logErr(conn, .execNoArgs, .{sql});
+    try zqlite_typed.logErr(conn, .execNoArgs, .{sql});
 }
 
 pub fn enableLogging(conn: zqlite.Conn) void {
-    if (comptime !std.log.logEnabled(.debug, utils.zqlite.options.log_scope)) return;
+    if (comptime !std.log.logEnabled(.debug, zqlite_typed.options.log_scope)) return;
     _ = c.sqlite3_trace_v2(@ptrCast(conn.conn), c.SQLITE_TRACE_STMT, traceStmt, null);
 }
 
@@ -68,7 +69,7 @@ fn traceStmt(event: c_uint, ctx: ?*anyopaque, _: ?*anyopaque, x: ?*anyopaque) ca
     std.debug.assert(ctx == null);
 
     const sql: [*:0]const u8 = @ptrCast(x.?);
-    utils.zqlite.log.debug("trace: {s}", .{fmt.fmtOneline(std.mem.span(sql))});
+    zqlite_typed.log.debug("trace: {s}", .{fmt.fmtOneline(std.mem.span(sql))});
 
     return 0;
 }
@@ -87,14 +88,14 @@ pub const queries = struct {
         pub fn SelectByName(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(table, columns) ++
-                    \\
-                    \\FROM "
-                ++ table ++
-                    \\"
-                    \\WHERE "
-                ++ @tagName(Column.name) ++
-                    \\" = ?
+            ++ " " ++ columnList(table, columns) ++
+                \\
+                \\FROM "
+            ++ table ++
+                \\"
+                \\WHERE "
+            ++ @tagName(Column.name) ++
+                \\" = ?
             ,
                 false,
                 meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
@@ -121,12 +122,12 @@ pub const queries = struct {
         pub fn SelectById(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(table, columns) ++
-                    \\
-                    \\FROM "
-                ++ table ++
-                    \\"
-                    \\WHERE "rowid" = ?
+            ++ " " ++ columnList(table, columns) ++
+                \\
+                \\FROM "
+            ++ table ++
+                \\"
+                \\WHERE "rowid" = ?
             ,
                 false,
                 meta.SubStruct(@This(), columns),
@@ -158,29 +159,29 @@ pub const queries = struct {
         pub fn SelectNext(comptime columns: []const Column, comptime callback_columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ mem.comptimeJoin(&.{
-                    columnList(table, columns),
-                    columnList(Callback.table, callback_columns),
-                }, ", ") ++
-                    \\
-                    \\FROM "
-                ++ Callback.table ++
-                    \\"
-                    \\INNER JOIN "
-                ++ table ++
-                    \\" ON "
-                ++ table ++
-                    \\"."
-                ++ @tagName(Column.callback) ++
-                    \\" = "
-                ++ Callback.table ++
-                    \\"."
-                ++ @tagName(Callback.Column.id) ++
-                    \\"
-                    \\ORDER BY "
-                ++ @tagName(Column.timestamp) ++
-                    \\" ASC
-                    \\LIMIT 1
+            ++ " " ++ mem.comptimeJoin(&.{
+                columnList(table, columns),
+                columnList(Callback.table, callback_columns),
+            }, ", ") ++
+                \\
+                \\FROM "
+            ++ Callback.table ++
+                \\"
+                \\INNER JOIN "
+            ++ table ++
+                \\" ON "
+            ++ table ++
+                \\"."
+            ++ @tagName(Column.callback) ++
+                \\" = "
+            ++ Callback.table ++
+                \\"."
+            ++ @tagName(Callback.Column.id) ++
+                \\"
+                \\ORDER BY "
+            ++ @tagName(Column.timestamp) ++
+                \\" ASC
+                \\LIMIT 1
             ,
                 false,
                 MergedTables(
@@ -219,27 +220,27 @@ pub const queries = struct {
         pub fn SelectCallbackByPlugin(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(Callback.table, columns) ++
-                    \\
-                    \\FROM "
-                ++ Callback.table ++
-                    \\"
-                    \\INNER JOIN "
-                ++ table ++
-                    \\" ON "
-                ++ table ++
-                    \\"."
-                ++ @tagName(Column.callback) ++
-                    \\" = "
-                ++ Callback.table ++
-                    \\"."
-                ++ @tagName(Callback.Column.id) ++
-                    \\"
-                    \\WHERE "
-                ++ table ++
-                    \\"."
-                ++ @tagName(Column.plugin) ++
-                    \\" = ?
+            ++ " " ++ columnList(Callback.table, columns) ++
+                \\
+                \\FROM "
+            ++ Callback.table ++
+                \\"
+                \\INNER JOIN "
+            ++ table ++
+                \\" ON "
+            ++ table ++
+                \\"."
+            ++ @tagName(Column.callback) ++
+                \\" = "
+            ++ Callback.table ++
+                \\"."
+            ++ @tagName(Callback.Column.id) ++
+                \\"
+                \\WHERE "
+            ++ table ++
+                \\"."
+            ++ @tagName(Column.plugin) ++
+                \\" = ?
             ,
                 false,
                 meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),
@@ -261,11 +262,11 @@ pub const queries = struct {
         pub fn Select(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(table, columns) ++
-                    \\
-                    \\FROM "
-                ++ table ++
-                    \\"
+            ++ " " ++ columnList(table, columns) ++
+                \\
+                \\FROM "
+            ++ table ++
+                \\"
             ,
                 true,
                 meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
@@ -276,25 +277,25 @@ pub const queries = struct {
         pub fn SelectCallbackByInstallables(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(Callback.table, columns) ++
-                    \\
-                    \\FROM "
-                ++ Callback.table ++
-                    \\"
-                    \\INNER JOIN "
-                ++ table ++
-                    \\" ON "
-                ++ table ++
-                    \\"."
-                ++ @tagName(Column.callback) ++
-                    \\" = "
-                ++ Callback.table ++
-                    \\"."
-                ++ @tagName(Callback.Column.id) ++
-                    \\"
-                    \\WHERE "
-                ++ @tagName(Column.installables) ++
-                    \\" = ?
+            ++ " " ++ columnList(Callback.table, columns) ++
+                \\
+                \\FROM "
+            ++ Callback.table ++
+                \\"
+                \\INNER JOIN "
+            ++ table ++
+                \\" ON "
+            ++ table ++
+                \\"."
+            ++ @tagName(Column.callback) ++
+                \\" = "
+            ++ Callback.table ++
+                \\"."
+            ++ @tagName(Callback.Column.id) ++
+                \\"
+                \\WHERE "
+            ++ @tagName(Column.installables) ++
+                \\" = ?
             ,
                 true,
                 meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),
@@ -342,11 +343,11 @@ pub const queries = struct {
         pub fn Select(comptime columns: []const Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(table, columns) ++
-                    \\
-                    \\FROM "
-                ++ table ++
-                    \\"
+            ++ " " ++ columnList(table, columns) ++
+                \\
+                \\FROM "
+            ++ table ++
+                \\"
             ,
                 true,
                 meta.SubStruct(@This(), std.enums.EnumSet(Column).initMany(columns)),
@@ -357,29 +358,29 @@ pub const queries = struct {
         pub fn SelectCallbackByFlakeAndExprAndFormat(comptime columns: []const Callback.Column) type {
             return Query(
                 \\SELECT
-                ++ " " ++ columnList(Callback.table, columns) ++
-                    \\
-                    \\FROM "
-                ++ Callback.table ++
-                    \\"
-                    \\INNER JOIN "
-                ++ table ++
-                    \\" ON "
-                ++ table ++
-                    \\"."
-                ++ @tagName(Column.callback) ++
-                    \\" = "
-                ++ Callback.table ++
-                    \\"."
-                ++ @tagName(Callback.Column.id) ++
-                    \\"
-                    \\WHERE "
-                ++ @tagName(Column.flake) ++
-                    \\" IS ? AND "
-                ++ @tagName(Column.expr) ++
-                    \\" = ? AND "
-                ++ @tagName(Column.format) ++
-                    \\" = ?
+            ++ " " ++ columnList(Callback.table, columns) ++
+                \\
+                \\FROM "
+            ++ Callback.table ++
+                \\"
+                \\INNER JOIN "
+            ++ table ++
+                \\" ON "
+            ++ table ++
+                \\"."
+            ++ @tagName(Column.callback) ++
+                \\" = "
+            ++ Callback.table ++
+                \\"."
+            ++ @tagName(Callback.Column.id) ++
+                \\"
+                \\WHERE "
+            ++ @tagName(Column.flake) ++
+                \\" IS ? AND "
+            ++ @tagName(Column.expr) ++
+                \\" = ? AND "
+            ++ @tagName(Column.format) ++
+                \\" = ?
             ,
                 true,
                 meta.SubStruct(Callback, std.enums.EnumSet(Callback.Column).initMany(columns)),

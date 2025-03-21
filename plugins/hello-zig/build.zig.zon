@@ -1,11 +1,12 @@
 .{
-    .name = "cizero-plugin-hello-zig",
+    .name = .cizero_plugin_hello_zig,
     .version = "0.0.0",
+    .fingerprint = 0x534a970044ace50e,
     .dependencies = .{
         .pdk = .{ .path = "../../pdk/zig" },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/aeffcb4dd4e0c89dc1caaedb00b12d7b63e19f8e.tar.gz",
-            .hash = "12209d8c3b492cc63227fe1d3b476688495856fba93141a5bc23b166d9590446135a",
+            .url = "https://github.com/dermetfan/utils.zig/archive/bdb7367344e6b58d73d7afe3f705bef91116e189.tar.gz",
+            .hash = "utils-0.0.0-5JJlDzacAgCSU4sNF22ajSwlCfZNykWSVHbFuZ_JZ0hC",
         },
     },
     .paths = .{

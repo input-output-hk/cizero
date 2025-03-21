@@ -37,14 +37,14 @@ fn init() !@This() {
     };
     errdefer cizero.registry.wasi_config.env.?.env.deinit(testing.allocator);
 
-    cizero.components.timeout.mock_milli_timestamp = meta.closure(&{}, struct {
+    cizero.comps.timeout.mock_milli_timestamp = meta.closure(&{}, struct {
         fn call(_: *const void) i64 {
             return std.time.ms_per_s;
         }
     }.call);
 
-    cizero.components.process.mock_child_run = meta.closure(&{}, struct {
-        const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
+    cizero.comps.process.mock_child_run = meta.closure(&{}, struct {
+        const info = @typeInfo(@TypeOf(std.process.Child.run)).@"fn";
 
         fn call(_: *const void, _: info.params[0].type.?) info.return_type.? {
             return error.Unexpected;
@@ -198,7 +198,7 @@ test "process_exec" {
         pub const stdout = "stdout";
         pub const stderr = "stderr $foo=bar";
 
-        const info = @typeInfo(@TypeOf(std.process.Child.run)).Fn;
+        const info = @typeInfo(@TypeOf(std.process.Child.run)).@"fn";
 
         pub fn run(mock: *@This(), args: info.params[0].type.?) info.return_type.? {
             execTest(args) catch |err| {
@@ -245,7 +245,7 @@ test "process_exec" {
     };
     var mock_child_run = MockChildRun{};
 
-    self.cizero.components.process.mock_child_run = meta.closure(&mock_child_run, MockChildRun.run);
+    self.cizero.comps.process.mock_child_run = meta.closure(&mock_child_run, MockChildRun.run);
 
     try self.expectEqualStdio("",
         \\term tag: Exited
@@ -347,7 +347,7 @@ test "nix_on_build" {
     defer self.deinit();
 
     const MockStartJob = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).optional.child.Fn).@"fn";
 
         fn call(
             _: *const void,
@@ -358,7 +358,7 @@ test "nix_on_build" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
+    self.cizero.comps.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
 
     const installable = "/nix/store/g2mxdrkwr1hck4y5479dww7m56d1x81v-hello-2.12.1.drv^*";
     const installable_output = "/nix/store/sbldylj3clbkc0aqvjjzfa6slp4zdvlj-hello-2.12.1";
@@ -438,7 +438,7 @@ test "nix_on_eval" {
     defer self.deinit();
 
     const MockStartJob = struct {
-        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).Optional.child.Fn).Fn;
+        const info = @typeInfo(@typeInfo(std.meta.fieldInfo(Cizero.components.Nix, .mock_start_job).type).optional.child.Fn).@"fn";
 
         fn call(
             _: *const void,
@@ -449,7 +449,7 @@ test "nix_on_eval" {
         }
     };
 
-    self.cizero.components.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
+    self.cizero.comps.nix.mock_start_job = meta.closure(&{}, MockStartJob.call);
 
     const flake = "github:NixOS/nixpkgs/057f9aecfb71c4437d2b27d3323df7f93c010b7e";
     const expr = "flake: flake.legacyPackages.x86_64-linux.hello.meta.description";

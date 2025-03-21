@@ -2,10 +2,13 @@ const builtin = @import("builtin");
 const std = @import("std");
 const args = @import("args");
 const zqlite = @import("zqlite");
+const zqlite_typed = @import("zqlite-typed");
+
+const utils = @import("utils");
 
 const Cizero = @import("cizero");
 
-pub const utils_zqlite_options = .{
+pub const zqlite_typed_options = zqlite_typed.Options{
     .log_scope = .sql,
 };
 
@@ -70,8 +73,8 @@ pub fn main() !u8 {
             .mask = std.posix.empty_sigset,
             .flags = std.posix.SA.RESETHAND,
         };
-        try std.posix.sigaction(std.posix.SIG.TERM, &sa, null);
-        try std.posix.sigaction(std.posix.SIG.INT, &sa, null);
+        std.posix.sigaction(std.posix.SIG.TERM, &sa, null);
+        std.posix.sigaction(std.posix.SIG.INT, &sa, null);
     }
 
     errdefer {

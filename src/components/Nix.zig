@@ -9,6 +9,8 @@ const meta = utils.meta;
 const nix = utils.nix;
 const wasm = utils.wasm;
 
+const types = @import("types");
+
 const components = @import("../components.zig");
 const sql = @import("../sql.zig");
 
@@ -658,7 +660,7 @@ fn runBuildJobCallbacks(self: *@This(), job: Job.Build, result: meta.FnErrorSet(
                     .outputs => 0,
                     .failed => |failed| @intCast(failed.dependents.len),
                 } },
-            } else |_| .{.{ .i32 = 0 }} ** 6,
+            } else |_| [_]wasm.Value{.{ .i32 = 0 }} ** 6,
             &.{},
         );
 
@@ -726,7 +728,7 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: meta.FnErrorSet(@T
                     .ifd_failed => |ifd_failed| @intCast(ifd_failed.dependents.len),
                     else => 0,
                 } },
-            } else |_| .{.{ .i32 = 0 }} ** 6,
+            } else |_| [_]wasm.Value{.{ .i32 = 0 }} ** 6,
             &.{},
         );
 
@@ -737,23 +739,9 @@ fn runEvalJobCallbacks(self: *@This(), job: Job.Eval, result: meta.FnErrorSet(@T
     }
 }
 
-pub const EvalFormat = enum { nix, json, raw };
+pub const EvalFormat = types.components.Nix.EvalFormat;
 
-pub const EvalResult = union(enum) {
-    ok: []const u8,
-    /// error message
-    failed: []const u8,
-    ifd_failed: nix.FailedBuilds,
-
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        switch (self.*) {
-            .ok => |evaluated| allocator.free(evaluated),
-            .failed => |msg| allocator.free(msg),
-            .ifd_failed => |*ifd_failed| ifd_failed.deinit(allocator),
-        }
-        self.* = undefined;
-    }
-};
+pub const EvalResult = types.components.Nix.EvalResult;
 
 fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalFormat) !EvalResult {
     if (flake) |f| {
@@ -873,22 +861,7 @@ fn eval(self: @This(), flake: ?[]const u8, expression: []const u8, format: EvalF
     return .{ .failed = result.stderr };
 }
 
-pub const BuildResult = union(enum) {
-    /// output paths produced
-    outputs: []const []const u8,
-    failed: nix.FailedBuilds,
-
-    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-        switch (self.*) {
-            .outputs => |outputs| {
-                for (outputs) |output| allocator.free(output);
-                allocator.free(outputs);
-            },
-            .failed => |*failed| failed.deinit(allocator),
-        }
-        self.* = undefined;
-    }
-};
+pub const BuildResult = types.components.Nix.BuildResult;
 
 fn build(allocator: std.mem.Allocator, nix_exe: []const u8, installables: []const []const u8) !BuildResult {
     log.debug("building {s}", .{installables});

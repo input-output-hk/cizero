@@ -1,14 +1,15 @@
 .{
-    .name = "hydra-eval-jobs",
+    .name = .hydra_eval_jobs,
     .version = "0.0.0",
+    .fingerprint = 0xdc8bc35772a86459,
     .dependencies = .{
         .args = .{
-            .url = "https://github.com/ikskuh/zig-args/archive/1df15086e5d1b245acedadbec03440bb37871e5e.tar.gz",
-            .hash = "1220904d2fdcd970dd0d216211d092eb3ef6da01117163cc9393ab845a1d66c029d9",
+            .url = "https://github.com/ikskuh/zig-args/archive/9425b94c103a031777fdd272c555ce93a7dea581.tar.gz",
+            .hash = "args-0.0.0-CiLiqv_NAAC97fGpk9hS2K681jkiqPsWP6w3ucb_ctGH",
         },
         .utils = .{
-            .url = "https://github.com/dermetfan/utils.zig/archive/aeffcb4dd4e0c89dc1caaedb00b12d7b63e19f8e.tar.gz",
-            .hash = "12209d8c3b492cc63227fe1d3b476688495856fba93141a5bc23b166d9590446135a",
+            .url = "https://github.com/dermetfan/utils.zig/archive/bdb7367344e6b58d73d7afe3f705bef91116e189.tar.gz",
+            .hash = "utils-0.0.0-5JJlDzacAgCSU4sNF22ajSwlCfZNykWSVHbFuZ_JZ0hC",
         },
     },
     .paths = .{

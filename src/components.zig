@@ -4,6 +4,8 @@ const trait = @import("trait");
 const utils = @import("utils");
 const wasm = utils.wasm;
 
+const types = @import("types");
+
 const Runtime = @import("Runtime.zig");
 
 pub const Http = @import("components/Http.zig");
@@ -55,16 +57,7 @@ pub const CallbackDoneCondition = union(enum) {
 
 /// A fallible value passed into a callback.
 /// (Not the result of calling a callback.)
-pub fn CallbackResult(comptime T: type) type {
-    return union(enum) {
-        /// The name of the error that occured
-        /// trying to obtain a `T`.
-        err: []const u8,
-        ok: Ok,
-
-        pub const Ok = T;
-    };
-}
+pub const CallbackResult = types.components.CallbackResult;
 
 pub fn rejectIfStopped(running: *const std.atomic.Value(bool)) error{ComponentStopped}!void {
     if (!running.load(.monotonic)) return error.ComponentStopped;

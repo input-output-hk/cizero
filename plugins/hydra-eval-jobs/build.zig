@@ -16,23 +16,27 @@ pub fn build(b: *Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "hydra-eval-jobs",
-        .root_source_file = b.path("main.zig"),
-        .target = opts.target,
-        .optimize = opts.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .imports = imports: {
+                const pdk_mod = b.dependency("pdk", .{
+                    .target = opts.target,
+                    .release = opts.optimize != .Debug,
+                }).module("cizero-pdk");
+
+                break :imports &.{
+                    .{ .name = "cizero", .module = pdk_mod },
+                    // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
+                    .{ .name = "utils", .module = pdk_mod.import_table.get("utils").? },
+                    .{ .name = "s2s", .module = b.dependency("s2s", opts).module("s2s") },
+                };
+            },
+        }),
         .linkage = .dynamic,
     });
     configureCompileStep(exe);
-    {
-        const pdk_mod = b.dependency("pdk", .{
-            .target = opts.target,
-            .release = opts.optimize != .Debug,
-        }).module("cizero-pdk");
-
-        exe.root_module.addImport("cizero", pdk_mod);
-        // Getting from `import_table` as a workaround for "file exists in multiple modules" error.
-        exe.root_module.addImport("utils", pdk_mod.import_table.get("utils").?);
-    }
-    exe.root_module.addImport("s2s", b.dependency("s2s", opts).module("s2s"));
 
     {
         const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
@@ -41,7 +45,7 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const tests = utils.addModuleTest(b, &exe.root_module, .{});
+        const tests = b.addTest(.{ .root_module = exe.root_module });
         configureCompileStep(tests);
 
         const run_tests = b.addRunArtifact(tests);

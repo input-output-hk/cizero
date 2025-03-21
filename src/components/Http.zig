@@ -28,7 +28,11 @@ wait_group: *std.Thread.WaitGroup,
 
 allocator: std.mem.Allocator,
 
-server: httpz.ServerCtx(*@This(), *@This()),
+server: httpz.Server(ServerCtx),
+
+const Http = @This();
+
+pub const ServerCtx = struct { self: *Http };
 
 pub fn deinit(self: *@This()) void {
     self.server.deinit();
@@ -43,13 +47,13 @@ pub fn init(allocator: std.mem.Allocator, registry: *const Registry, wait_group:
 
     self.* = .{
         .allocator = allocator,
-        .server = try httpz.ServerCtx(*@This(), *@This()).init(allocator, .{}, self),
+        .server = try httpz.Server(ServerCtx).init(allocator, .{}, .{ .self = self }),
         .registry = registry,
         .wait_group = wait_group,
     };
 
-    var router = self.server.router();
-    router.post("/webhook/:plugin", postWebhook);
+    var router = try self.server.router(.{});
+    router.post("/webhook/:plugin", postWebhook, .{});
 
     return self;
 }
@@ -73,15 +77,15 @@ pub fn stop(self: *@This()) void {
     self.server.stop();
 }
 
-fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void {
+fn postWebhook(ctx: ServerCtx, req: *httpz.Request, res: *httpz.Response) !void {
     const plugin_name = req.param("plugin") orelse {
         res.status = @intFromEnum(std.http.Status.not_found);
         return;
     };
 
     const callback_row = row: {
-        const conn = self.registry.db_pool.acquire();
-        defer self.registry.db_pool.release(conn);
+        const conn = ctx.self.registry.db_pool.acquire();
+        defer ctx.self.registry.db_pool.release(conn);
 
         break :row try sql.queries.HttpCallback.SelectCallbackByPlugin(&.{ .id, .plugin, .function, .user_data })
             .query(res.arena, conn, .{plugin_name}) orelse {
@@ -97,7 +101,7 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
         .user_data = if (callback_row.user_data) |ud| ud.value else null,
     };
 
-    var runtime = try self.registry.runtime(callback_row.plugin);
+    var runtime = try ctx.self.registry.runtime(callback_row.plugin);
     defer runtime.deinit();
 
     const linear = try runtime.linearMemoryAllocator();
@@ -122,12 +126,12 @@ fn postWebhook(self: *@This(), req: *httpz.Request, res: *httpz.Response) !void 
 
     var outputs: [1]wasm.Value = undefined;
 
-    const success = try callback.run(self.allocator, runtime, &inputs, &outputs);
+    const success = try callback.run(ctx.self.allocator, runtime, &inputs, &outputs);
     if (!success) res_status.* = .internal_server_error;
 
     if (Callback.webhook.done().check(success, &outputs)) {
-        const conn = self.registry.db_pool.acquire();
-        defer self.registry.db_pool.release(conn);
+        const conn = ctx.self.registry.db_pool.acquire();
+        defer ctx.self.registry.db_pool.release(conn);
 
         try sql.queries.Callback.deleteById.exec(conn, .{callback_row.id});
     }

@@ -37,7 +37,7 @@ pub const CallbackData = struct {
         };
     }
 
-    pub fn call(self: @This(), Callback: fn (comptime UserData: type) type, args: anytype) @typeInfo(Callback(struct { []const u8 })).Fn.return_type.? {
+    pub fn call(self: @This(), Callback: fn (comptime UserData: type) type, args: anytype) @typeInfo(Callback(struct { []const u8 })).@"fn".return_type.? {
         const callback: *const Callback(struct { []const u8 }) = @ptrCast(self.callback);
         return @call(.auto, callback, .{.{self.user_data}} ++ args);
     }
@@ -59,7 +59,7 @@ pub const CallbackData = struct {
     }
 
     /// A collection of ready-made user data types.
-    pub const user_data = struct {
+    pub const user_data_types = struct {
         /// Serialization using s2s.
         pub fn S2S(comptime V: type) type {
             return struct {
@@ -99,7 +99,7 @@ pub const CallbackData = struct {
 
                 pub const Value = V;
 
-                const is_slice = trait.ptrOfSize(.Slice)(Value);
+                const is_slice = trait.ptrOfSize(.slice)(Value);
 
                 pub fn serialize(allocator: std.mem.Allocator, value: Value) ![]const u8 {
                     return allocator.dupe(u8, mem.anyAsBytesUnpad(if (is_slice) value else &value));
@@ -119,9 +119,9 @@ pub const CallbackData = struct {
         }
     };
 
-    test user_data {
-        for (std.meta.fieldNames(user_data)) |field_name|
-            validateUserData(@field(user_data, field_name)(void));
+    test user_data_types {
+        for (std.meta.fieldNames(user_data_types)) |field_name|
+            validateUserData(@field(user_data_types, field_name)(void));
     }
 };
 

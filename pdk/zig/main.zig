@@ -23,7 +23,7 @@ pub const utils_nix_options = utils.nix.Options{
     .runFn = utilsNixOptionsRunFn,
 };
 
-fn utilsNixOptionsRunFn(args: utils.nix.Options.RunFnArgs) @typeInfo(@TypeOf(std.process.Child.run)).Fn.return_type.? {
+fn utilsNixOptionsRunFn(args: utils.nix.Options.RunFnArgs) @typeInfo(@TypeOf(std.process.Child.run)).@"fn".return_type.? {
     return @This().process.exec(.{
         .allocator = args.allocator,
         .max_output_bytes = args.max_output_bytes,
@@ -31,18 +31,24 @@ fn utilsNixOptionsRunFn(args: utils.nix.Options.RunFnArgs) @typeInfo(@TypeOf(std
     });
 }
 
-pub const user_data = @import("abi.zig").CallbackData.user_data;
+pub const user_data = @import("abi.zig").CallbackData.user_data_types;
 
 pub usingnamespace @import("components.zig");
 
-export fn cizero_mem_alloc(len: usize, ptr_align: u8) ?[*]u8 {
-    return std.heap.wasm_allocator.rawAlloc(len, ptr_align, 0);
+const Alignment = utils.meta.EnsurePowBits(std.meta.Tag(std.mem.Alignment), 0);
+
+export fn cizero_mem_alloc(len: usize, alignment: Alignment) ?[*]u8 {
+    return std.heap.wasm_allocator.rawAlloc(len, @enumFromInt(alignment), 0);
 }
 
-export fn cizero_mem_resize(buf: [*]u8, buf_len: usize, buf_align: u8, new_len: usize) bool {
-    return std.heap.wasm_allocator.rawResize(buf[0..buf_len], buf_align, new_len, 0);
+export fn cizero_mem_resize(memory: [*]u8, memory_len: usize, alignment: Alignment, new_len: usize) bool {
+    return std.heap.wasm_allocator.rawResize(memory[0..memory_len], @enumFromInt(alignment), new_len, 0);
 }
 
-export fn cizero_mem_free(buf: [*]u8, buf_len: usize, buf_align: u8) void {
-    std.heap.wasm_allocator.rawFree(buf[0..buf_len], buf_align, 0);
+export fn cizero_mem_remap(memory: [*]u8, memory_len: usize, alignment: Alignment, new_len: usize) ?[*]u8 {
+    return std.heap.wasm_allocator.rawRemap(memory[0..memory_len], @enumFromInt(alignment), new_len, 0);
+}
+
+export fn cizero_mem_free(memory: [*]u8, memory_len: usize, alignment: Alignment) void {
+    std.heap.wasm_allocator.rawFree(memory[0..memory_len], @enumFromInt(alignment), 0);
 }

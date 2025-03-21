@@ -16,22 +16,74 @@ pub fn build(b: *Build) !void {
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe }),
     };
 
+    const utils_mod = b.dependency("utils", .{
+        .target = options.target,
+        .optimize = options.optimize,
+    }).module("utils");
+
+    const translate_c_mod = translate_c_mod: {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("c.h"),
+            .target = options.target,
+            .optimize = options.optimize,
+            .link_libc = true,
+        });
+        try utils.addNixIncludePaths(translate_c);
+        break :translate_c_mod translate_c.createModule();
+    };
+    translate_c_mod.linkSystemLibrary("wasmtime", .{});
+    translate_c_mod.linkSystemLibrary("sqlite3", .{});
+    translate_c_mod.linkSystemLibrary("whereami", .{});
+
+    // This only exists so that the Zig PDK can import these types.
+    // They should ideally live directly in `cizero_mod`.
+    // Since Zig 0.14.0 it cannot import `cizero_mod` anymore
+    // because that does not compile on WASI.
+    // I suppose some part of the compiler became more eager
+    // because it worked previously
+    // as long as you did not reference the incompatible types.
+    const cizero_types_mod = b.addModule("cizero-types", .{
+        .root_source_file = b.path("types.zig"),
+        .target = options.target,
+        .optimize = options.optimize,
+        .imports = &.{
+            .{ .name = "utils", .module = utils_mod },
+        },
+    });
+
     const cizero_mod = b.addModule("cizero", .{
         .root_source_file = b.path("Cizero.zig"),
         .target = options.target,
         .optimize = options.optimize,
+        .imports = &.{
+            .{ .name = "c", .module = translate_c_mod },
+            .{ .name = "types", .module = cizero_types_mod },
+            .{ .name = "utils", .module = utils_mod },
+            .{ .name = "trait", .module = b.dependency("trait", options).module("zigtrait") },
+            .{ .name = "cron", .module = b.dependency("cron", options).module("cron") },
+            .{ .name = "datetime", .module = b.dependency("datetime", options).module("datetime") },
+            .{ .name = "httpz", .module = b.dependency("httpz", options).module("httpz") },
+            .{ .name = "known-folders", .module = b.dependency("known-folders", options).module("known-folders") },
+            .{ .name = "zqlite", .module = b.dependency("zqlite", options).module("zqlite") },
+            .{ .name = "zqlite-typed", .module = b.dependency("zqlite-typed", options).module("zqlite-typed") },
+        },
     });
-    addDependencyImports(b, cizero_mod, options);
 
     const cizero_exe = b.addExecutable(.{
         .name = "cizero",
-        .root_source_file = b.path("main.zig"),
-        .target = options.target,
-        .optimize = options.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = options.target,
+            .optimize = options.optimize,
+            .imports = &.{
+                .{ .name = "cizero", .module = cizero_mod },
+                .{ .name = "utils", .module = utils_mod },
+                .{ .name = "args", .module = b.dependency("args", options).module("args") },
+                .{ .name = "zqlite", .module = b.dependency("zqlite", options).module("zqlite") },
+                .{ .name = "zqlite-typed", .module = b.dependency("zqlite-typed", options).module("zqlite-typed") },
+            },
+        }),
     });
-    addDependencyImports(b, &cizero_exe.root_module, options);
-    linkSystemLibraries(&cizero_exe.root_module);
-    cizero_exe.root_module.addImport("cizero", cizero_mod);
     b.installArtifact(cizero_exe);
 
     const run_step = b.step("run", "Run the app");
@@ -45,17 +97,18 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const cizero_mod_test = utils.addModuleTest(b, cizero_mod, .{
+        const cizero_mod_test = b.addTest(.{
             .name = "cizero (mod)",
+            .root_module = cizero_mod,
         });
-        linkSystemLibraries(&cizero_mod_test.root_module);
 
         const run_cizero_mod_test = b.addRunArtifact(cizero_mod_test);
         test_step.dependOn(&run_cizero_mod_test.step);
     }
     {
-        const cizero_exe_test = utils.addModuleTest(b, &cizero_exe.root_module, .{
+        const cizero_exe_test = b.addTest(.{
             .name = "cizero (exe)",
+            .root_module = cizero_exe.root_module,
         });
 
         const run_cizero_exe_test = b.addRunArtifact(cizero_exe_test);
@@ -63,27 +116,4 @@ pub fn build(b: *Build) !void {
     }
 
     _ = utils.addCheckTls(b);
-}
-
-pub fn addDependencyImports(b: *Build, module: *Build.Module, options: Options) void {
-    module.addImport("utils", b.dependency("utils", .{
-        .target = options.target,
-        .optimize = options.optimize,
-        .zqlite = true,
-    }).module("utils"));
-    module.addImport("trait", b.dependency("trait", options).module("zigtrait"));
-    module.addImport("args", b.dependency("args", options).module("args"));
-    module.addImport("cron", b.dependency("cron", options).module("cron"));
-    module.addImport("datetime", b.dependency("datetime", options).module("zig-datetime"));
-    module.addImport("httpz", b.dependency("httpz", options).module("httpz"));
-    module.addImport("known-folders", b.dependency("known-folders", options).module("known-folders"));
-    // Need to use `lazyDependency()` due to https://github.com/ziglang/zig/issues/21771
-    module.addImport("zqlite", (b.lazyDependency("zqlite", options) orelse unreachable).module("zqlite"));
-}
-
-pub fn linkSystemLibraries(module: *Build.Module) void {
-    module.link_libc = true;
-    module.linkSystemLibrary("wasmtime", .{});
-    module.linkSystemLibrary("sqlite3", .{});
-    module.linkSystemLibrary("whereami", .{});
 }

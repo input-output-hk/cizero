@@ -288,10 +288,10 @@ const tests = struct {
 };
 
 fn runContainerFns(comptime container: type) !void {
-    inline for (@typeInfo(container).Struct.decls) |decl| {
+    inline for (@typeInfo(container).@"struct".decls) |decl| {
         const func = @field(container, decl.name);
         const result = func();
-        if (@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?) == .ErrorUnion) try result;
+        if (@typeInfo(@typeInfo(@TypeOf(func)).@"fn".return_type.?) == .error_union) try result;
     }
 }
 

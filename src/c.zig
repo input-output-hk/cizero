@@ -1,8 +1,4 @@
-pub usingnamespace @cImport({
-    @cInclude("wasmtime.h");
-    @cInclude("sqlite3.h");
-    @cInclude("whereami.h");
-});
+pub usingnamespace @import("c");
 
 const std = @import("std");
 

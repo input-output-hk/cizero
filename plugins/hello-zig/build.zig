@@ -16,12 +16,21 @@ pub fn build(b: *Build) !void {
 
     const exe = b.addExecutable(.{
         .name = "hello-zig",
-        .root_source_file = b.path("main.zig"),
-        .target = opts.target,
-        .optimize = opts.optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .imports = &.{
+                .{ .name = "cizero", .module = b.dependency("pdk", .{
+                    .target = opts.target,
+                    .release = opts.optimize != .Debug,
+                }).module("cizero-pdk") },
+                .{ .name = "utils", .module = b.dependency("utils", opts).module("utils") },
+            },
+        }),
         .linkage = .dynamic,
     });
-    configureCompileStep(b, exe, opts);
+    configureCompileStep(exe);
 
     {
         const install_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "libexec/cizero/plugins" } } });
@@ -30,8 +39,8 @@ pub fn build(b: *Build) !void {
 
     const test_step = b.step("test", "Run unit tests");
     {
-        const tests = utils.addModuleTest(b, &exe.root_module, .{});
-        configureCompileStep(b, tests, opts);
+        const tests = b.addTest(.{ .root_module = exe.root_module });
+        configureCompileStep(tests);
 
         const run_tests = b.addRunArtifact(tests);
         test_step.dependOn(&run_tests.step);
@@ -40,13 +49,7 @@ pub fn build(b: *Build) !void {
     _ = utils.addCheckTls(b);
 }
 
-fn configureCompileStep(b: *Build, step: *Build.Step.Compile, opts: anytype) void {
+fn configureCompileStep(step: *Build.Step.Compile) void {
     step.rdynamic = true;
     step.wasi_exec_model = .command;
-
-    step.root_module.addImport("cizero", b.dependency("pdk", .{
-        .target = opts.target,
-        .release = opts.optimize != .Debug,
-    }).module("cizero-pdk"));
-    step.root_module.addImport("utils", b.dependency("utils", opts).module("utils"));
 }
