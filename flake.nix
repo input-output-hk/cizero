@@ -1,7 +1,6 @@
 {
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixpkgs-unstable;
-    nixpkgs-wasmtime.url = github:nekowinston/nixpkgs/wasmtime-include-confh;
     nix.url = github:NixOS/nix/2.19-maintenance;
     parts.url = github:hercules-ci/flake-parts;
     mission-control.url = github:Platonic-Systems/mission-control;
@@ -52,16 +51,7 @@
       ];
 
       perSystem = {inputs', ...}: {
-        _module.args.pkgs =
-          inputs'.nixpkgs.legacyPackages.appendOverlays
-          [
-            inputs.utils.overlays.zig
-
-            (_: prev: {
-              # XXX Remove once https://github.com/NixOS/nixpkgs/pull/394859 is merged.
-              inherit (inputs.nixpkgs-wasmtime.legacyPackages.${prev.system}) wasmtime;
-            })
-          ];
+        _module.args.pkgs = inputs'.nixpkgs.legacyPackages.extend inputs.utils.overlays.zig;
       };
     });
 }
