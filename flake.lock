@@ -240,22 +240,6 @@
         "type": "github"
       }
     },
-    "nixpkgs-24.05": {
-      "locked": {
-        "lastModified": 1726170805,
-        "narHash": "sha256-OW0ppNudh1kem/NtYNIOrRMAUdmpn0BAh/6ojIXAzgc=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "5d09c06d05fe9ac35ea063ccc55c8f9bb522dcbf",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "release-24.05",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "nixpkgs-lib": {
       "locked": {
         "dir": "lib",
@@ -287,6 +271,22 @@
         "owner": "NixOS",
         "repo": "nixpkgs",
         "rev": "215d4d0fd80ca5163643b03a33fde804a29cc1e2",
+        "type": "github"
+      }
+    },
+    "nixpkgs-wasmtime": {
+      "locked": {
+        "lastModified": 1743535183,
+        "narHash": "sha256-joqrPNygohWDf86cHXOUdOc4sJ6nlbkTo2MylkEadPc=",
+        "owner": "nekowinston",
+        "repo": "nixpkgs",
+        "rev": "732b3d1801bf4d4852c857455526967d63886936",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nekowinston",
+        "ref": "wasmtime-include-confh",
+        "repo": "nixpkgs",
         "type": "github"
       }
     },
@@ -333,7 +333,7 @@
         "nix": "nix",
         "nix-sigstop": "nix-sigstop",
         "nixpkgs": "nixpkgs_2",
-        "nixpkgs-24.05": "nixpkgs-24.05",
+        "nixpkgs-wasmtime": "nixpkgs-wasmtime",
         "parts": "parts",
         "treefmt-nix": "treefmt-nix",
         "utils": "utils"

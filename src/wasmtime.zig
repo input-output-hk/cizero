@@ -13,7 +13,7 @@ pub fn fromVal(v: *const c.wasmtime_val) !wasm.Value {
         c.WASMTIME_F64 => .{ .f64 = v.of.f64 },
         c.WASMTIME_V128 => .{ .v128 = v.of.v128 },
         c.WASMTIME_FUNCREF => .{ .funcref = @ptrCast(&v.of.funcref) },
-        c.WASMTIME_EXTERNREF => .{ .externref = @ptrCast(v.of.externref) },
+        c.WASMTIME_EXTERNREF => .{ .externref = @ptrCast(&v.of.externref) },
         c.WASMTIME_ANYREF => error.UnknownWasmtimeVal,
         else => error.UnknownWasmtimeVal,
     };
@@ -29,7 +29,7 @@ pub fn val(value: wasm.Value) c.wasmtime_val {
             .f64 => |v| .{ .f64 = v },
             .v128 => |v| .{ .v128 = v },
             .funcref => |v| .{ .funcref = @as(*const c.wasmtime_func_t, @alignCast(@ptrCast(v))).* },
-            .externref => |v| .{ .externref = @constCast(@ptrCast(v)) },
+            .externref => |v| .{ .externref = @as(*const c.wasmtime_externref_t, @alignCast(@ptrCast(v))).* },
         },
     };
 }

@@ -183,7 +183,8 @@ pub const WasiConfig = struct {
                 arg_c.* = arg_z.*.ptr;
             }
 
-            c.wasi_config_set_argv(wasi_config, @intCast(argv_c.len), argv_c.ptr);
+            if (!c.wasi_config_set_argv(wasi_config, @intCast(argv_c.len), argv_c.ptr))
+                return error.InvalidUtf8;
         }
 
         if (self.env) |env_config| switch (env_config) {
@@ -215,7 +216,8 @@ pub const WasiConfig = struct {
                     value_c.* = value_z.*.ptr;
                 }
 
-                c.wasi_config_set_env(wasi_config, @intCast(keys_c.len), keys_c.ptr, values_c.ptr);
+                if (!c.wasi_config_set_env(wasi_config, @intCast(keys_c.len), keys_c.ptr, values_c.ptr))
+                    return error.InvalidUtf8;
             },
         };
 
@@ -260,7 +262,14 @@ pub const WasiConfig = struct {
             var iter = self.preopens.iterator();
             while (iter.next()) |entry| {
                 try std.fs.cwd().makePath(entry.key_ptr.*);
-                if (!c.wasi_config_preopen_dir(wasi_config, entry.key_ptr.*, entry.value_ptr.*)) return error.WasiFileNotFound;
+                if (!c.wasi_config_preopen_dir(
+                    wasi_config,
+                    entry.key_ptr.*,
+                    entry.value_ptr.*,
+                    // XXX make the permissions configurable
+                    c.WASMTIME_WASI_DIR_PERMS_WRITE | c.WASMTIME_WASI_DIR_PERMS_WRITE,
+                    c.WASMTIME_WASI_FILE_PERMS_READ | c.WASMTIME_WASI_FILE_PERMS_WRITE,
+                )) return error.WasiFileNotFound;
             }
         }
 
@@ -661,10 +670,10 @@ pub const Allocator = struct {
             wasmtime.val(.{ .i32 = std.math.cast(i32, len) orelse return null }),
             wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is ptr_align valid inside WASM runtime?
         };
-        defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
+        defer for (&inputs) |*input| c.wasmtime_val_unroot(self.memory.wasm_context, input);
 
         var output: c.wasmtime_val = undefined;
-        defer c.wasmtime_val_delete(self.memory.wasm_context, &output);
+        defer c.wasmtime_val_unroot(self.memory.wasm_context, &output);
 
         {
             var trap: ?*c.wasm_trap_t = null;
@@ -687,10 +696,10 @@ pub const Allocator = struct {
             wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
             wasmtime.val(.{ .i32 = @intCast(new_len) }),
         };
-        defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
+        defer for (&inputs) |*input| c.wasmtime_val_unroot(self.memory.wasm_context, input);
 
         var output: c.wasmtime_val = undefined;
-        defer c.wasmtime_val_delete(self.memory.wasm_context, &output);
+        defer c.wasmtime_val_unroot(self.memory.wasm_context, &output);
 
         {
             var trap: ?*c.wasm_trap_t = null;
@@ -713,10 +722,10 @@ pub const Allocator = struct {
             wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
             wasmtime.val(.{ .i32 = @intCast(new_len) }),
         };
-        defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
+        defer for (&inputs) |*input| c.wasmtime_val_unroot(self.memory.wasm_context, input);
 
         var output: c.wasmtime_val = undefined;
-        defer c.wasmtime_val_delete(self.memory.wasm_context, &output);
+        defer c.wasmtime_val_unroot(self.memory.wasm_context, &output);
 
         {
             var trap: ?*c.wasm_trap_t = null;
@@ -738,7 +747,7 @@ pub const Allocator = struct {
             wasmtime.val(.{ .i32 = @intCast(memory.len) }),
             wasmtime.val(.{ .i32 = @intFromEnum(alignment) }), // XXX is alignment valid inside WASM runtime?
         };
-        defer for (&inputs) |*input| c.wasmtime_val_delete(self.memory.wasm_context, input);
+        defer for (&inputs) |*input| c.wasmtime_val_unroot(self.memory.wasm_context, input);
 
         {
             var trap: ?*c.wasm_trap_t = null;
@@ -820,13 +829,13 @@ pub fn call(self: @This(), func_name: [:0]const u8, inputs: []const wasm.Value, 
     const c_inputs = try self.allocator.alloc(c.wasmtime_val, inputs.len);
     for (c_inputs, inputs) |*c_input, input| c_input.* = wasmtime.val(input);
     defer {
-        for (c_inputs) |*c_input| c.wasmtime_val_delete(self.wasm_context, c_input);
+        for (c_inputs) |*c_input| c.wasmtime_val_unroot(self.wasm_context, c_input);
         self.allocator.free(c_inputs);
     }
 
     const c_outputs = try self.allocator.alloc(c.wasmtime_val, outputs.len);
     defer {
-        for (c_outputs) |*c_output| c.wasmtime_val_delete(self.wasm_context, c_output);
+        for (c_outputs) |*c_output| c.wasmtime_val_unroot(self.wasm_context, c_output);
         self.allocator.free(c_outputs);
     }
 
